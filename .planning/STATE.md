@@ -5,32 +5,33 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** Users can only access views and UDFs they've been explicitly granted access to, with deny-by-default policy and admin bypass -- closing the open-access gap in Dremio OSS.
-**Current focus:** Phase 1: Design and Proto Schema -- COMPLETE
+**Current focus:** Phase 2: Persistence Layer
 
 ## Current Position
 
-Phase: 1 of 6 (Design and Proto Schema) -- COMPLETE
-Plan: 2 of 2 in current phase -- COMPLETE
-Status: Phase 1 fully complete -- ready for Phase 2
-Last activity: 2026-02-17 -- Executed Plan 01-02 (KV store scaffold)
+Phase: 2 of 6 (Persistence Layer)
+Plan: 1 of 2 in current phase
+Status: Plan 02-01 complete, ready for 02-02 (unit tests)
+Last activity: 2026-02-17 -- Completed 02-01 CRUD implementation for RoleStore, GrantStore, MembershipStore
 
-Progress: [██░░░░░░░░] 17%
+Progress: [███░░░░░░░] 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 10 min
-- Total execution time: 0.33 hours
+- Total plans completed: 3
+- Average duration: 9 min
+- Total execution time: 0.45 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-design-and-proto-schema | 2 | 20 min | 10 min |
+| 02-persistence-layer | 1 | 8 min | 8 min |
 
 **Recent Trend:**
-- Last 5 plans: 8 min, 12 min
+- Last 5 plans: 8 min, 12 min, 8 min
 - Trend: on track
 
 *Updated after each plan completion*
@@ -63,6 +64,11 @@ Recent decisions affecting current work:
 - [01-02]: Non-legacy KVStoreCreationFunction (not LegacyKVStoreCreationFunction) used -- follows modern datastore API pattern
 - [01-02]: Provider<KVStoreProvider> + Suppliers.memoize() pattern for lazy store initialization (from ScriptStoreImpl)
 - [01-02]: Store name constants via RbacConfig references -- single source of truth for store names
+- [02-01]: RbacEntityNotFoundException is checked (extends Exception) -- callers must handle delete/revoke/remove errors explicitly
+- [02-01]: RbacEntityAlreadyExistsException is unchecked (extends RuntimeException) -- wraps ConcurrentModificationException to isolate callers from datastore internals
+- [02-01]: get() returns nullable proto (not Optional) -- locked Phase 1 decision maintained
+- [02-01]: deleteByRole() is package-private -- cascade contract is internal to the rbac package, not a public API
+- [02-01]: Keys collected to List before delete in deleteByRole() -- KVStore.find() returns a one-shot cursor; modifying store while iterating is undefined behavior
 
 ### Pending Todos
 
@@ -77,5 +83,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed Phase 1, Plan 01-02 (KV store package scaffold -- com.dremio.exec.rbac)
-Resume file: .planning/phases/01-design-and-proto-schema/01-02-SUMMARY.md
+Stopped at: Completed 02-01-PLAN.md (RBAC store CRUD implementation)
+Resume file: .planning/phases/02-persistence-layer/02-01-SUMMARY.md
