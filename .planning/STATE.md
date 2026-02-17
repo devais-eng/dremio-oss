@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-17)
 
 ## Current Position
 
-Phase: 3 of 6 (Service Layer)
-Plan: 1 of 2 in current phase
-Status: Plan 03-01 complete, ready for Plan 03-02 (unit tests)
-Last activity: 2026-02-17 -- Completed 03-01 RbacService implementation
+Phase: 3 of 6 (Service Layer) -- COMPLETE
+Plan: 2 of 2 in current phase (all plans complete)
+Status: Phase 3 complete. Ready for Phase 4 (DI Wiring).
+Last activity: 2026-02-17 -- Completed 03-02 RbacService unit tests
 
-Progress: [████░░░░░░] 42%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
+- Total plans completed: 6
 - Average duration: 6 min
-- Total execution time: 0.52 hours
+- Total execution time: 0.57 hours
 
 **By Phase:**
 
@@ -29,10 +29,10 @@ Progress: [████░░░░░░] 42%
 |-------|-------|-------|----------|
 | 01-design-and-proto-schema | 2 | 20 min | 10 min |
 | 02-persistence-layer | 2 | 10 min | 5 min |
-| 03-service-layer | 1 | 2 min | 2 min |
+| 03-service-layer | 2 | 4 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 2 min, 8 min, 12 min, 8 min, 2 min
+- Last 5 plans: 8 min, 12 min, 8 min, 2 min, 2 min
 - Trend: accelerating
 
 *Updated after each plan completion*
@@ -87,6 +87,8 @@ Recent decisions affecting current work:
 - [03-01]: assignBootstrapAdmin() uses "SYSTEM" as grantedBy to distinguish bootstrap from user-initiated membership
 - [03-01]: getRoleInfo() returns ADMIN/PUBLIC with role_type=SYSTEM, user-created with role_type=USER
 - [03-01]: getMembershipInfo() returns only explicit memberships -- PUBLIC implicit membership excluded per locked decision
+- [03-02]: Added revokePrivilege test beyond plan's 24 enumerated tests -- verification requires every public method to be tested
+- [03-02]: Iterable results from AccessControlListingManager converted to List via StreamSupport for assertion with AssertJ
 
 ### Pending Todos
 
@@ -101,5 +103,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 03-01-PLAN.md (RbacService implementation). Ready for 03-02 (unit tests).
-Resume file: .planning/phases/03-service-layer/03-01-SUMMARY.md
+Stopped at: Completed 03-02-PLAN.md (RbacService unit tests). Phase 3 complete. Ready for Phase 4 (DI Wiring).
+Resume file: .planning/phases/03-service-layer/03-02-SUMMARY.md
