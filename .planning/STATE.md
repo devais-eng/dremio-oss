@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-17)
 ## Current Position
 
 Phase: 2 of 6 (Persistence Layer)
-Plan: 1 of 2 in current phase
-Status: Plan 02-01 complete, ready for 02-02 (unit tests)
-Last activity: 2026-02-17 -- Completed 02-01 CRUD implementation for RoleStore, GrantStore, MembershipStore
+Plan: 2 of 2 in current phase (phase complete)
+Status: Phase 02 complete -- all plans done; ready for Phase 03 (Service Layer)
+Last activity: 2026-02-17 -- Completed 02-02 JUnit 4 unit tests for RoleStore, GrantStore, MembershipStore
 
-Progress: [███░░░░░░░] 25%
+Progress: [████░░░░░░] 33%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
-- Average duration: 9 min
-- Total execution time: 0.45 hours
+- Total plans completed: 4
+- Average duration: 7 min
+- Total execution time: 0.48 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-design-and-proto-schema | 2 | 20 min | 10 min |
-| 02-persistence-layer | 1 | 8 min | 8 min |
+| 02-persistence-layer | 2 | 10 min | 5 min |
 
 **Recent Trend:**
-- Last 5 plans: 8 min, 12 min, 8 min
+- Last 5 plans: 2 min, 8 min, 12 min, 8 min
 - Trend: on track
 
 *Updated after each plan completion*
@@ -69,6 +69,9 @@ Recent decisions affecting current work:
 - [02-01]: get() returns nullable proto (not Optional) -- locked Phase 1 decision maintained
 - [02-01]: deleteByRole() is package-private -- cascade contract is internal to the rbac package, not a public API
 - [02-01]: Keys collected to List before delete in deleteByRole() -- KVStore.find() returns a one-shot cursor; modifying store while iterating is undefined behavior
+- [02-02]: Tests use LocalKVStoreProvider (not custom HashMap mocks) -- exercises real KVStore serialization path including proto encoding/decoding
+- [02-02]: Single LocalKVStoreProvider shared across all three store instances in cascade delete test -- correct because each store uses a different KV store name within the same provider
+- [02-02]: testListByRole_prefixSafety validates that "dev" prefix (with pipe: "dev|") does not match "devops|..." keys -- critical boundary case for the KEY_SEP design decision
 
 ### Pending Todos
 
@@ -83,5 +86,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 02-01-PLAN.md (RBAC store CRUD implementation)
-Resume file: .planning/phases/02-persistence-layer/02-01-SUMMARY.md
+Stopped at: Completed 02-02-PLAN.md (RBAC store unit tests -- Phase 2 complete)
+Resume file: .planning/phases/02-persistence-layer/02-02-SUMMARY.md
