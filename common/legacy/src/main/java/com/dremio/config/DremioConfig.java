@@ -148,6 +148,9 @@ public class DremioConfig extends NestedConfig {
   public static final String NESSIE_SERVICE_LAKEHOUSE_CATALOG_PORT =
       "services.lakehouse.catalog.nessie-port";
 
+  /** RBAC enforcement; requires coordinator restart to change. Defaults to false (OFF). */
+  public static final String RBAC_ENABLED = "services.rbac.enabled";
+
   public static final String AUTOUPGRADE = "services.coordinator.auto-upgrade";
 
   public static final String REGISTRATION_ADDRESS = "registration.publish-host";
