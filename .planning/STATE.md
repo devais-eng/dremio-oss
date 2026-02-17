@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** Users can only access views and UDFs they've been explicitly granted access to, with deny-by-default policy and admin bypass -- closing the open-access gap in Dremio OSS.
-**Current focus:** Phase 2: Persistence Layer
+**Current focus:** Phase 3: Service Layer
 
 ## Current Position
 
-Phase: 2 of 6 (Persistence Layer)
-Plan: 2 of 2 in current phase (phase complete)
-Status: Phase 02 complete -- all plans done; ready for Phase 03 (Service Layer)
-Last activity: 2026-02-17 -- Completed 02-02 JUnit 4 unit tests for RoleStore, GrantStore, MembershipStore
+Phase: 3 of 6 (Service Layer)
+Plan: 1 of 2 in current phase
+Status: Plan 03-01 complete, ready for Plan 03-02 (unit tests)
+Last activity: 2026-02-17 -- Completed 03-01 RbacService implementation
 
-Progress: [████░░░░░░] 33%
+Progress: [████░░░░░░] 42%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 7 min
-- Total execution time: 0.48 hours
+- Total plans completed: 5
+- Average duration: 6 min
+- Total execution time: 0.52 hours
 
 **By Phase:**
 
@@ -29,10 +29,11 @@ Progress: [████░░░░░░] 33%
 |-------|-------|-------|----------|
 | 01-design-and-proto-schema | 2 | 20 min | 10 min |
 | 02-persistence-layer | 2 | 10 min | 5 min |
+| 03-service-layer | 1 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 2 min, 8 min, 12 min, 8 min
-- Trend: on track
+- Last 5 plans: 2 min, 8 min, 12 min, 8 min, 2 min
+- Trend: accelerating
 
 *Updated after each plan completion*
 
@@ -72,6 +73,20 @@ Recent decisions affecting current work:
 - [02-02]: Tests use LocalKVStoreProvider (not custom HashMap mocks) -- exercises real KVStore serialization path including proto encoding/decoding
 - [02-02]: Single LocalKVStoreProvider shared across all three store instances in cascade delete test -- correct because each store uses a different KV store name within the same provider
 - [02-02]: testListByRole_prefixSafety validates that "dev" prefix (with pipe: "dev|") does not match "devops|..." keys -- critical boundary case for the KEY_SEP design decision
+- [Phase 3 Discussion]: hasPrivilege() returns boolean, OR logic across roles, ADMIN-first short-circuit
+- [Phase 3 Discussion]: No caching in v1 -- hit KV store every hasPrivilege() call
+- [Phase 3 Discussion]: PUBLIC is synthetic, grantable, immutable, checked alongside explicit roles
+- [Phase 3 Discussion]: Bootstrap assigns ADMIN during FirstLoginSetupService, one-time only
+- [Phase 3 Discussion]: Fail-fast = startup error if RBAC enabled with zero ADMIN members
+- [Phase 3 Discussion]: ADMIN is immutable (cannot be dropped)
+- [Phase 3 Discussion]: Built-in roles shown in sys.roles; PUBLIC memberships excluded from sys.membership
+- [Phase 3 Discussion]: Service returns simple POJOs for system table consumption (not raw protos)
+- [Phase 3 Discussion]: Listing endpoints ADMIN-only
+- [03-01]: RbacService constructor takes 3 stores with no DI annotations -- Phase 4 handles wiring
+- [03-01]: isAdminMember() is private (not package-private) -- only used internally by hasPrivilege()
+- [03-01]: assignBootstrapAdmin() uses "SYSTEM" as grantedBy to distinguish bootstrap from user-initiated membership
+- [03-01]: getRoleInfo() returns ADMIN/PUBLIC with role_type=SYSTEM, user-created with role_type=USER
+- [03-01]: getMembershipInfo() returns only explicit memberships -- PUBLIC implicit membership excluded per locked decision
 
 ### Pending Todos
 
@@ -86,5 +101,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 02-02-PLAN.md (RBAC store unit tests -- Phase 2 complete)
-Resume file: .planning/phases/02-persistence-layer/02-02-SUMMARY.md
+Stopped at: Completed 03-01-PLAN.md (RbacService implementation). Ready for 03-02 (unit tests).
+Resume file: .planning/phases/03-service-layer/03-01-SUMMARY.md
