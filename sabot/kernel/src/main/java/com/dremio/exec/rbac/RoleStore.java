@@ -15,14 +15,20 @@
  */
 package com.dremio.exec.rbac;
 
+import com.dremio.datastore.api.Document;
 import com.dremio.datastore.api.KVStore;
 import com.dremio.datastore.api.KVStoreCreationFunction;
 import com.dremio.datastore.api.KVStoreProvider;
 import com.dremio.datastore.api.StoreBuildingFactory;
 import com.dremio.datastore.format.Format;
 import com.dremio.exec.rbac.proto.RbacProto.Role;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.base.Suppliers;
+import java.util.List;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 import javax.inject.Inject;
 import javax.inject.Provider;
 
@@ -45,7 +51,59 @@ public class RoleStore {
     this.store = Suppliers.memoize(() -> kvStoreProvider.get().getStore(StoreCreator.class));
   }
 
-  // Phase 2 will add: get, put, delete, list methods here.
+  /**
+   * Returns the Role with the given roleId, or null if not found.
+   *
+   * @throws IllegalArgumentException if roleId is null or empty
+   */
+  public Role get(String roleId) {
+    Preconditions.checkArgument(!Strings.isNullOrEmpty(roleId), "roleId must not be null or empty");
+    Document<String, Role> doc = store.get().get(roleId);
+    return doc == null ? null : doc.getValue();
+  }
+
+  /**
+   * Creates a new role. Throws if a role with this roleId already exists.
+   *
+   * @throws IllegalArgumentException if roleId or role is null/empty
+   * @throws RbacEntityAlreadyExistsException if a role with this roleId already exists
+   */
+  public void create(String roleId, Role role) {
+    Preconditions.checkArgument(!Strings.isNullOrEmpty(roleId), "roleId must not be null or empty");
+    Preconditions.checkNotNull(role, "role must not be null");
+    try {
+      store.get().put(roleId, role, KVStore.PutOption.CREATE);
+    } catch (java.util.ConcurrentModificationException e) {
+      throw new RbacEntityAlreadyExistsException("Role already exists: " + roleId, e);
+    }
+  }
+
+  /**
+   * Deletes the role with the given roleId. Cascades: removes all related grants and memberships.
+   *
+   * @throws IllegalArgumentException if roleId is null or empty
+   * @throws RbacEntityNotFoundException if no role with this roleId exists
+   */
+  public void delete(String roleId, GrantStore grantStore, MembershipStore membershipStore)
+      throws RbacEntityNotFoundException {
+    Preconditions.checkArgument(!Strings.isNullOrEmpty(roleId), "roleId must not be null or empty");
+    if (store.get().get(roleId) == null) {
+      throw new RbacEntityNotFoundException("Role not found: " + roleId);
+    }
+    // Cascade: remove all grants and memberships for this role before deleting the role
+    grantStore.deleteByRole(roleId);
+    membershipStore.deleteByRole(roleId);
+    store.get().delete(roleId);
+  }
+
+  /**
+   * Returns all roles in the store. Intended for system table queries.
+   */
+  public List<Role> listAll() {
+    return StreamSupport.stream(store.get().find().spliterator(), false)
+        .map(Document::getValue)
+        .collect(Collectors.toList());
+  }
 
   /**
    * KV store creator. The class name {@code StoreCreator} is the permanent store
