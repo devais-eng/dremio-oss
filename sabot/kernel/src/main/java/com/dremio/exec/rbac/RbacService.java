@@ -148,7 +148,7 @@ public class RbacService implements AccessControlListingManager {
   /**
    * Checks whether the given user is a member of the ADMIN role.
    */
-  private boolean isAdminMember(String userName) {
+  public boolean isAdminMember(String userName) {
     String key = RbacConfig.membershipKey(userName, ADMIN_ROLE_ID);
     return membershipStore.get(key) != null;
   }
