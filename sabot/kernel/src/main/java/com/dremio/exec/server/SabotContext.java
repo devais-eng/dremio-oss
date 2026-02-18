@@ -39,6 +39,7 @@ import com.dremio.exec.planner.PhysicalPlanReader;
 import com.dremio.exec.planner.RulesFactory;
 import com.dremio.exec.planner.cost.RelMetadataQuerySupplier;
 import com.dremio.exec.planner.observer.QueryObserverFactory;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.proto.CoordinationProtos.NodeEndpoint;
 import com.dremio.exec.store.CatalogService;
 import com.dremio.exec.store.dfs.FileSystemWrapper;
@@ -143,6 +144,7 @@ public class SabotContext implements AutoCloseable, SabotQueryContext, CatalogSa
   private final Provider<SecretsCreator> secretsCreator;
   private final Provider<ForemenWorkManager> foremenWorkManagerProvider;
   private final Provider<MetadataIOPool> metadataIOPoolProvider;
+  private final Provider<RbacService> rbacServiceProvider;
 
   private final NodeDebugContextProvider nodeDebugContext;
 
@@ -210,7 +212,8 @@ public class SabotContext implements AutoCloseable, SabotQueryContext, CatalogSa
       Provider<SourceVerifier> sourceVerifierProvider,
       Provider<SecretsCreator> secretsCreatorProvider,
       Provider<ForemenWorkManager> foremenWorkManagerProvider,
-      Provider<MetadataIOPool> metadataIOPoolProvider) {
+      Provider<MetadataIOPool> metadataIOPoolProvider,
+      Provider<RbacService> rbacServiceProvider) {
     this.dremioConfig = dremioConfig;
     this.config = config;
     this.roles = ImmutableSet.copyOf(roles);
@@ -224,6 +227,7 @@ public class SabotContext implements AutoCloseable, SabotQueryContext, CatalogSa
     this.accelerationListManager = accelerationListManager;
     this.foremenWorkManagerProvider = foremenWorkManagerProvider;
     this.metadataIOPoolProvider = metadataIOPoolProvider;
+    this.rbacServiceProvider = rbacServiceProvider;
     this.planReader = physicalPlanReader;
     this.optionManager = optionManager;
     this.functionRegistry = functionImplementationRegistry;
@@ -310,6 +314,11 @@ public class SabotContext implements AutoCloseable, SabotQueryContext, CatalogSa
   @Override
   public MetadataIOPool getMetadataIOPool() {
     return metadataIOPoolProvider.get();
+  }
+
+  @Override
+  public RbacService getRbacService() {
+    return rbacServiceProvider != null ? rbacServiceProvider.get() : null;
   }
 
   public Provider<CatalogService> getCatalogServiceProvider() {
@@ -552,7 +561,7 @@ public class SabotContext implements AutoCloseable, SabotQueryContext, CatalogSa
 
   @Override
   public AccessControlListingManager getAccessControlListingManager() {
-    return null;
+    return rbacServiceProvider != null ? rbacServiceProvider.get() : null;
   }
 
   @Override

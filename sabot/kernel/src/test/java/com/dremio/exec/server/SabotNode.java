@@ -821,7 +821,8 @@ public class SabotNode implements AutoCloseable {
           sourceVerifierProvider,
           secretsCreatorProvider,
           foremenWorkManagerProvider,
-          metadataIOPoolProvider);
+          metadataIOPoolProvider,
+          Providers.of(null));
     }
 
     @Singleton

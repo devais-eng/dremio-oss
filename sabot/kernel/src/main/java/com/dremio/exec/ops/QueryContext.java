@@ -70,6 +70,7 @@ import com.dremio.exec.store.PartitionExplorer;
 import com.dremio.exec.store.PartitionExplorerImpl;
 import com.dremio.exec.store.SchemaConfig;
 import com.dremio.exec.store.dfs.FilterableScan;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.store.sys.accel.AccelerationManager;
 import com.dremio.exec.store.sys.statistics.StatisticsAdministrationService;
 import com.dremio.exec.store.sys.statistics.StatisticsService;
@@ -355,6 +356,10 @@ public class QueryContext
 
   public AccelerationManager getAccelerationManager() {
     return sabotQueryContext.getAccelerationManager();
+  }
+
+  public RbacService getRbacService() {
+    return sabotQueryContext.getRbacService();
   }
 
   public ReflectionRoutingManager getReflectionRoutingManager() {

@@ -26,6 +26,7 @@ import com.dremio.exec.planner.PhysicalPlanReader;
 import com.dremio.exec.planner.RulesFactory;
 import com.dremio.exec.planner.cost.RelMetadataQuerySupplier;
 import com.dremio.exec.proto.CoordinationProtos;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.store.CatalogService;
 import com.dremio.exec.store.sys.accel.AccelerationManager;
 import com.dremio.exec.store.sys.statistics.StatisticsAdministrationService;
@@ -103,4 +104,8 @@ public interface SabotQueryContext {
   QueryContextCreator getQueryContextCreator();
 
   PhysicalPlanReader getPlanReader();
+
+  default RbacService getRbacService() {
+    return null;
+  }
 }
