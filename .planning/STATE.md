@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-17)
 ## Current Position
 
 Phase: 4 of 6 (Catalog Enforcement and DI Wiring)
-Plan: 1 of 3 in current phase
-Status: Completed 04-01 (DI wiring + validatePrivilege enforcement)
-Last activity: 2026-02-18 -- Completed 04-01: RbacService DI wiring and validatePrivilege() enforcement
+Plan: 2 of 3 in current phase
+Status: Completed 04-02 (getTable/getFunctions RBAC enforcement + CREATE_VIEW fix)
+Last activity: 2026-02-18 -- Completed 04-02: Catalog enforcement hooks in resolution paths
 
-Progress: [██████░░░░] 58%
+Progress: [██████░░░░] 62%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
-- Average duration: 6 min
-- Total execution time: 0.69 hours
+- Total plans completed: 8
+- Average duration: 5 min
+- Total execution time: 0.72 hours
 
 **By Phase:**
 
@@ -30,11 +30,11 @@ Progress: [██████░░░░] 58%
 | 01-design-and-proto-schema | 2 | 20 min | 10 min |
 | 02-persistence-layer | 2 | 10 min | 5 min |
 | 03-service-layer | 2 | 4 min | 2 min |
-| 04-catalog-enforcement-and-di-wiring | 1 | 7 min | 7 min |
+| 04-catalog-enforcement-and-di-wiring | 2 | 9 min | 4.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 12 min, 8 min, 2 min, 2 min, 7 min
-- Trend: stable
+- Last 5 plans: 8 min, 2 min, 2 min, 7 min, 2 min
+- Trend: stable-fast
 
 *Updated after each plan completion*
 
@@ -95,6 +95,9 @@ Recent decisions affecting current work:
 - [04-01]: DremioConfig null check added as first guard in validatePrivilege() for test contexts
 - [04-01]: resolveRbacObjectType maps by privilege: EXECUTE -> FUNCTION, all others -> VDS
 - [04-01]: Test call sites pass () -> null for RbacService provider -- RBAC disabled by default in tests
+- [04-02]: isRbacDeniedForVds checks instanceof ViewTable to skip PDS -- physical datasets are never RBAC-gated
+- [04-02]: getFunctions RBAC check at entry point (before version context resolution) for early rejection
+- [04-02]: RBAC denial returns null/empty (not exception) preserving "not found" information hiding semantics
 
 ### Pending Todos
 
@@ -109,5 +112,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Completed 04-01-PLAN.md. Ready for 04-02.
-Resume file: .planning/phases/04-catalog-enforcement-and-di-wiring/04-01-SUMMARY.md
+Stopped at: Completed 04-02-PLAN.md. Ready for 04-03.
+Resume file: .planning/phases/04-catalog-enforcement-and-di-wiring/04-02-SUMMARY.md
