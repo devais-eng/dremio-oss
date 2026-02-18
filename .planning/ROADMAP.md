@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Design and Proto Schema** - Lock namespace, key formats, proto3 messages, package structure, and feature flag definition
 - [x] **Phase 2: Persistence Layer** - Three KV store creators for roles, grants, and memberships with full CRUD and persistence across restarts
-- [ ] **Phase 3: Service Layer** - RbacService with hasPrivilege(), ADMIN/PUBLIC built-in roles, bootstrap ADMIN assignment, and AccessControlListingManager
+- [x] **Phase 3: Service Layer** - RbacService with hasPrivilege(), ADMIN/PUBLIC built-in roles, bootstrap ADMIN assignment, and AccessControlListingManager
 - [ ] **Phase 4: Catalog Enforcement and DI Wiring** - Wire RbacService into CatalogImpl.validatePrivilege(), enforce SELECT/EXECUTE/CREATE_VIEW checks, system-user bypass, feature flag gating
 - [ ] **Phase 5: DDL Handlers and System Tables** - Five handler classes for SQL DDL, live sys.roles/sys.privileges/sys.membership queries
 - [ ] **Phase 6: REST API and Access Path Hardening** - Nine REST endpoints for role and grant management
@@ -65,8 +65,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — RbacService implementation: privilege resolution (hasPrivilege with ADMIN bypass + PUBLIC implicit), role/membership/grant lifecycle with immutability guards, bootstrap ADMIN assignment, fail-fast validation, AccessControlListingManager proto-to-POJO listing
-- [ ] 03-02-PLAN.md — Comprehensive unit tests for RbacService covering all 5 success criteria using LocalKVStoreProvider (deny-by-default, ADMIN bypass, PUBLIC grants, bootstrap, listing manager)
+- [x] 03-01-PLAN.md — RbacService implementation: privilege resolution (hasPrivilege with ADMIN bypass + PUBLIC implicit), role/membership/grant lifecycle with immutability guards, bootstrap ADMIN assignment, fail-fast validation, AccessControlListingManager proto-to-POJO listing
+- [x] 03-02-PLAN.md — Comprehensive unit tests for RbacService covering all 5 success criteria using LocalKVStoreProvider (deny-by-default, ADMIN bypass, PUBLIC grants, bootstrap, listing manager)
 
 ### Phase 4: Catalog Enforcement and DI Wiring
 **Goal**: CatalogImpl.validatePrivilege() enforces real permission checks -- users without grants are denied access to VDS and UDFs, with system-user bypass and feature flag gating preserving existing behavior when disabled
@@ -80,12 +80,12 @@ Plans:
   5. The system user ($dremio$) bypasses all privilege checks -- metadata sync, reflections, and internal jobs are unaffected by RBAC
   6. With the RBAC feature flag set to OFF (default), the system behaves identically to pre-RBAC Dremio -- no enforcement, no errors
   7. CREATE OR REPLACE VIEW is denied when the user lacks CREATE_VIEW privilege on the target path
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
-- [ ] 04-03: TBD
+- [ ] 04-01-PLAN.md — DI wiring (DACDaemonModule registers RbacService, CatalogServiceImpl threads it to CatalogImpl) + validatePrivilege() 3-step enforcement chain (flag, system-user, hasPrivilege)
+- [ ] 04-02-PLAN.md — SELECT/EXECUTE enforcement hooks in getTable/getFunctions paths (return null/empty for denied VDS/UDF) + CreateOrUpdateViewHandler ALTER-to-CREATE_VIEW fix
+- [ ] 04-03-PLAN.md — Unit tests for all RBAC enforcement paths in TestCatalogImpl (flag OFF, system user bypass, deny-by-default, allowed access, EXECUTE mapping, CREATE_VIEW mapping, definer-rights)
 
 ### Phase 5: DDL Handlers and System Tables
 **Goal**: Users can manage roles, memberships, and grants entirely through SQL statements, and can inspect RBAC state via system table queries
@@ -133,7 +133,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 |-------|----------------|--------|-----------|
 | 1. Design and Proto Schema | 2/2 | Complete | 2026-02-17 |
 | 2. Persistence Layer | 2/2 | Complete | 2026-02-17 |
-| 3. Service Layer | 0/2 | Not started | - |
+| 3. Service Layer | 2/2 | Complete | 2026-02-17 |
 | 4. Catalog Enforcement and DI Wiring | 0/3 | Not started | - |
 | 5. DDL Handlers and System Tables | 0/3 | Not started | - |
 | 6. REST API and Access Path Hardening | 0/2 | Not started | - |
