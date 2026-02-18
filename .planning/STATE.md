@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** Users can only access views and UDFs they've been explicitly granted access to, with deny-by-default policy and admin bypass -- closing the open-access gap in Dremio OSS.
-**Current focus:** Phase 5 complete. All 3 plans done. Ready for Phase 6.
+**Current focus:** Phase 5 verified and complete. Phase 6 (REST API and Access Path Hardening) is next.
 
 ## Current Position
 
-Phase: 5 of 6 (DDL Handlers and System Tables) -- COMPLETE
-Plan: 3 of 3 in current phase (0 plans remaining)
-Status: Phase 5 complete. All DDL handlers implemented, wired, and tested.
-Last activity: 2026-02-18 -- Plan 05-03 complete (16 unit tests for DDL handlers)
+Phase: 6 of 6 (REST API and Access Path Hardening) -- NOT STARTED
+Plan: 0 of 2 in current phase (plans TBD)
+Status: Phase 5 verified and complete. Phase 6 ready for planning.
+Last activity: 2026-02-18 -- Phase 5 verified (7/7 must-haves, 19/19 requirements)
 
 Progress: [█████████░] 85%
 

@@ -7,22 +7,22 @@
 
 ### Role Management
 
-- [ ] **ROLE-01**: Administrator can create named roles via `CREATE ROLE <name>` SQL
-- [ ] **ROLE-02**: Administrator can drop roles via `DROP ROLE <name>` SQL
-- [ ] **ROLE-03**: Administrator can assign users to roles via `GRANT ROLE <role> TO USER <user>` SQL
-- [ ] **ROLE-04**: Administrator can remove users from roles via `REVOKE ROLE <role> FROM USER <user>` SQL
+- [x] **ROLE-01**: Administrator can create named roles via `CREATE ROLE <name>` SQL
+- [x] **ROLE-02**: Administrator can drop roles via `DROP ROLE <name>` SQL
+- [x] **ROLE-03**: Administrator can assign users to roles via `GRANT ROLE <role> TO USER <user>` SQL
+- [x] **ROLE-04**: Administrator can remove users from roles via `REVOKE ROLE <role> FROM USER <user>` SQL
 - [ ] **ROLE-05**: Built-in ADMIN role exists at system startup and bypasses all privilege checks
 - [ ] **ROLE-06**: Built-in PUBLIC role exists; all users implicitly belong to it without explicit membership
 - [ ] **ROLE-07**: Roles and memberships persist across coordinator restarts (RocksDB KV store)
 
 ### Privilege Grants
 
-- [ ] **PRIV-01**: Administrator can grant SELECT on a VDS (view) to a role via `GRANT SELECT ON VDS <path> TO ROLE <role>`
-- [ ] **PRIV-02**: Administrator can revoke SELECT on a VDS from a role via `REVOKE SELECT ON VDS <path> FROM ROLE <role>`
-- [ ] **PRIV-03**: Administrator can grant CREATE_VIEW on a VDS to a role (controls CREATE OR REPLACE VIEW)
-- [ ] **PRIV-04**: Administrator can revoke CREATE_VIEW on a VDS from a role
-- [ ] **PRIV-05**: Administrator can grant EXECUTE on a UDF to a role
-- [ ] **PRIV-06**: Administrator can revoke EXECUTE on a UDF from a role
+- [x] **PRIV-01**: Administrator can grant SELECT on a VDS (view) to a role via `GRANT SELECT ON VDS <path> TO ROLE <role>`
+- [x] **PRIV-02**: Administrator can revoke SELECT on a VDS from a role via `REVOKE SELECT ON VDS <path> FROM ROLE <role>`
+- [x] **PRIV-03**: Administrator can grant CREATE_VIEW on a VDS to a role (controls CREATE OR REPLACE VIEW)
+- [x] **PRIV-04**: Administrator can revoke CREATE_VIEW on a VDS from a role
+- [x] **PRIV-05**: Administrator can grant EXECUTE on a UDF to a role
+- [x] **PRIV-06**: Administrator can revoke EXECUTE on a UDF from a role
 - [ ] **PRIV-07**: Privilege grants persist across coordinator restarts (RocksDB KV store)
 
 ### Enforcement
@@ -44,18 +44,18 @@
 
 ### Observability
 
-- [ ] **OBSV-01**: `SELECT * FROM sys.roles` returns all defined roles (id, name, creator, created_at)
-- [ ] **OBSV-02**: `SELECT * FROM sys.privileges` returns all grants (role, object_type, object_path, privilege)
-- [ ] **OBSV-03**: `SELECT * FROM sys.membership` returns all role-user memberships
+- [x] **OBSV-01**: `SELECT * FROM sys.roles` returns all defined roles (id, name, creator, created_at)
+- [x] **OBSV-02**: `SELECT * FROM sys.privileges` returns all grants (role, object_type, object_path, privilege)
+- [x] **OBSV-03**: `SELECT * FROM sys.membership` returns all role-user memberships
 
 ### SQL DDL
 
-- [ ] **DDL-01**: `CREATE ROLE` SQL statement executes successfully (wired to handler)
-- [ ] **DDL-02**: `DROP ROLE` SQL statement executes successfully
-- [ ] **DDL-03**: `GRANT ROLE TO USER` SQL statement executes successfully
-- [ ] **DDL-04**: `REVOKE ROLE FROM USER` SQL statement executes successfully
-- [ ] **DDL-05**: `GRANT <privilege> ON <type> <path> TO ROLE <role>` SQL statement executes successfully
-- [ ] **DDL-06**: `REVOKE <privilege> ON <type> <path> FROM ROLE <role>` SQL statement executes successfully
+- [x] **DDL-01**: `CREATE ROLE` SQL statement executes successfully (wired to handler)
+- [x] **DDL-02**: `DROP ROLE` SQL statement executes successfully
+- [x] **DDL-03**: `GRANT ROLE TO USER` SQL statement executes successfully
+- [x] **DDL-04**: `REVOKE ROLE FROM USER` SQL statement executes successfully
+- [x] **DDL-05**: `GRANT <privilege> ON <type> <path> TO ROLE <role>` SQL statement executes successfully
+- [x] **DDL-06**: `REVOKE <privilege> ON <type> <path> FROM ROLE <role>` SQL statement executes successfully
 
 ### REST API
 
@@ -115,19 +115,19 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ROLE-01 | Phase 5 | Pending |
-| ROLE-02 | Phase 5 | Pending |
-| ROLE-03 | Phase 5 | Pending |
-| ROLE-04 | Phase 5 | Pending |
+| ROLE-01 | Phase 5 | Done |
+| ROLE-02 | Phase 5 | Done |
+| ROLE-03 | Phase 5 | Done |
+| ROLE-04 | Phase 5 | Done |
 | ROLE-05 | Phase 3 | Done |
 | ROLE-06 | Phase 3 | Done |
 | ROLE-07 | Phase 2 | Done |
-| PRIV-01 | Phase 5 | Pending |
-| PRIV-02 | Phase 5 | Pending |
-| PRIV-03 | Phase 5 | Pending |
-| PRIV-04 | Phase 5 | Pending |
-| PRIV-05 | Phase 5 | Pending |
-| PRIV-06 | Phase 5 | Pending |
+| PRIV-01 | Phase 5 | Done |
+| PRIV-02 | Phase 5 | Done |
+| PRIV-03 | Phase 5 | Done |
+| PRIV-04 | Phase 5 | Done |
+| PRIV-05 | Phase 5 | Done |
+| PRIV-06 | Phase 5 | Done |
 | PRIV-07 | Phase 2 | Done |
 | ENFC-01 | Phase 4 | Done |
 | ENFC-02 | Phase 4 | Done |
@@ -140,15 +140,15 @@
 | ENFC-09 | Phase 1 | Done |
 | BOOT-01 | Phase 3 | Done |
 | BOOT-02 | Phase 4 | Done |
-| OBSV-01 | Phase 5 | Pending |
-| OBSV-02 | Phase 5 | Pending |
-| OBSV-03 | Phase 5 | Pending |
-| DDL-01 | Phase 5 | Pending |
-| DDL-02 | Phase 5 | Pending |
-| DDL-03 | Phase 5 | Pending |
-| DDL-04 | Phase 5 | Pending |
-| DDL-05 | Phase 5 | Pending |
-| DDL-06 | Phase 5 | Pending |
+| OBSV-01 | Phase 5 | Done |
+| OBSV-02 | Phase 5 | Done |
+| OBSV-03 | Phase 5 | Done |
+| DDL-01 | Phase 5 | Done |
+| DDL-02 | Phase 5 | Done |
+| DDL-03 | Phase 5 | Done |
+| DDL-04 | Phase 5 | Done |
+| DDL-05 | Phase 5 | Done |
+| DDL-06 | Phase 5 | Done |
 | REST-01 | Phase 6 | Pending |
 | REST-02 | Phase 6 | Pending |
 | REST-03 | Phase 6 | Pending |

@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Persistence Layer** - Three KV store creators for roles, grants, and memberships with full CRUD and persistence across restarts
 - [x] **Phase 3: Service Layer** - RbacService with hasPrivilege(), ADMIN/PUBLIC built-in roles, bootstrap ADMIN assignment, and AccessControlListingManager
 - [x] **Phase 4: Catalog Enforcement and DI Wiring** - Wire RbacService into CatalogImpl.validatePrivilege(), enforce SELECT/EXECUTE/CREATE_VIEW checks, system-user bypass, feature flag gating
-- [ ] **Phase 5: DDL Handlers and System Tables** - Six handler classes for SQL DDL, SabotContext wiring for system tables, live sys.roles/sys.privileges/sys.membership queries
+- [x] **Phase 5: DDL Handlers and System Tables** - Six handler classes for SQL DDL, SabotContext wiring for system tables, live sys.roles/sys.privileges/sys.membership queries
 - [ ] **Phase 6: REST API and Access Path Hardening** - Nine REST endpoints for role and grant management
 
 ## Phase Details
@@ -102,9 +102,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — SabotContext/ContextService/QueryContext wiring for RbacService provider + isAdminMember() visibility change (enables system tables and handler access)
-- [ ] 05-02-PLAN.md — 6 DDL handler classes (RoleCreateHandler, RoleDropHandler, RoleGrantHandler, RoleRevokeHandler, CatalogGrantHandler, CatalogRevokeHandler) at exact FQCNs expected by SQL parsers
-- [ ] 05-03-PLAN.md — Unit tests for all 6 DDL handlers (success paths, admin-only enforcement, correct RbacService calls) + system table wiring verification
+- [x] 05-01-PLAN.md — SabotContext/ContextService/QueryContext wiring for RbacService provider + isAdminMember() visibility change (enables system tables and handler access)
+- [x] 05-02-PLAN.md — 6 DDL handler classes (RoleCreateHandler, RoleDropHandler, RoleGrantHandler, RoleRevokeHandler, CatalogGrantHandler, CatalogRevokeHandler) at exact FQCNs expected by SQL parsers
+- [x] 05-03-PLAN.md — Unit tests for all 6 DDL handlers (success paths, admin-only enforcement, correct RbacService calls) + system table wiring verification
 
 ### Phase 6: REST API and Access Path Hardening
 **Goal**: Roles, memberships, and grants are manageable via REST endpoints suitable for UI integration, and catalog browsing is filtered by the user's effective grants
@@ -135,5 +135,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 2. Persistence Layer | 2/2 | Complete | 2026-02-17 |
 | 3. Service Layer | 2/2 | Complete | 2026-02-17 |
 | 4. Catalog Enforcement and DI Wiring | 3/3 | Complete | 2026-02-18 |
-| 5. DDL Handlers and System Tables | 0/3 | Not started | - |
+| 5. DDL Handlers and System Tables | 3/3 | Complete | 2026-02-18 |
 | 6. REST API and Access Path Hardening | 0/2 | Not started | - |
