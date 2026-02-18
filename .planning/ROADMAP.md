@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Persistence Layer** - Three KV store creators for roles, grants, and memberships with full CRUD and persistence across restarts
 - [x] **Phase 3: Service Layer** - RbacService with hasPrivilege(), ADMIN/PUBLIC built-in roles, bootstrap ADMIN assignment, and AccessControlListingManager
 - [x] **Phase 4: Catalog Enforcement and DI Wiring** - Wire RbacService into CatalogImpl.validatePrivilege(), enforce SELECT/EXECUTE/CREATE_VIEW checks, system-user bypass, feature flag gating
-- [ ] **Phase 5: DDL Handlers and System Tables** - Five handler classes for SQL DDL, live sys.roles/sys.privileges/sys.membership queries
+- [ ] **Phase 5: DDL Handlers and System Tables** - Six handler classes for SQL DDL, SabotContext wiring for system tables, live sys.roles/sys.privileges/sys.membership queries
 - [ ] **Phase 6: REST API and Access Path Hardening** - Nine REST endpoints for role and grant management
 
 ## Phase Details
@@ -99,12 +99,12 @@ Plans:
   5. `DROP ROLE analyst` removes the role and all associated memberships and grants
   6. `GRANT EXECUTE ON FUNCTION myspace.myfunc TO ROLE analyst` executes successfully
   7. All six DDL statements (CREATE ROLE, DROP ROLE, GRANT ROLE, REVOKE ROLE, GRANT privilege, REVOKE privilege) no longer throw "Enterprise Edition only"
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
-- [ ] 05-03: TBD
+- [ ] 05-01-PLAN.md — SabotContext/ContextService/QueryContext wiring for RbacService provider + isAdminMember() visibility change (enables system tables and handler access)
+- [ ] 05-02-PLAN.md — 6 DDL handler classes (RoleCreateHandler, RoleDropHandler, RoleGrantHandler, RoleRevokeHandler, CatalogGrantHandler, CatalogRevokeHandler) at exact FQCNs expected by SQL parsers
+- [ ] 05-03-PLAN.md — Unit tests for all 6 DDL handlers (success paths, admin-only enforcement, correct RbacService calls) + system table wiring verification
 
 ### Phase 6: REST API and Access Path Hardening
 **Goal**: Roles, memberships, and grants are manageable via REST endpoints suitable for UI integration, and catalog browsing is filtered by the user's effective grants
