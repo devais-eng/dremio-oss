@@ -134,6 +134,7 @@ import com.dremio.service.namespace.PartitionChunkId;
 import com.dremio.service.namespace.PartitionChunkMetadata;
 import com.dremio.service.namespace.SourceState;
 import com.dremio.service.namespace.catalogstatusevents.CatalogStatusEvents;
+import com.dremio.service.users.SystemUser;
 import com.dremio.service.namespace.catalogstatusevents.events.DatasetDeletionCatalogStatusEvent;
 import com.dremio.service.namespace.catalogstatusevents.events.SourceDeletionCatalogStatusEvent;
 import com.dremio.service.namespace.catalogstatusevents.events.SourceUpdateCatalogStatusEvent;
@@ -2781,7 +2782,49 @@ public class CatalogImpl implements Catalog {
 
   @Override
   public void validatePrivilege(NamespaceKey key, SqlGrant.Privilege privilege) {
-    // For the default implementation, don't validate privilege.
+    // (1) Feature flag OFF -> return immediately (RBAC disabled)
+    if (dremioConfig == null || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return;
+    }
+
+    // (2) System user -> return immediately (bypass all checks)
+    if (SystemUser.isSystemUserName(userName)) {
+      return;
+    }
+
+    // (3) Null rbacService guard (defensive -- should not happen when flag is ON)
+    if (rbacService == null) {
+      return;
+    }
+
+    // Map privilege to RBAC strings
+    String rbacPrivilege = privilege.name(); // "SELECT", "EXECUTE", "CREATE_VIEW", "ALTER", etc.
+    String rbacObjectType = resolveRbacObjectType(key, privilege);
+    String objectPath = key.getSchemaPath();
+
+    if (!rbacService.hasPrivilege(userName, rbacPrivilege, rbacObjectType, objectPath)) {
+      logger.warn("RBAC: Access denied for user '{}'", userName);
+      throw UserException.validationError()
+          .message("Table '%s' not found", key)
+          .buildSilently();
+    }
+  }
+
+  /**
+   * Maps a namespace key and privilege to the RBAC object type string.
+   * Uses privilege as a hint: EXECUTE implies FUNCTION, CREATE_VIEW implies VDS,
+   * default is VDS for SELECT and other privileges.
+   */
+  private String resolveRbacObjectType(NamespaceKey key, SqlGrant.Privilege privilege) {
+    switch (privilege) {
+      case EXECUTE:
+        return "FUNCTION";
+      case CREATE_VIEW:
+      case SELECT:
+      case ALTER:
+      default:
+        return "VDS";
+    }
   }
 
   @Override
