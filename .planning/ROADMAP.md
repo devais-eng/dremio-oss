@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Service Layer** - RbacService with hasPrivilege(), ADMIN/PUBLIC built-in roles, bootstrap ADMIN assignment, and AccessControlListingManager
 - [x] **Phase 4: Catalog Enforcement and DI Wiring** - Wire RbacService into CatalogImpl.validatePrivilege(), enforce SELECT/EXECUTE/CREATE_VIEW checks, system-user bypass, feature flag gating
 - [x] **Phase 5: DDL Handlers and System Tables** - Six handler classes for SQL DDL, SabotContext wiring for system tables, live sys.roles/sys.privileges/sys.membership queries
-- [ ] **Phase 6: REST API and Access Path Hardening** - Nine REST endpoints for role and grant management
+- [ ] **Phase 6: REST API and Access Path Hardening** - Nine REST endpoints for role and grant management, catalog visibility filtering
 
 ## Phase Details
 
@@ -118,11 +118,12 @@ Plans:
   5. `GET /api/v3/rbac/grants?object=...` returns grants for an object; `POST` and `DELETE` grant/revoke privileges
   6. REST endpoints require ADMIN role -- non-admin users receive 403 Forbidden
   7. Users browsing the catalog via REST API only see views and UDFs they have grants on (catalog visibility filtering)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 06-01: TBD
-- [ ] 06-02: TBD
+- [ ] 06-01-PLAN.md — RbacResource REST resource (9 endpoints for roles, memberships, grants) + DTO classes + GrantStore/RbacService listing extensions
+- [ ] 06-02-PLAN.md — Catalog visibility filtering in CatalogServiceHelper (inject RbacService, filter VDS/FUNCTION by grants for non-admin users)
+- [ ] 06-03-PLAN.md — Unit tests for REST endpoints, GrantStore.listByObject, and catalog visibility filtering
 
 ## Progress
 
@@ -136,4 +137,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 3. Service Layer | 2/2 | Complete | 2026-02-17 |
 | 4. Catalog Enforcement and DI Wiring | 3/3 | Complete | 2026-02-18 |
 | 5. DDL Handlers and System Tables | 3/3 | Complete | 2026-02-18 |
-| 6. REST API and Access Path Hardening | 0/2 | Not started | - |
+| 6. REST API and Access Path Hardening | 0/3 | Not started | - |
