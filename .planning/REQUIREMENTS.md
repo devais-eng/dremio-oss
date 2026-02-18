@@ -59,19 +59,19 @@
 
 ### REST API
 
-- [ ] **REST-01**: REST endpoint to list all roles
-- [ ] **REST-02**: REST endpoint to create a role
-- [ ] **REST-03**: REST endpoint to delete a role
-- [ ] **REST-04**: REST endpoint to list members of a role
-- [ ] **REST-05**: REST endpoint to add a user to a role
-- [ ] **REST-06**: REST endpoint to remove a user from a role
-- [ ] **REST-07**: REST endpoint to list grants on an object
-- [ ] **REST-08**: REST endpoint to grant a privilege
-- [ ] **REST-09**: REST endpoint to revoke a privilege
+- [x] **REST-01**: REST endpoint to list all roles
+- [x] **REST-02**: REST endpoint to create a role
+- [x] **REST-03**: REST endpoint to delete a role
+- [x] **REST-04**: REST endpoint to list members of a role
+- [x] **REST-05**: REST endpoint to add a user to a role
+- [x] **REST-06**: REST endpoint to remove a user from a role
+- [x] **REST-07**: REST endpoint to list grants on an object
+- [x] **REST-08**: REST endpoint to grant a privilege
+- [x] **REST-09**: REST endpoint to revoke a privilege
 
 ### Catalog Visibility
 
-- [ ] **META-03**: REST catalog API filtered by caller's effective grants — users only see views/UDFs they have grants on
+- [x] **META-03**: REST catalog API filtered by caller's effective grants — users only see views/UDFs they have grants on
 
 ## v2 Requirements
 
@@ -149,16 +149,16 @@
 | DDL-04 | Phase 5 | Done |
 | DDL-05 | Phase 5 | Done |
 | DDL-06 | Phase 5 | Done |
-| REST-01 | Phase 6 | Pending |
-| REST-02 | Phase 6 | Pending |
-| REST-03 | Phase 6 | Pending |
-| REST-04 | Phase 6 | Pending |
-| REST-05 | Phase 6 | Pending |
-| REST-06 | Phase 6 | Pending |
-| REST-07 | Phase 6 | Pending |
-| REST-08 | Phase 6 | Pending |
-| REST-09 | Phase 6 | Pending |
-| META-03 | Phase 6 | Pending |
+| REST-01 | Phase 6 | Done |
+| REST-02 | Phase 6 | Done |
+| REST-03 | Phase 6 | Done |
+| REST-04 | Phase 6 | Done |
+| REST-05 | Phase 6 | Done |
+| REST-06 | Phase 6 | Done |
+| REST-07 | Phase 6 | Done |
+| REST-08 | Phase 6 | Done |
+| REST-09 | Phase 6 | Done |
+| META-03 | Phase 6 | Done |
 
 **Coverage:**
 - v1 requirements: 44 total
