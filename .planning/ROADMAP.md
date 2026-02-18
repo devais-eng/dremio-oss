@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Design and Proto Schema** - Lock namespace, key formats, proto3 messages, package structure, and feature flag definition
 - [x] **Phase 2: Persistence Layer** - Three KV store creators for roles, grants, and memberships with full CRUD and persistence across restarts
 - [x] **Phase 3: Service Layer** - RbacService with hasPrivilege(), ADMIN/PUBLIC built-in roles, bootstrap ADMIN assignment, and AccessControlListingManager
-- [ ] **Phase 4: Catalog Enforcement and DI Wiring** - Wire RbacService into CatalogImpl.validatePrivilege(), enforce SELECT/EXECUTE/CREATE_VIEW checks, system-user bypass, feature flag gating
+- [x] **Phase 4: Catalog Enforcement and DI Wiring** - Wire RbacService into CatalogImpl.validatePrivilege(), enforce SELECT/EXECUTE/CREATE_VIEW checks, system-user bypass, feature flag gating
 - [ ] **Phase 5: DDL Handlers and System Tables** - Five handler classes for SQL DDL, live sys.roles/sys.privileges/sys.membership queries
 - [ ] **Phase 6: REST API and Access Path Hardening** - Nine REST endpoints for role and grant management
 
@@ -83,9 +83,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — DI wiring (DACDaemonModule registers RbacService, CatalogServiceImpl threads it to CatalogImpl) + validatePrivilege() 3-step enforcement chain (flag, system-user, hasPrivilege)
-- [ ] 04-02-PLAN.md — SELECT/EXECUTE enforcement hooks in getTable/getFunctions paths (return null/empty for denied VDS/UDF) + CreateOrUpdateViewHandler ALTER-to-CREATE_VIEW fix
-- [ ] 04-03-PLAN.md — Unit tests for all RBAC enforcement paths in TestCatalogImpl (flag OFF, system user bypass, deny-by-default, allowed access, EXECUTE mapping, CREATE_VIEW mapping, definer-rights)
+- [x] 04-01-PLAN.md — DI wiring (DACDaemonModule registers RbacService, CatalogServiceImpl threads it to CatalogImpl) + validatePrivilege() 3-step enforcement chain (flag, system-user, hasPrivilege)
+- [x] 04-02-PLAN.md — SELECT/EXECUTE enforcement hooks in getTable/getFunctions paths (return null/empty for denied VDS/UDF) + CreateOrUpdateViewHandler ALTER-to-CREATE_VIEW fix
+- [x] 04-03-PLAN.md — Unit tests for all RBAC enforcement paths in TestCatalogImpl (flag OFF, system user bypass, deny-by-default, allowed access, EXECUTE mapping, CREATE_VIEW mapping, definer-rights)
 
 ### Phase 5: DDL Handlers and System Tables
 **Goal**: Users can manage roles, memberships, and grants entirely through SQL statements, and can inspect RBAC state via system table queries
@@ -134,6 +134,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 1. Design and Proto Schema | 2/2 | Complete | 2026-02-17 |
 | 2. Persistence Layer | 2/2 | Complete | 2026-02-17 |
 | 3. Service Layer | 2/2 | Complete | 2026-02-17 |
-| 4. Catalog Enforcement and DI Wiring | 0/3 | Not started | - |
+| 4. Catalog Enforcement and DI Wiring | 3/3 | Complete | 2026-02-18 |
 | 5. DDL Handlers and System Tables | 0/3 | Not started | - |
 | 6. REST API and Access Path Hardening | 0/2 | Not started | - |
