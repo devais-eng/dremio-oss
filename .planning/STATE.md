@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** Users can only access views and UDFs they've been explicitly granted access to, with deny-by-default policy and admin bypass -- closing the open-access gap in Dremio OSS.
-**Current focus:** Phase 5 planned. Ready to execute: DDL Handlers and System Tables
+**Current focus:** Phase 5 executing. Plan 05-01 complete. Plans 05-02 and 05-03 ready for execution.
 
 ## Current Position
 
-Phase: 5 of 6 (DDL Handlers and System Tables) -- PLANNED
-Plan: 0 of 3 in current phase (3 plans ready for execution)
-Status: Plans 05-01, 05-02, 05-03 created and verified (PASSED)
-Last activity: 2026-02-18 -- Phase 5 planning complete (research + 3 plans + verification)
+Phase: 5 of 6 (DDL Handlers and System Tables) -- IN PROGRESS
+Plan: 1 of 3 in current phase (2 plans remaining)
+Status: Plan 05-01 complete. Plans 05-02, 05-03 ready.
+Last activity: 2026-02-18 -- Plan 05-01 complete (RbacService context wiring)
 
-Progress: [███████░░░] 69%
+Progress: [████████░░] 72%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9
+- Total plans completed: 10
 - Average duration: 5 min
-- Total execution time: 0.79 hours
+- Total execution time: 0.92 hours
 
 **By Phase:**
 
@@ -31,9 +31,10 @@ Progress: [███████░░░] 69%
 | 02-persistence-layer | 2 | 10 min | 5 min |
 | 03-service-layer | 2 | 4 min | 2 min |
 | 04-catalog-enforcement-and-di-wiring | 3 | 13 min | 4.3 min |
+| 05-ddl-handlers-and-system-tables | 1 (of 3) | 8 min | 8 min |
 
 **Recent Trend:**
-- Last 5 plans: 2 min, 2 min, 7 min, 2 min, 4 min
+- Last 5 plans: 2 min, 7 min, 2 min, 4 min, 8 min
 - Trend: stable-fast
 
 *Updated after each plan completion*
@@ -84,7 +85,7 @@ Recent decisions affecting current work:
 - [Phase 3 Discussion]: Service returns simple POJOs for system table consumption (not raw protos)
 - [Phase 3 Discussion]: Listing endpoints ADMIN-only
 - [03-01]: RbacService constructor takes 3 stores with no DI annotations -- Phase 4 handles wiring
-- [03-01]: isAdminMember() is private (not package-private) -- only used internally by hasPrivilege()
+- [03-01]: isAdminMember() was private -- changed to public in 05-01 for DDL handler access
 - [03-01]: assignBootstrapAdmin() uses "SYSTEM" as grantedBy to distinguish bootstrap from user-initiated membership
 - [03-01]: getRoleInfo() returns ADMIN/PUBLIC with role_type=SYSTEM, user-created with role_type=USER
 - [03-01]: getMembershipInfo() returns only explicit memberships -- PUBLIC implicit membership excluded per locked decision
@@ -101,6 +102,11 @@ Recent decisions affecting current work:
 - [04-03]: Tests use anyString() matcher for object path args because constructFullPath may quote identifiers with backticks
 - [04-03]: getTable VDS-denied test verifies through validatePrivilege path since DatasetManager is internal and not directly mockable
 - [04-03]: System user bypass tested via newCatalogImplForUser("$dremio$") helper with isolated SchemaConfig and AuthorizationContext
+- [05-01]: isAdminMember() changed from private to public -- needed by DDL handler admin checks (plan 05-02)
+- [05-01]: Provider<RbacService> added as LAST parameter to SabotContext and ContextService -- minimizes risk of miscounting 40+ constructor params
+- [05-01]: SabotQueryContext default getRbacService() returns null -- safe for non-DAC test contexts
+- [05-01]: SabotNode test harness uses Providers.of(null) -- RBAC disabled by default in unit tests
+- [05-01]: getAccessControlListingManager() delegates to rbacServiceProvider -- system tables sys.roles, sys.privileges, sys.membership now work
 
 ### Pending Todos
 
@@ -120,9 +126,10 @@ None yet.
 - [05-planning]: System tables need NO code changes — they already exist and delegate to AccessControlListingManager; wiring RbacService into SabotContext makes them work
 - [05-planning]: isAdminMember() changed from private to public in RbacService for handler admin checks
 - [05-planning]: 6 handler classes at exact FQCNs expected by SQL parsers via Class.forName() — no parser modifications needed
+- [05-01]: Provider threading pattern: add as last param at each layer (DACDaemonModule -> ContextService -> SabotContext) — consistent with AccelerationManager/MetadataIOPool patterns
 
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Phase 5 planning complete. 3 plans created and verified. Ready for execution.
-Resume file: .planning/phases/05-ddl-handlers-and-system-tables/05-RESEARCH.md
+Stopped at: Plan 05-01 complete. RbacService wired through context chain. Plans 05-02 (DDL handlers) and 05-03 (system tables verification) ready.
+Resume file: .planning/phases/05-ddl-handlers-and-system-tables/05-01-SUMMARY.md
