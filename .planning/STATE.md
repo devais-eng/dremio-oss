@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** Users can only access views and UDFs they've been explicitly granted access to, with deny-by-default policy and admin bypass -- closing the open-access gap in Dremio OSS.
-**Current focus:** Phase 5 executing. Plans 05-01 and 05-02 complete. Plan 05-03 ready for execution.
+**Current focus:** Phase 5 complete. All 3 plans done. Ready for Phase 6.
 
 ## Current Position
 
-Phase: 5 of 6 (DDL Handlers and System Tables) -- IN PROGRESS
-Plan: 2 of 3 in current phase (1 plan remaining)
-Status: Plan 05-02 complete. Plan 05-03 ready.
-Last activity: 2026-02-18 -- Plan 05-02 complete (6 DDL handler classes)
+Phase: 5 of 6 (DDL Handlers and System Tables) -- COMPLETE
+Plan: 3 of 3 in current phase (0 plans remaining)
+Status: Phase 5 complete. All DDL handlers implemented, wired, and tested.
+Last activity: 2026-02-18 -- Plan 05-03 complete (16 unit tests for DDL handlers)
 
-Progress: [█████████░] 78%
+Progress: [█████████░] 85%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
+- Total plans completed: 12
 - Average duration: 5 min
-- Total execution time: ~1.0 hours
+- Total execution time: ~1.1 hours
 
 **By Phase:**
 
@@ -31,10 +31,10 @@ Progress: [█████████░] 78%
 | 02-persistence-layer | 2 | 10 min | 5 min |
 | 03-service-layer | 2 | 4 min | 2 min |
 | 04-catalog-enforcement-and-di-wiring | 3 | 13 min | 4.3 min |
-| 05-ddl-handlers-and-system-tables | 2 (of 3) | 16 min | 8 min |
+| 05-ddl-handlers-and-system-tables | 3 | 19 min | 6.3 min |
 
 **Recent Trend:**
-- Last 5 plans: 7 min, 2 min, 4 min, 8 min, 8 min
+- Last 5 plans: 2 min, 4 min, 8 min, 8 min, 3 min
 - Trend: stable-fast
 
 *Updated after each plan completion*
@@ -132,9 +132,11 @@ None yet.
 - [05-01]: Provider threading pattern: add as last param at each layer (DACDaemonModule -> ContextService -> SabotContext) -- consistent with AccelerationManager/MetadataIOPool patterns
 - [05-02]: CatalogGrantHandler/CatalogRevokeHandler (not GrantHandler/RevokeHandler) -- grammar routes VDS/Function grants to SqlGrantOnCatalog, not SqlGrant
 - [05-02]: String.join('.', entity.names) for object path -- consistent with RbacConfig.grantKey() format
+- [05-03]: Tests use direct SqlNode construction (not OPERATOR.createCall()) -- simpler, matches existing handler test patterns
+- [05-03]: assertThatThrownBy (AssertJ) for exception testing -- more precise message verification than @Test(expected)
 
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Plan 05-02 complete. 6 DDL handler classes created. Plan 05-03 (system tables verification) ready.
-Resume file: .planning/phases/05-ddl-handlers-and-system-tables/05-02-SUMMARY.md
+Stopped at: Phase 5 complete. All 3 plans done (05-01 wiring, 05-02 handlers, 05-03 tests). Ready for Phase 6.
+Resume file: .planning/phases/05-ddl-handlers-and-system-tables/05-03-SUMMARY.md
