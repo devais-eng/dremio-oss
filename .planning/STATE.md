@@ -5,22 +5,22 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** Users can only access views and UDFs they've been explicitly granted access to, with deny-by-default policy and admin bypass -- closing the open-access gap in Dremio OSS.
-**Current focus:** Phase 5 verified and complete. Phase 6 (REST API and Access Path Hardening) is next.
+**Current focus:** Phase 6 in progress. Plan 06-02 (catalog visibility filtering) complete. Plan 06-03 (REST RBAC resource) is next.
 
 ## Current Position
 
-Phase: 6 of 6 (REST API and Access Path Hardening) -- NOT STARTED
-Plan: 0 of 2 in current phase (plans TBD)
-Status: Phase 5 verified and complete. Phase 6 ready for planning.
-Last activity: 2026-02-18 -- Phase 5 verified (7/7 must-haves, 19/19 requirements)
+Phase: 6 of 6 (REST API and Access Path Hardening) -- IN PROGRESS
+Plan: 2 of 3 in current phase
+Status: 06-02 complete (META-03 catalog visibility filtering). 06-03 (REST RBAC resource) pending.
+Last activity: 2026-02-18 -- 06-02 catalog visibility filtering (2 tasks, 3 files, 2 min)
 
-Progress: [█████████░] 85%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 12
-- Average duration: 5 min
+- Total plans completed: 13
+- Average duration: 4.9 min
 - Total execution time: ~1.1 hours
 
 **By Phase:**
@@ -32,9 +32,10 @@ Progress: [█████████░] 85%
 | 03-service-layer | 2 | 4 min | 2 min |
 | 04-catalog-enforcement-and-di-wiring | 3 | 13 min | 4.3 min |
 | 05-ddl-handlers-and-system-tables | 3 | 19 min | 6.3 min |
+| 06-rest-api-and-access-path-hardening | 1 (of 3) | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 2 min, 4 min, 8 min, 8 min, 3 min
+- Last 5 plans: 4 min, 8 min, 8 min, 3 min, 2 min
 - Trend: stable-fast
 
 *Updated after each plan completion*
@@ -135,8 +136,16 @@ None yet.
 - [05-03]: Tests use direct SqlNode construction (not OPERATOR.createCall()) -- simpler, matches existing handler test patterns
 - [05-03]: assertThatThrownBy (AssertJ) for exception testing -- more precise message verification than @Test(expected)
 
+### Phase 6 Decisions
+
+- [06-02]: RbacService and DremioConfig added as last two @Nullable constructor params in CatalogServiceHelper -- follows "last param" pattern from Phase 5
+- [06-02]: filterByVisibility() applied post-pagination-trim -- pages may be smaller than maxChildren when RBAC filters active; documented v1 limitation, acceptable for OSS scale
+- [06-02]: Separate isFunctionVisibleToUser(FunctionConfig) for getTopLevelCatalogItems() -- FunctionConfig is available directly without NameSpaceContainer wrapping
+- [06-02]: PDS always visible, only VIRTUAL_DATASET type is RBAC-gated -- locked v1 decision maintained
+- [06-02]: Test call sites pass null, null for new params -- disables RBAC filtering in test contexts (filterByVisibility short-circuits on null rbacService)
+
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Phase 5 complete. All 3 plans done (05-01 wiring, 05-02 handlers, 05-03 tests). Ready for Phase 6.
-Resume file: .planning/phases/05-ddl-handlers-and-system-tables/05-03-SUMMARY.md
+Stopped at: 06-02 complete (catalog visibility filtering). Ready for 06-03 (REST RBAC resource).
+Resume file: .planning/phases/06-rest-api-and-access-path-hardening/06-02-SUMMARY.md
