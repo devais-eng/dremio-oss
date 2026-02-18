@@ -286,12 +286,20 @@ public class CatalogImpl implements Catalog {
 
   @Override
   public DremioTable getTableNoResolve(NamespaceKey key) {
-    return datasetManager.getTable(key, options, false);
+    final DremioTable table = datasetManager.getTable(key, options, false);
+    if (table != null && isRbacDeniedForVds(table, key)) {
+      return null; // RBAC denied -- appear as "not found"
+    }
+    return table;
   }
 
   @Override
   public DremioTable getTableNoColumnCount(NamespaceKey key) {
-    return datasetManager.getTable(key, options, true);
+    final DremioTable table = datasetManager.getTable(key, options, true);
+    if (table != null && isRbacDeniedForVds(table, key)) {
+      return null; // RBAC denied -- appear as "not found"
+    }
+    return table;
   }
 
   @Override
@@ -301,11 +309,18 @@ public class CatalogImpl implements Catalog {
     if (resolvedKey != null) {
       final DremioTable table = getTableHelper(resolvedKey);
       if (table != null) {
+        if (isRbacDeniedForVds(table, resolvedKey)) {
+          return null; // RBAC denied -- appear as "not found"
+        }
         return table;
       }
     }
 
-    return getTableHelper(key);
+    final DremioTable table = getTableHelper(key);
+    if (table != null && isRbacDeniedForVds(table, key)) {
+      return null; // RBAC denied -- appear as "not found"
+    }
+    return table;
   }
 
   @Override
@@ -1338,6 +1353,12 @@ public class CatalogImpl implements Catalog {
   @Override
   public Collection<Function> getFunctions(CatalogEntityKey path, FunctionType functionType) {
     final NamespaceKey resolvedPath = resolveSingle(path.toNamespaceKey());
+
+    // RBAC: check EXECUTE privilege for UDFs
+    if (isRbacDeniedForFunction(resolvedPath != null ? resolvedPath : path.toNamespaceKey())) {
+      return ImmutableList.of(); // RBAC denied -- appear as "function not found"
+    }
+
     // Resolve version context for the source
     final VersionContext versionContext =
         getVersionContext(resolvedPath, path.getTableVersionContext());
@@ -2825,6 +2846,75 @@ public class CatalogImpl implements Catalog {
       default:
         return "VDS";
     }
+  }
+
+  /**
+   * Checks if RBAC denies the current user access to a VDS (virtual dataset / view).
+   * Returns true if access is denied, false if access is allowed.
+   * Only checks VDS -- PDS (physical datasets) are not subject to RBAC.
+   *
+   * @param table the resolved table -- must be non-null
+   * @param key the namespace key of the table
+   * @return true if RBAC denies access to this VDS
+   */
+  private boolean isRbacDeniedForVds(DremioTable table, NamespaceKey key) {
+    // Only enforce RBAC on views (VDS), not physical datasets
+    if (!(table instanceof ViewTable)) {
+      return false;
+    }
+
+    // Feature flag OFF -> allow
+    if (dremioConfig == null || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return false;
+    }
+
+    // System user -> allow
+    if (SystemUser.isSystemUserName(userName)) {
+      return false;
+    }
+
+    // No RbacService -> allow (defensive)
+    if (rbacService == null) {
+      return false;
+    }
+
+    if (!rbacService.hasPrivilege(userName, "SELECT", "VDS", key.getSchemaPath())) {
+      logger.warn("RBAC: Access denied for user '{}'", userName);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Checks if RBAC denies the current user EXECUTE access to a UDF.
+   * Returns true if access is denied, false if access is allowed.
+   *
+   * @param key the namespace key of the function
+   * @return true if RBAC denies EXECUTE on this function
+   */
+  private boolean isRbacDeniedForFunction(NamespaceKey key) {
+    // Feature flag OFF -> allow
+    if (dremioConfig == null || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return false;
+    }
+
+    // System user -> allow
+    if (SystemUser.isSystemUserName(userName)) {
+      return false;
+    }
+
+    // No RbacService -> allow (defensive)
+    if (rbacService == null) {
+      return false;
+    }
+
+    if (!rbacService.hasPrivilege(userName, "EXECUTE", "FUNCTION", key.getSchemaPath())) {
+      logger.warn("RBAC: Access denied for user '{}'", userName);
+      return true;
+    }
+
+    return false;
   }
 
   @Override
