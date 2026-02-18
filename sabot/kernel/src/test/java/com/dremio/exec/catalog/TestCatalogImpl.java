@@ -39,9 +39,11 @@ import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.dremio.catalog.exception.CatalogEntityAlreadyExistsException;
+import com.dremio.config.DremioConfig;
 import com.dremio.catalog.exception.CatalogEntityNotFoundException;
 import com.dremio.catalog.exception.CatalogException;
 import com.dremio.catalog.model.CatalogEntityId;
@@ -65,6 +67,8 @@ import com.dremio.datastore.SearchQueryUtils;
 import com.dremio.datastore.SearchTypes;
 import com.dremio.datastore.api.ImmutableFindByCondition;
 import com.dremio.exec.catalog.CatalogServiceImpl.SourceModifier;
+import com.dremio.exec.planner.sql.parser.SqlGrant;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.dotfile.View;
 import com.dremio.exec.physical.base.ViewOptions;
 import com.dremio.exec.planner.logical.ViewTable;
@@ -136,6 +140,8 @@ public class TestCatalogImpl {
   private final String userName = "gnarly";
   private final CatalogEntityOwnership catalogEntityOwnership = mock(CatalogEntityOwnership.class);
   private final UserOrRoleResolver userOrRoleResolver = mock(UserOrRoleResolver.class);
+  private final RbacService rbacService = mock(RbacService.class);
+  private final DremioConfig dremioConfig = mock(DremioConfig.class);
 
   @Before
   public void setup() throws Exception {
@@ -170,8 +176,44 @@ public class TestCatalogImpl {
         metadataIOPool,
         catalogEntityOwnership,
         userOrRoleResolver,
-        null,
-        null);
+        rbacService,
+        dremioConfig);
+  }
+
+  private CatalogImpl newCatalogImplForUser(String user) {
+    SchemaConfig schemaConfigForUser = mock(SchemaConfig.class);
+    when(schemaConfigForUser.getUserName()).thenReturn(user);
+    AuthorizationContext authContext = new AuthorizationContext(new CatalogUser(user), false);
+    when(schemaConfigForUser.getAuthContext()).thenReturn(authContext);
+
+    MetadataRequestOptions optionsForUser = mock(MetadataRequestOptions.class);
+    when(optionsForUser.getSchemaConfig()).thenReturn(schemaConfigForUser);
+
+    CatalogIdentityResolver identityForUser = mock(CatalogIdentityResolver.class);
+    NamespaceIdentity nsIdentity = mock(NamespaceIdentity.class);
+    when(identityForUser.toNamespaceIdentity(authContext.getSubject())).thenReturn(nsIdentity);
+    NamespaceService nsService = mock(NamespaceService.class);
+    when(namespaceFactory.get(nsIdentity)).thenReturn(nsService);
+
+    return new CatalogImpl(
+        optionsForUser,
+        pluginRetriever,
+        sourceModifier,
+        optionManager,
+        systemNamespaceService,
+        namespaceFactory,
+        orphanage,
+        datasetListingService,
+        viewCreatorFactory,
+        identityForUser,
+        mock(VersionContextResolverImpl.class),
+        catalogStatusEvents,
+        new VersionedDatasetAdapterFactory(),
+        metadataIOPool,
+        catalogEntityOwnership,
+        userOrRoleResolver,
+        rbacService,
+        dremioConfig);
   }
 
   @Test
