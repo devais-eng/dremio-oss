@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-17)
 ## Current Position
 
 Phase: 4 of 6 (Catalog Enforcement and DI Wiring)
-Plan: 0 of 3 in current phase
-Status: Phase 4 context gathered, ready to plan Phase 4
-Last activity: 2026-02-18 -- Phase 4 context gathered (denial UX, bypass scope, DI wiring, test strategy)
+Plan: 1 of 3 in current phase
+Status: Completed 04-01 (DI wiring + validatePrivilege enforcement)
+Last activity: 2026-02-18 -- Completed 04-01: RbacService DI wiring and validatePrivilege() enforcement
 
-Progress: [█████░░░░░] 50%
+Progress: [██████░░░░] 58%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
+- Total plans completed: 7
 - Average duration: 6 min
-- Total execution time: 0.57 hours
+- Total execution time: 0.69 hours
 
 **By Phase:**
 
@@ -30,10 +30,11 @@ Progress: [█████░░░░░] 50%
 | 01-design-and-proto-schema | 2 | 20 min | 10 min |
 | 02-persistence-layer | 2 | 10 min | 5 min |
 | 03-service-layer | 2 | 4 min | 2 min |
+| 04-catalog-enforcement-and-di-wiring | 1 | 7 min | 7 min |
 
 **Recent Trend:**
-- Last 5 plans: 8 min, 12 min, 8 min, 2 min, 2 min
-- Trend: accelerating
+- Last 5 plans: 12 min, 8 min, 2 min, 2 min, 7 min
+- Trend: stable
 
 *Updated after each plan completion*
 
@@ -89,6 +90,11 @@ Recent decisions affecting current work:
 - [03-01]: getMembershipInfo() returns only explicit memberships -- PUBLIC implicit membership excluded per locked decision
 - [03-02]: Added revokePrivilege test beyond plan's 24 enumerated tests -- verification requires every public method to be tested
 - [03-02]: Iterable results from AccessControlListingManager converted to List via StreamSupport for assertion with AssertJ
+- [04-01]: RbacService registered in DACDaemonModule (not CatalogServiceImpl) because stores use non-legacy KVStoreProvider
+- [04-01]: RbacService is @Nullable in CatalogImpl -- non-DAC test contexts may not have it available
+- [04-01]: DremioConfig null check added as first guard in validatePrivilege() for test contexts
+- [04-01]: resolveRbacObjectType maps by privilege: EXECUTE -> FUNCTION, all others -> VDS
+- [04-01]: Test call sites pass () -> null for RbacService provider -- RBAC disabled by default in tests
 
 ### Pending Todos
 
@@ -96,12 +102,12 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Research]: CatalogImpl injection path (constructor parameter vs SabotContext lookup) has MEDIUM confidence -- needs concrete tracing during Phase 4 planning
+- [RESOLVED 04-01]: CatalogImpl injection path confirmed as constructor parameter (17th+18th args), resolved during Phase 4 execution
 - [Research]: REST endpoint audit scope for Phase 6 is unknown -- DatasetVersionResource (1422 lines) may bypass CatalogImpl
 - [Build]: Maven build requires Java 21 (enforcer [21,22) range); only Java 11/17 available. Protoc 3.6.0 used directly for proto verification. Full Maven compile blocked until Java 21 JDK is installed.
 
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Phase 4 context gathered. Ready for Phase 4 planning.
-Resume file: .planning/phases/04-catalog-enforcement-and-di-wiring/04-CONTEXT.md
+Stopped at: Completed 04-01-PLAN.md. Ready for 04-02.
+Resume file: .planning/phases/04-catalog-enforcement-and-di-wiring/04-01-SUMMARY.md
