@@ -210,7 +210,9 @@ public class TestCatalogServiceHelper {
             homeFileTool,
             datasetVersionMutator,
             searchService,
-            optionManager);
+            optionManager,
+            null,
+            null);
     catalogServiceHelperWithMockNs =
         new CatalogServiceHelper(
             catalogService,
@@ -222,7 +224,9 @@ public class TestCatalogServiceHelper {
             homeFileTool,
             datasetVersionMutator,
             searchService,
-            optionManager);
+            optionManager,
+            null,
+            null);
   }
 
   @AfterEach
