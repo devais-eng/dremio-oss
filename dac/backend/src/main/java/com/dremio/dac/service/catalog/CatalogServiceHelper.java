@@ -97,6 +97,8 @@ import com.dremio.exec.planner.sql.parser.ParserUtil;
 import com.dremio.exec.proto.UserBitShared;
 import com.dremio.exec.record.BatchSchema;
 import com.dremio.exec.record.SchemaBuilder;
+import com.dremio.config.DremioConfig;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.server.SabotContext;
 import com.dremio.exec.server.SabotQueryContext;
 import com.dremio.exec.store.CatalogService;
@@ -276,6 +278,8 @@ public class CatalogServiceHelper {
   private final SearchService searchService;
   private final OptionManager optionManager;
   private final CatalogService catalogService;
+  @Nullable private final RbacService rbacService;
+  @Nullable private final DremioConfig dremioConfig;
 
   @Inject
   public CatalogServiceHelper(
@@ -288,7 +292,9 @@ public class CatalogServiceHelper {
       HomeFileTool homeFileTool,
       DatasetVersionMutator datasetVersionMutator,
       SearchService searchService,
-      OptionManager optionManager) {
+      OptionManager optionManager,
+      @Nullable RbacService rbacService,
+      @Nullable DremioConfig dremioConfig) {
     // Postpone creation till SecurityContext is populated.
     this.catalogSupplier = Suppliers.memoize(() -> createCatalog(catalogService, securityContext));
     this.securityContext = securityContext;
@@ -302,6 +308,8 @@ public class CatalogServiceHelper {
     this.searchService = searchService;
     this.optionManager = optionManager;
     this.catalogService = catalogService;
+    this.rbacService = rbacService;
+    this.dremioConfig = dremioConfig;
   }
 
   private static Catalog createCatalog(
@@ -363,7 +371,9 @@ public class CatalogServiceHelper {
     }
 
     for (FunctionConfig functionConfig : namespaceService.getTopLevelFunctions()) {
-      topLevelItems.add(CatalogItem.fromFunctionConfig(functionConfig));
+      if (isFunctionVisibleToUser(functionConfig)) {
+        topLevelItems.add(CatalogItem.fromFunctionConfig(functionConfig));
+      }
     }
 
     return applyAdditionalInfoToContainers(
@@ -1104,6 +1114,9 @@ public class CatalogServiceHelper {
         // Trim last child.
         children = children.subList(0, effectiveMaxChildren);
       }
+
+      // Apply RBAC visibility filtering.
+      children = filterByVisibility(children);
 
       // Convert children to CatalogItem(s).
       children.forEach(c -> builder.addChildren(CatalogItem.fromNamespaceContainer(c)));
@@ -3092,5 +3105,57 @@ public class CatalogServiceHelper {
 
   private static boolean isIncludeChildren(Integer maxChildren) {
     return maxChildren == null || maxChildren > 0;
+  }
+
+  /**
+   * Filters namespace children by visibility based on RBAC grants. Admin users and RBAC-disabled
+   * mode see everything. Non-admin users see only VDS/FUNCTION items they have grants on.
+   * Containers (FOLDER, SPACE, SOURCE, HOME) and physical datasets are always visible.
+   */
+  private List<NameSpaceContainer> filterByVisibility(List<NameSpaceContainer> children) {
+    if (rbacService == null
+        || dremioConfig == null
+        || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return children;
+    }
+    String userName = securityContext.getUserPrincipal().getName();
+    if (rbacService.isAdminMember(userName)) {
+      return children;
+    }
+    return children.stream()
+        .filter(c -> isVisibleToUser(c, userName))
+        .collect(Collectors.toList());
+  }
+
+  private boolean isVisibleToUser(NameSpaceContainer container, String userName) {
+    if (container.getType() == NameSpaceContainer.Type.DATASET) {
+      DatasetConfig ds = container.getDataset();
+      if (ds.getType() == DatasetType.VIRTUAL_DATASET) {
+        String objectPath = String.join(".", container.getFullPathList());
+        return rbacService.hasPrivilege(userName, "SELECT", "VDS", objectPath);
+      }
+      // Physical datasets (promoted, PDS) are always visible.
+      return true;
+    }
+    if (container.getType() == NameSpaceContainer.Type.FUNCTION) {
+      String objectPath = String.join(".", container.getFullPathList());
+      return rbacService.hasPrivilege(userName, "EXECUTE", "FUNCTION", objectPath);
+    }
+    // FOLDER, SPACE, SOURCE, HOME are always visible (containers).
+    return true;
+  }
+
+  private boolean isFunctionVisibleToUser(FunctionConfig functionConfig) {
+    if (rbacService == null
+        || dremioConfig == null
+        || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return true;
+    }
+    String userName = securityContext.getUserPrincipal().getName();
+    if (rbacService.isAdminMember(userName)) {
+      return true;
+    }
+    String objectPath = String.join(".", functionConfig.getFullPathList());
+    return rbacService.hasPrivilege(userName, "EXECUTE", "FUNCTION", objectPath);
   }
 }
