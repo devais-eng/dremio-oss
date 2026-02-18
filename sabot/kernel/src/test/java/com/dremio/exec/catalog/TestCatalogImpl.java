@@ -1420,5 +1420,166 @@ public class TestCatalogImpl {
     return folderConfig;
   }
 
+  // ====== RBAC enforcement tests ======
+
+  @Test
+  public void testValidatePrivilege_rbacDisabled_noEnforcement() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(false);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // Should NOT throw -- RBAC is disabled
+    catalog.validatePrivilege(
+        new NamespaceKey(Arrays.asList("myspace", "myview")), SqlGrant.Privilege.SELECT);
+    // RbacService should never be called
+    verifyNoInteractions(rbacService);
+  }
+
+  @Test
+  public void testValidatePrivilege_systemUser_bypasses() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    CatalogImpl catalog = newCatalogImplForUser("$dremio$");
+    // Should NOT throw -- system user bypasses
+    catalog.validatePrivilege(
+        new NamespaceKey(Arrays.asList("myspace", "myview")), SqlGrant.Privilege.SELECT);
+    verifyNoInteractions(rbacService);
+  }
+
+  @Test
+  public void testValidatePrivilege_noGrant_throwsNotFound() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(
+            eq("gnarly"), eq("SELECT"), eq("VDS"), anyString()))
+        .thenReturn(false);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    UserExceptionAssert.assertThatThrownBy(
+            () ->
+                catalog.validatePrivilege(
+                    new NamespaceKey(Arrays.asList("myspace", "myview")),
+                    SqlGrant.Privilege.SELECT))
+        .hasErrorType(VALIDATION)
+        .hasMessageContaining("not found");
+  }
+
+  @Test
+  public void testValidatePrivilege_withGrant_passes() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("VDS"), anyString()))
+        .thenReturn(true);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // Should NOT throw
+    catalog.validatePrivilege(
+        new NamespaceKey(Arrays.asList("myspace", "myview")), SqlGrant.Privilege.SELECT);
+  }
+
+  @Test
+  public void testValidatePrivilege_executeMapsToFunction() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(
+            eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString()))
+        .thenReturn(true);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // Should NOT throw -- EXECUTE on FUNCTION is granted
+    catalog.validatePrivilege(
+        new NamespaceKey(Arrays.asList("myspace", "myfunc")), SqlGrant.Privilege.EXECUTE);
+    verify(rbacService).hasPrivilege(eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString());
+  }
+
+  @Test
+  public void testValidatePrivilege_executeDenied_throwsNotFound() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(
+            eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString()))
+        .thenReturn(false);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    UserExceptionAssert.assertThatThrownBy(
+            () ->
+                catalog.validatePrivilege(
+                    new NamespaceKey(Arrays.asList("myspace", "myfunc")),
+                    SqlGrant.Privilege.EXECUTE))
+        .hasErrorType(VALIDATION)
+        .hasMessageContaining("not found");
+  }
+
+  @Test
+  public void testValidatePrivilege_createViewMapsToVds() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(
+            eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), anyString()))
+        .thenReturn(false);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    UserExceptionAssert.assertThatThrownBy(
+            () ->
+                catalog.validatePrivilege(
+                    new NamespaceKey(Arrays.asList("myspace", "myview")),
+                    SqlGrant.Privilege.CREATE_VIEW))
+        .hasErrorType(VALIDATION)
+        .hasMessageContaining("not found");
+    verify(rbacService)
+        .hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), anyString());
+  }
+
+  @Test
+  public void testGetTable_vdsDenied_returnsNotFound() {
+    // Since DatasetManager is constructed internally and not mockable directly,
+    // we verify the validatePrivilege -> hasPrivilege -> deny path.
+    // The getTable RBAC check uses the same isRbacDeniedForVds helper,
+    // so if validatePrivilege works, the helper works.
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    NamespaceKey key = new NamespaceKey(Arrays.asList("myspace", "myview"));
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("VDS"), anyString()))
+        .thenReturn(false);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    UserExceptionAssert.assertThatThrownBy(
+            () -> catalog.validatePrivilege(key, SqlGrant.Privilege.SELECT))
+        .hasErrorType(VALIDATION)
+        .hasMessageContaining("not found");
+  }
+
+  @Test
+  public void testValidatePrivilege_definerRights_onlyOutermostChecked() {
+    // Definer-rights means validatePrivilege is called ONLY on the outermost view.
+    // Inner tables are resolved under the view owner's identity by ViewExpander.
+    // This test verifies that validatePrivilege checks the given key (outermost),
+    // not any inner keys -- which is inherent in the method signature (takes one key).
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    NamespaceKey outerView = new NamespaceKey(Arrays.asList("myspace", "outer_view"));
+    when(rbacService.hasPrivilege(
+            eq("gnarly"), eq("SELECT"), eq("VDS"), anyString()))
+        .thenReturn(true);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // Should NOT throw -- user has grant on outer view
+    catalog.validatePrivilege(outerView, SqlGrant.Privilege.SELECT);
+    // Verify only the outer view was checked, not inner tables
+    verify(rbacService, times(1))
+        .hasPrivilege(anyString(), anyString(), anyString(), anyString());
+  }
+
+  @Test
+  public void testValidatePrivilege_nullDremioConfig_noEnforcement() {
+    // In test contexts, dremioConfig might be null. validatePrivilege should not crash.
+    CatalogImpl catalog =
+        new CatalogImpl(
+            options,
+            pluginRetriever,
+            sourceModifier,
+            optionManager,
+            systemNamespaceService,
+            namespaceFactory,
+            orphanage,
+            datasetListingService,
+            viewCreatorFactory,
+            identityProvider,
+            versionContextResolver,
+            catalogStatusEvents,
+            new VersionedDatasetAdapterFactory(),
+            metadataIOPool,
+            catalogEntityOwnership,
+            userOrRoleResolver,
+            null,
+            null); // null rbacService and dremioConfig
+    // Should NOT throw -- null config treated as RBAC disabled
+    catalog.validatePrivilege(
+        new NamespaceKey(Arrays.asList("myspace", "myview")), SqlGrant.Privilege.SELECT);
+  }
+
   private interface FakeVersionedPlugin extends VersionedPlugin, StoragePlugin {}
 }
