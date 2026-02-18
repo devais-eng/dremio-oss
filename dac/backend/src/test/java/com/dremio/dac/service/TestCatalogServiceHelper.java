@@ -43,6 +43,8 @@ import static org.mockito.Mockito.when;
 
 import com.dremio.BaseTestQuery;
 import com.dremio.catalog.model.CatalogEntityKey;
+import com.dremio.config.DremioConfig;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.catalog.model.ResolvedVersionContext;
 import com.dremio.catalog.model.VersionContext;
 import com.dremio.catalog.model.VersionedDatasetId;
@@ -161,11 +163,17 @@ public class TestCatalogServiceHelper {
   private CatalogServiceHelper catalogServiceHelperWithMockNs;
   private SimpleJobRunner simpleJobRunner;
 
+  // RBAC-specific fields for visibility filtering tests
+  private SecurityContext securityContext;
+  private RbacService rbacService;
+  private DremioConfig dremioConfig;
+  private CatalogServiceHelper rbacEnabledHelper;
+
   @BeforeEach
   public void setup() throws Exception {
     SabotContext sabotContext = mock(SabotContext.class);
     CatalogService catalogService = mock(CatalogService.class);
-    SecurityContext securityContext = mock(SecurityContext.class);
+    securityContext = mock(SecurityContext.class);
     DatasetVersionMutator datasetVersionMutator = mock(DatasetVersionMutator.class);
     HomeFileTool homeFileTool = mock(HomeFileTool.class);
     SearchService searchService = mock(SearchService.class);
@@ -227,6 +235,25 @@ public class TestCatalogServiceHelper {
             optionManager,
             null,
             null);
+
+    // RBAC-enabled helper: uses mockNamespaceService, mocked RbacService and DremioConfig
+    rbacService = mock(RbacService.class);
+    dremioConfig = mock(DremioConfig.class);
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    rbacEnabledHelper =
+        new CatalogServiceHelper(
+            catalogService,
+            securityContext,
+            sourceService,
+            mockNamespaceService,
+            sabotContext,
+            reflectionServiceHelper,
+            homeFileTool,
+            datasetVersionMutator,
+            searchService,
+            optionManager,
+            rbacService,
+            dremioConfig);
   }
 
   @AfterEach
@@ -2221,5 +2248,162 @@ public class TestCatalogServiceHelper {
         .setName(name)
         .setFullPathList(
             ImmutableList.<String>builder().addAll(parent.getPathComponents()).add(name).build());
+  }
+
+  // ---------------------------------------------------------------------------
+  // RBAC catalog visibility filtering tests (META-03)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Helper: a mock SPACE root container. Used to satisfy getRootContainer() in getChildrenForPath.
+   */
+  private static NameSpaceContainer spaceRootContainer(String spaceName) {
+    SpaceConfig spaceConfig = new SpaceConfig();
+    spaceConfig.setName(spaceName);
+    spaceConfig.setId(new EntityId("space-id-" + spaceName));
+    return new NameSpaceContainer()
+        .setType(NameSpaceContainer.Type.SPACE)
+        .setSpace(spaceConfig)
+        .setFullPathList(ImmutableList.of(spaceName));
+  }
+
+  /**
+   * Helper: build a NameSpaceContainer for a VIRTUAL_DATASET with the given path components.
+   */
+  private static NameSpaceContainer vdsContainer(String... pathParts) {
+    List<String> path = Arrays.asList(pathParts);
+    DatasetConfig datasetConfig = new DatasetConfig();
+    datasetConfig.setType(DatasetType.VIRTUAL_DATASET);
+    datasetConfig.setFullPathList(path);
+    datasetConfig.setId(new EntityId(String.join(".", path)));
+    return new NameSpaceContainer()
+        .setType(NameSpaceContainer.Type.DATASET)
+        .setDataset(datasetConfig)
+        .setFullPathList(path);
+  }
+
+  /**
+   * Helper: build a NameSpaceContainer for a PHYSICAL_DATASET with the given path components.
+   */
+  private static NameSpaceContainer pdsContainer(String... pathParts) {
+    List<String> path = Arrays.asList(pathParts);
+    DatasetConfig datasetConfig = new DatasetConfig();
+    datasetConfig.setType(DatasetType.PHYSICAL_DATASET);
+    datasetConfig.setFullPathList(path);
+    datasetConfig.setId(new EntityId(String.join(".", path)));
+    return new NameSpaceContainer()
+        .setType(NameSpaceContainer.Type.DATASET)
+        .setDataset(datasetConfig)
+        .setFullPathList(path);
+  }
+
+  /** Helper: build a NameSpaceContainer for a FOLDER with the given path components. */
+  private static NameSpaceContainer folderContainer(String... pathParts) {
+    List<String> path = Arrays.asList(pathParts);
+    FolderConfig folderConfig = new FolderConfig();
+    folderConfig.setFullPathList(path);
+    folderConfig.setId(new EntityId(String.join(".", path)));
+    return new NameSpaceContainer()
+        .setType(NameSpaceContainer.Type.FOLDER)
+        .setFolder(folderConfig)
+        .setFullPathList(path);
+  }
+
+  /**
+   * Common mock setup for RBAC listing tests: makes the mock namespace service return a SPACE root
+   * container for "myspace" and the given list of children when listed.
+   */
+  private void setupRbacMockNamespace(
+      String spaceName, List<NameSpaceContainer> children) throws Exception {
+    NameSpaceContainer rootContainer = spaceRootContainer(spaceName);
+    when(mockNamespaceService.getEntities(any())).thenReturn(ImmutableList.of(rootContainer));
+    when(mockNamespaceService.list(any(), any(), anyInt())).thenReturn(children);
+  }
+
+  /** META-03: RBAC disabled (null rbacService) -- all items pass through unfiltered. */
+  @Test
+  public void testGetNamespaceChildren_rbacDisabled_showsAllItems() throws Exception {
+    // catalogServiceHelperWithMockNs has null rbacService -- no filtering
+    NameSpaceContainer vds = vdsContainer("myspace", "my_view");
+    setupRbacMockNamespace("myspace", ImmutableList.of(vds));
+
+    CatalogListingResult result =
+        catalogServiceHelperWithMockNs.getChildrenForPath(new NamespaceKey("myspace"), null, 100);
+
+    assertThat(result.children()).hasSize(1);
+  }
+
+  /** META-03: Admin user sees all items regardless of grants. */
+  @Test
+  public void testGetNamespaceChildren_adminUser_showsAllItems() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(true);
+    NameSpaceContainer vds = vdsContainer("myspace", "my_view");
+    NameSpaceContainer folder = folderContainer("myspace", "my_folder");
+    setupRbacMockNamespace("myspace", ImmutableList.of(vds, folder));
+
+    CatalogListingResult result =
+        rbacEnabledHelper.getChildrenForPath(new NamespaceKey("myspace"), null, 100);
+
+    assertThat(result.children()).hasSize(2);
+  }
+
+  /** META-03: Non-admin user with SELECT grant on VDS sees the VDS. */
+  @Test
+  public void testGetNamespaceChildren_nonAdminWithGrant_showsVds() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(false);
+    when(rbacService.hasPrivilege("user", "SELECT", "VDS", "myspace.my_view")).thenReturn(true);
+    NameSpaceContainer vds = vdsContainer("myspace", "my_view");
+    setupRbacMockNamespace("myspace", ImmutableList.of(vds));
+
+    CatalogListingResult result =
+        rbacEnabledHelper.getChildrenForPath(new NamespaceKey("myspace"), null, 100);
+
+    assertThat(result.children()).hasSize(1);
+  }
+
+  /** META-03: Non-admin user without SELECT grant on VDS does NOT see the VDS. */
+  @Test
+  public void testGetNamespaceChildren_nonAdminWithoutGrant_hidesVds() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(false);
+    when(rbacService.hasPrivilege("user", "SELECT", "VDS", "myspace.my_view")).thenReturn(false);
+    NameSpaceContainer vds = vdsContainer("myspace", "my_view");
+    setupRbacMockNamespace("myspace", ImmutableList.of(vds));
+
+    CatalogListingResult result =
+        rbacEnabledHelper.getChildrenForPath(new NamespaceKey("myspace"), null, 100);
+
+    assertThat(result.children()).isEmpty();
+  }
+
+  /** META-03: Folders are always visible to non-admin users (containers are not RBAC-gated). */
+  @Test
+  public void testGetNamespaceChildren_nonAdmin_foldersAlwaysVisible() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(false);
+    when(rbacService.hasPrivilege("user", "SELECT", "VDS", "myspace.my_view")).thenReturn(false);
+    NameSpaceContainer vds = vdsContainer("myspace", "my_view");
+    NameSpaceContainer folder = folderContainer("myspace", "my_folder");
+    setupRbacMockNamespace("myspace", ImmutableList.of(vds, folder));
+
+    CatalogListingResult result =
+        rbacEnabledHelper.getChildrenForPath(new NamespaceKey("myspace"), null, 100);
+
+    // Only folder should be visible; VDS should be hidden
+    assertThat(result.children()).hasSize(1);
+    assertThat(result.children().get(0).getContainerType())
+        .isEqualTo(CatalogItem.ContainerSubType.FOLDER);
+  }
+
+  /** META-03: Physical datasets (PDS) are always visible -- only VDS is RBAC-gated in v1. */
+  @Test
+  public void testGetNamespaceChildren_nonAdmin_pdsAlwaysVisible() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(false);
+    NameSpaceContainer pds = pdsContainer("myspace", "my_table");
+    setupRbacMockNamespace("myspace", ImmutableList.of(pds));
+
+    CatalogListingResult result =
+        rbacEnabledHelper.getChildrenForPath(new NamespaceKey("myspace"), null, 100);
+
+    // PDS should be visible without any privilege check
+    assertThat(result.children()).hasSize(1);
   }
 }
