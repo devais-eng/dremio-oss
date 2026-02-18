@@ -169,7 +169,9 @@ public class TestCatalogImpl {
         new VersionedDatasetAdapterFactory(),
         metadataIOPool,
         catalogEntityOwnership,
-        userOrRoleResolver);
+        userOrRoleResolver,
+        null,
+        null);
   }
 
   @Test

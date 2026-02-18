@@ -316,7 +316,8 @@ public class TestDatasetCatalogServiceImpl {
               () -> new CatalogStatusEventsImpl(),
               () -> mock(ExecutorService.class),
               () -> namespaceServiceFactory,
-              () -> userService);
+              () -> userService,
+              () -> null);
       catalogService.start();
 
       mockUpPlugin = new TestCatalogServiceImpl.MockUpPlugin();

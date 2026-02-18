@@ -77,6 +77,10 @@ import com.dremio.dac.support.QueryLogBundleService;
 import com.dremio.dac.support.SupportService;
 import com.dremio.datastore.adapter.LegacyKVStoreProviderAdapter;
 import com.dremio.datastore.api.KVStoreProvider;
+import com.dremio.exec.rbac.GrantStore;
+import com.dremio.exec.rbac.MembershipStore;
+import com.dremio.exec.rbac.RbacService;
+import com.dremio.exec.rbac.RoleStore;
 import com.dremio.datastore.api.LegacyIndexedStore;
 import com.dremio.datastore.api.LegacyKVStoreProvider;
 import com.dremio.distributedplancache.transientstore.DistributedPlanCacheInMemoryStoreProvider;
@@ -1022,6 +1026,14 @@ public class DACDaemonModule implements DACModule {
     CatalogStatusEvents catalogStatusEvents = new CatalogStatusEventsImpl();
     registry.bind(CatalogStatusEvents.class, catalogStatusEvents);
 
+    // RBAC service -- always created regardless of feature flag (stores are lazy-initialized)
+    Provider<KVStoreProvider> kvStoreProviderForRbac = registry.provider(KVStoreProvider.class);
+    RoleStore roleStore = new RoleStore(kvStoreProviderForRbac);
+    GrantStore grantStore = new GrantStore(kvStoreProviderForRbac);
+    MembershipStore membershipStore = new MembershipStore(kvStoreProviderForRbac);
+    RbacService rbacServiceInstance = new RbacService(roleStore, grantStore, membershipStore);
+    registry.bind(RbacService.class, rbacServiceInstance);
+
     registry.bind(
         CatalogService.class,
         new CatalogServiceImpl(
@@ -1045,7 +1057,8 @@ public class DACDaemonModule implements DACModule {
             registry.provider(CatalogStatusEvents.class),
             registry.provider(java.util.concurrent.ExecutorService.class),
             registry.provider(NamespaceService.Factory.class),
-            registry.provider(UserService.class)));
+            registry.provider(UserService.class),
+            registry.provider(RbacService.class)));
 
     registry.bind(CatalogSupplier.class, CatalogFactory.class);
 

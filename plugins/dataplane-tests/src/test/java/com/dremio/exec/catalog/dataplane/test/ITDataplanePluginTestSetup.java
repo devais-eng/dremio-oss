@@ -232,7 +232,8 @@ public abstract class ITDataplanePluginTestSetup extends DataplaneTestHelper {
                         getProvider(CatalogStatusEvents.class),
                         getProvider(ExecutorService.class),
                         getProvider(NamespaceService.Factory.class),
-                        getProvider(UserService.class)));
+                        getProvider(UserService.class),
+                        () -> null));
           }
         });
     setupDefaultTestCluster();

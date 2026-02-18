@@ -32,6 +32,7 @@ import com.dremio.exec.catalog.conf.SourceType;
 import com.dremio.exec.ops.OptimizerRulesContext;
 import com.dremio.exec.planner.PlannerPhase;
 import com.dremio.exec.proto.CatalogRPC;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.proto.CatalogRPC.RpcType;
 import com.dremio.exec.proto.CatalogRPC.SourceWrapper;
 import com.dremio.exec.proto.CoordinationProtos;
@@ -161,6 +162,7 @@ public class CatalogServiceImpl implements CatalogService {
   private final Provider<CatalogStatusEvents> catalogStatusEventsProvider;
   private final Provider<NamespaceService.Factory> namespaceServiceFactoryProvider;
   private final Provider<UserService> userServiceProvider;
+  private final Provider<RbacService> rbacServiceProvider;
 
   public CatalogServiceImpl(
       Provider<SabotContext> sabotContextProvider,
@@ -181,7 +183,8 @@ public class CatalogServiceImpl implements CatalogService {
       Provider<CatalogStatusEvents> catalogStatusEventsProvider,
       Provider<ExecutorService> executorServiceProvider,
       Provider<NamespaceService.Factory> namespaceServiceFactoryProvider,
-      Provider<UserService> userServiceProvider) {
+      Provider<UserService> userServiceProvider,
+      Provider<RbacService> rbacServiceProvider) {
     this(
         sabotContextProvider,
         scheduler,
@@ -202,7 +205,8 @@ public class CatalogServiceImpl implements CatalogService {
         catalogStatusEventsProvider,
         executorServiceProvider,
         namespaceServiceFactoryProvider,
-        userServiceProvider);
+        userServiceProvider,
+        rbacServiceProvider);
   }
 
   @VisibleForTesting
@@ -226,7 +230,8 @@ public class CatalogServiceImpl implements CatalogService {
       Provider<CatalogStatusEvents> catalogStatusEventsProvider,
       Provider<ExecutorService> executorServiceProvider,
       Provider<NamespaceService.Factory> namespaceServiceFactoryProvider,
-      Provider<UserService> userServiceProvider) {
+      Provider<UserService> userServiceProvider,
+      Provider<RbacService> rbacServiceProvider) {
     this.catalogSabotContextProvider = sabotContextProvider::get;
     this.sabotQueryContextProviderDoNotUse = sabotContextProvider::get;
     this.scheduler = scheduler;
@@ -250,6 +255,7 @@ public class CatalogServiceImpl implements CatalogService {
     this.executorServiceProvider = executorServiceProvider;
     this.namespaceServiceFactoryProvider = namespaceServiceFactoryProvider;
     this.userServiceProvider = userServiceProvider;
+    this.rbacServiceProvider = rbacServiceProvider;
   }
 
   @Override
@@ -984,7 +990,9 @@ public class CatalogServiceImpl implements CatalogService {
         versionedDatasetAdapterFactoryProvider.get(),
         catalogSabotContextProvider.get().getMetadataIOPoolProvider().get(),
         catalogEntityOwnership,
-        userOrRoleResolver);
+        userOrRoleResolver,
+        rbacServiceProvider != null ? rbacServiceProvider.get() : null,
+        config);
   }
 
   @Override

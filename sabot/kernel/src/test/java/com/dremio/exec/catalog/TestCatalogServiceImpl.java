@@ -327,7 +327,8 @@ public class TestCatalogServiceImpl {
                 () -> new CatalogStatusEventsImpl(),
                 () -> pool,
                 () -> namespaceServiceFactory,
-                () -> mock(UserService.class)));
+                () -> mock(UserService.class),
+                () -> null));
     catalogService.start();
 
     mockUpPlugin = new MockUpPlugin();

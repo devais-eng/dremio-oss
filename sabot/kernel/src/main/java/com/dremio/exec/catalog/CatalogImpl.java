@@ -48,6 +48,8 @@ import com.dremio.catalog.model.VersionContext;
 import com.dremio.catalog.model.VersionedDatasetId;
 import com.dremio.catalog.model.dataset.TableVersionContext;
 import com.dremio.common.concurrent.bulk.BulkRequest;
+import com.dremio.config.DremioConfig;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.common.concurrent.bulk.BulkResponse;
 import com.dremio.common.concurrent.bulk.ValueTransformer;
 import com.dremio.common.exceptions.ExecutionSetupException;
@@ -215,6 +217,8 @@ public class CatalogImpl implements Catalog {
   private final MetadataIOPool metadataIOPool;
   private final CatalogEntityOwnership catalogEntityOwnership;
   private final UserOrRoleResolver userOrRoleResolver;
+  @Nullable private final RbacService rbacService;
+  private final DremioConfig dremioConfig;
 
   CatalogImpl(
       MetadataRequestOptions options,
@@ -232,7 +236,9 @@ public class CatalogImpl implements Catalog {
       VersionedDatasetAdapterFactory versionedDatasetAdapterFactory,
       MetadataIOPool metadataIOPool,
       CatalogEntityOwnership catalogEntityOwnership,
-      UserOrRoleResolver userOrRoleResolver) {
+      UserOrRoleResolver userOrRoleResolver,
+      @Nullable RbacService rbacService,
+      DremioConfig dremioConfig) {
     this.options = options;
     this.pluginRetriever = pluginRetriever;
     this.sourceModifier = sourceModifier;
@@ -255,6 +261,8 @@ public class CatalogImpl implements Catalog {
     this.metadataIOPool = metadataIOPool;
     this.catalogEntityOwnership = catalogEntityOwnership;
     this.userOrRoleResolver = userOrRoleResolver;
+    this.rbacService = rbacService;
+    this.dremioConfig = dremioConfig;
     this.datasetManager =
         new DatasetManager(
             pluginRetriever,
@@ -1571,7 +1579,9 @@ public class CatalogImpl implements Catalog {
         versionedDatasetAdapterFactory,
         metadataIOPool,
         catalogEntityOwnership,
-        userOrRoleResolver);
+        userOrRoleResolver,
+        rbacService,
+        dremioConfig);
   }
 
   @Override
@@ -1594,7 +1604,9 @@ public class CatalogImpl implements Catalog {
         versionedDatasetAdapterFactory,
         metadataIOPool,
         catalogEntityOwnership,
-        userOrRoleResolver);
+        userOrRoleResolver,
+        rbacService,
+        dremioConfig);
   }
 
   @Override
@@ -1616,7 +1628,9 @@ public class CatalogImpl implements Catalog {
         versionedDatasetAdapterFactory,
         metadataIOPool,
         catalogEntityOwnership,
-        userOrRoleResolver);
+        userOrRoleResolver,
+        rbacService,
+        dremioConfig);
   }
 
   @Override
@@ -1640,7 +1654,9 @@ public class CatalogImpl implements Catalog {
         versionedDatasetAdapterFactory,
         metadataIOPool,
         catalogEntityOwnership,
-        userOrRoleResolver);
+        userOrRoleResolver,
+        rbacService,
+        dremioConfig);
   }
 
   private FileSystemPlugin getHomeFilesPlugin() throws ExecutionSetupException {
