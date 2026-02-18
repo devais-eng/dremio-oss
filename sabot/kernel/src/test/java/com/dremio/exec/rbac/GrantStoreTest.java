@@ -34,8 +34,7 @@ public class GrantStoreTest {
 
   @Before
   public void setUp() throws Exception {
-    kvStoreProvider =
-        new LocalKVStoreProvider(DremioTest.CLASSPATH_SCAN_RESULT, null, true, false);
+    kvStoreProvider = new LocalKVStoreProvider(DremioTest.CLASSPATH_SCAN_RESULT, null, true, false);
     kvStoreProvider.start();
     grantStore = new GrantStore(() -> kvStoreProvider);
   }
@@ -46,7 +45,8 @@ public class GrantStoreTest {
   }
 
   // Helper: build a Grant proto
-  private static Grant buildGrant(String roleId, String objectType, String objectPath, String privilege) {
+  private static Grant buildGrant(
+      String roleId, String objectType, String objectPath, String privilege) {
     return Grant.newBuilder()
         .setRoleId(roleId)
         .setObjectType(objectType)
@@ -166,5 +166,64 @@ public class GrantStoreTest {
     List<Grant> all = grantStore.listAll();
 
     assertThat(all).hasSize(3);
+  }
+
+  // ---------------------------------------------------------------------------
+  // listByObject tests
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void testListByObject_returnsMatchingGrants() {
+    // 2 grants for VDS "space.view1" (different roles) and 1 for "space.view2"
+    grantStore.grant(
+        RbacConfig.grantKey("analyst", "VDS", "space.view1", "SELECT"),
+        buildGrant("analyst", "VDS", "space.view1", "SELECT"));
+    grantStore.grant(
+        RbacConfig.grantKey("dev", "VDS", "space.view1", "SELECT"),
+        buildGrant("dev", "VDS", "space.view1", "SELECT"));
+    grantStore.grant(
+        RbacConfig.grantKey("analyst", "VDS", "space.view2", "SELECT"),
+        buildGrant("analyst", "VDS", "space.view2", "SELECT"));
+
+    List<Grant> results = grantStore.listByObject("VDS", "space.view1");
+
+    assertThat(results).hasSize(2);
+    assertThat(results)
+        .extracting(Grant::getRoleId)
+        .containsExactlyInAnyOrder("analyst", "dev");
+  }
+
+  @Test
+  public void testListByObject_returnsEmptyForNoMatches() {
+    // Add grants for a different object
+    grantStore.grant(
+        RbacConfig.grantKey("analyst", "VDS", "space.other_view", "SELECT"),
+        buildGrant("analyst", "VDS", "space.other_view", "SELECT"));
+
+    List<Grant> results = grantStore.listByObject("VDS", "nonexistent.view");
+
+    assertThat(results).isEmpty();
+  }
+
+  @Test
+  public void testListByObject_filtersCorrectlyByObjectType() {
+    // Same path, different object types
+    grantStore.grant(
+        RbacConfig.grantKey("analyst", "VDS", "space.obj", "SELECT"),
+        buildGrant("analyst", "VDS", "space.obj", "SELECT"));
+    grantStore.grant(
+        RbacConfig.grantKey("analyst", "FUNCTION", "space.obj", "EXECUTE"),
+        buildGrant("analyst", "FUNCTION", "space.obj", "EXECUTE"));
+
+    List<Grant> vdsResults = grantStore.listByObject("VDS", "space.obj");
+    List<Grant> functionResults = grantStore.listByObject("FUNCTION", "space.obj");
+
+    // VDS query should return only VDS grant
+    assertThat(vdsResults).hasSize(1);
+    assertThat(vdsResults.get(0).getObjectType()).isEqualTo("VDS");
+
+    // FUNCTION query should return only FUNCTION grant
+    assertThat(functionResults).hasSize(1);
+    assertThat(functionResults.get(0).getObjectType()).isEqualTo("FUNCTION");
   }
 }
