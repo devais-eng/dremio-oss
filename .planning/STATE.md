@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** Users can only access views and UDFs they've been explicitly granted access to, with deny-by-default policy and admin bypass -- closing the open-access gap in Dremio OSS.
-**Current focus:** Phase 4: Catalog Enforcement and DI Wiring
+**Current focus:** Phase 4 complete. Ready for Phase 5: DDL Handlers and System Tables
 
 ## Current Position
 
-Phase: 4 of 6 (Catalog Enforcement and DI Wiring)
-Plan: 2 of 3 in current phase
-Status: Completed 04-02 (getTable/getFunctions RBAC enforcement + CREATE_VIEW fix)
-Last activity: 2026-02-18 -- Completed 04-02: Catalog enforcement hooks in resolution paths
+Phase: 4 of 6 (Catalog Enforcement and DI Wiring) -- COMPLETE
+Plan: 3 of 3 in current phase (all plans complete)
+Status: Completed 04-03 (CatalogImpl RBAC enforcement unit tests)
+Last activity: 2026-02-18 -- Completed 04-03: 10 unit tests for validatePrivilege enforcement paths
 
-Progress: [██████░░░░] 62%
+Progress: [███████░░░] 69%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
+- Total plans completed: 9
 - Average duration: 5 min
-- Total execution time: 0.72 hours
+- Total execution time: 0.79 hours
 
 **By Phase:**
 
@@ -30,10 +30,10 @@ Progress: [██████░░░░] 62%
 | 01-design-and-proto-schema | 2 | 20 min | 10 min |
 | 02-persistence-layer | 2 | 10 min | 5 min |
 | 03-service-layer | 2 | 4 min | 2 min |
-| 04-catalog-enforcement-and-di-wiring | 2 | 9 min | 4.5 min |
+| 04-catalog-enforcement-and-di-wiring | 3 | 13 min | 4.3 min |
 
 **Recent Trend:**
-- Last 5 plans: 8 min, 2 min, 2 min, 7 min, 2 min
+- Last 5 plans: 2 min, 2 min, 7 min, 2 min, 4 min
 - Trend: stable-fast
 
 *Updated after each plan completion*
@@ -98,6 +98,9 @@ Recent decisions affecting current work:
 - [04-02]: isRbacDeniedForVds checks instanceof ViewTable to skip PDS -- physical datasets are never RBAC-gated
 - [04-02]: getFunctions RBAC check at entry point (before version context resolution) for early rejection
 - [04-02]: RBAC denial returns null/empty (not exception) preserving "not found" information hiding semantics
+- [04-03]: Tests use anyString() matcher for object path args because constructFullPath may quote identifiers with backticks
+- [04-03]: getTable VDS-denied test verifies through validatePrivilege path since DatasetManager is internal and not directly mockable
+- [04-03]: System user bypass tested via newCatalogImplForUser("$dremio$") helper with isolated SchemaConfig and AuthorizationContext
 
 ### Pending Todos
 
@@ -112,5 +115,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Completed 04-02-PLAN.md. Ready for 04-03.
-Resume file: .planning/phases/04-catalog-enforcement-and-di-wiring/04-02-SUMMARY.md
+Stopped at: Completed 04-03-PLAN.md. Phase 4 complete. Ready for Phase 5.
+Resume file: .planning/phases/04-catalog-enforcement-and-di-wiring/04-03-SUMMARY.md
