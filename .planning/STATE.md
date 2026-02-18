@@ -138,6 +138,11 @@ None yet.
 
 ### Phase 6 Decisions
 
+- [06-01]: RbacResource uses programmatic isAdminMember() check -- @RolesAllowed is a no-op because DACSecurityContext.isUserInRole() always returns true
+- [06-01]: DELETE /rbac/grants uses query parameters (roleId, objectType, objectPath, privilege) -- follows DELETE /catalog/{id}?tag=... pattern in CatalogResource
+- [06-01]: Role ID = role name (slugified = name itself per Phase 1 locked decision; no separate slug field in REST API)
+- [06-01]: GrantStore.listByObject is a full scan-and-filter -- object-based prefix matching is impossible because grant key puts role_id first
+- [06-01]: requireRbacEnabled() + requireAdmin() called at start of every endpoint
 - [06-02]: RbacService and DremioConfig added as last two @Nullable constructor params in CatalogServiceHelper -- follows "last param" pattern from Phase 5
 - [06-02]: filterByVisibility() applied post-pagination-trim -- pages may be smaller than maxChildren when RBAC filters active; documented v1 limitation, acceptable for OSS scale
 - [06-02]: Separate isFunctionVisibleToUser(FunctionConfig) for getTopLevelCatalogItems() -- FunctionConfig is available directly without NameSpaceContainer wrapping
@@ -147,5 +152,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: 06-02 complete (catalog visibility filtering). Ready for 06-03 (REST RBAC resource).
-Resume file: .planning/phases/06-rest-api-and-access-path-hardening/06-02-SUMMARY.md
+Stopped at: 06-01 complete (9-endpoint RbacResource, 6 DTOs, GrantStore.listByObject). 06-02 (catalog visibility filtering) was already done. Both plans complete.
+Resume file: .planning/phases/06-rest-api-and-access-path-hardening/06-01-SUMMARY.md
