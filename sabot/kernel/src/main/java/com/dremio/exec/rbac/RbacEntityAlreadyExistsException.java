@@ -17,6 +17,10 @@ package com.dremio.exec.rbac;
 
 /** Thrown when an RBAC entity already exists and cannot be created again. */
 public class RbacEntityAlreadyExistsException extends RuntimeException {
+  public RbacEntityAlreadyExistsException(String message) {
+    super(message);
+  }
+
   public RbacEntityAlreadyExistsException(String message, Throwable cause) {
     super(message, cause);
   }
