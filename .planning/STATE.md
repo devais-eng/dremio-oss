@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** Users can only access views and UDFs they've been explicitly granted access to, with deny-by-default policy and admin bypass -- closing the open-access gap in Dremio OSS.
-**Current focus:** Phase 6 in progress. Plan 06-02 (catalog visibility filtering) complete. Plan 06-03 (REST RBAC resource) is next.
+**Current focus:** Phase 6 COMPLETE. All 3 plans executed. All 10 requirements (REST-01 through REST-09, META-03) covered with production code and tests.
 
 ## Current Position
 
-Phase: 6 of 6 (REST API and Access Path Hardening) -- IN PROGRESS
-Plan: 2 of 3 in current phase
-Status: 06-02 complete (META-03 catalog visibility filtering). 06-03 (REST RBAC resource) pending.
-Last activity: 2026-02-18 -- 06-02 catalog visibility filtering (2 tasks, 3 files, 2 min)
+Phase: 6 of 6 (REST API and Access Path Hardening) -- COMPLETE
+Plan: 3 of 3 in current phase
+Status: ALL PLANS COMPLETE. Full RBAC implementation done (Phases 1-6).
+Last activity: 2026-02-18 -- 06-03 REST and catalog visibility tests (2 tasks, 3 files, 6 min)
 
-Progress: [█████████░] 90%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 13
-- Average duration: 4.9 min
-- Total execution time: ~1.1 hours
+- Total plans completed: 15 (all phases complete)
+- Average duration: 4.7 min
+- Total execution time: ~1.2 hours
 
 **By Phase:**
 
@@ -32,13 +32,14 @@ Progress: [█████████░] 90%
 | 03-service-layer | 2 | 4 min | 2 min |
 | 04-catalog-enforcement-and-di-wiring | 3 | 13 min | 4.3 min |
 | 05-ddl-handlers-and-system-tables | 3 | 19 min | 6.3 min |
-| 06-rest-api-and-access-path-hardening | 1 (of 3) | 2 min | 2 min |
+| 06-rest-api-and-access-path-hardening | 3 | 11 min | 3.7 min |
 
 **Recent Trend:**
-- Last 5 plans: 4 min, 8 min, 8 min, 3 min, 2 min
+- Last 5 plans: 8 min, 3 min, 2 min, 3 min, 6 min
 - Trend: stable-fast
 
 *Updated after each plan completion*
+| Phase 06 P03 | 6 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -111,6 +112,9 @@ Recent decisions affecting current work:
 - [05-02]: DDL handlers named CatalogGrantHandler/CatalogRevokeHandler (NOT GrantHandler/RevokeHandler) -- SqlGrantOnCatalog handles VDS/Function grants, not SqlGrant
 - [05-02]: Object path uses String.join('.', entity.names) -- matches RbacConfig.grantKey() dot-delimited format ensuring grant and check keys are identical
 - [05-02]: DDL works regardless of RBAC_ENABLED flag -- admins set up roles/grants before enabling enforcement; flag only gates enforcement in CatalogImpl
+- [Phase 06]: [06-03]: RbacResourceTest calls resource methods directly (not via HTTP) -- pure unit test, avoids JAX-RS container setup
+- [Phase 06]: [06-03]: getChildrenForPath() used instead of protected getNamespaceChildrenForPath() -- cross-package protected access restriction in Java
+- [Phase 06]: [06-03]: securityContext promoted from local to field in TestCatalogServiceHelper -- needed for RBAC isAdminMember() verification
 
 ### Pending Todos
 
@@ -152,5 +156,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: 06-01 complete (9-endpoint RbacResource, 6 DTOs, GrantStore.listByObject). 06-02 (catalog visibility filtering) was already done. Both plans complete.
-Resume file: .planning/phases/06-rest-api-and-access-path-hardening/06-01-SUMMARY.md
+Stopped at: 06-03 complete (REST and catalog visibility tests). All 6 phases complete. Full RBAC implementation done.
+Resume file: .planning/phases/06-rest-api-and-access-path-hardening/06-03-SUMMARY.md
