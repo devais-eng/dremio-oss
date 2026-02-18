@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** Users can only access views and UDFs they've been explicitly granted access to, with deny-by-default policy and admin bypass -- closing the open-access gap in Dremio OSS.
-**Current focus:** Phase 4 complete. Ready for Phase 5: DDL Handlers and System Tables
+**Current focus:** Phase 5 planned. Ready to execute: DDL Handlers and System Tables
 
 ## Current Position
 
-Phase: 4 of 6 (Catalog Enforcement and DI Wiring) -- COMPLETE
-Plan: 3 of 3 in current phase (all plans complete)
-Status: Completed 04-03 (CatalogImpl RBAC enforcement unit tests)
-Last activity: 2026-02-18 -- Completed 04-03: 10 unit tests for validatePrivilege enforcement paths
+Phase: 5 of 6 (DDL Handlers and System Tables) -- PLANNED
+Plan: 0 of 3 in current phase (3 plans ready for execution)
+Status: Plans 05-01, 05-02, 05-03 created and verified (PASSED)
+Last activity: 2026-02-18 -- Phase 5 planning complete (research + 3 plans + verification)
 
 Progress: [███████░░░] 69%
 
@@ -112,8 +112,17 @@ None yet.
 - [Research]: REST endpoint audit scope for Phase 6 is unknown -- DatasetVersionResource (1422 lines) may bypass CatalogImpl
 - [Build]: Maven build requires Java 21 (enforcer [21,22) range); only Java 11/17 available. Protoc 3.6.0 used directly for proto verification. Full Maven compile blocked until Java 21 JDK is installed.
 
+### Phase 5 Decisions
+
+- [05-planning]: DDL works even when RBAC enforcement is OFF — allows admins to set up roles/grants before enabling enforcement
+- [05-planning]: All DDL is admin-only — every handler checks rbacService.isAdminMember(userName) before proceeding
+- [05-planning]: Provider<RbacService> added as LAST parameter to SabotContext and ContextService constructors to minimize risk
+- [05-planning]: System tables need NO code changes — they already exist and delegate to AccessControlListingManager; wiring RbacService into SabotContext makes them work
+- [05-planning]: isAdminMember() changed from private to public in RbacService for handler admin checks
+- [05-planning]: 6 handler classes at exact FQCNs expected by SQL parsers via Class.forName() — no parser modifications needed
+
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Completed 04-03-PLAN.md. Phase 4 complete. Ready for Phase 5.
-Resume file: .planning/phases/04-catalog-enforcement-and-di-wiring/04-03-SUMMARY.md
+Stopped at: Phase 5 planning complete. 3 plans created and verified. Ready for execution.
+Resume file: .planning/phases/05-ddl-handlers-and-system-tables/05-RESEARCH.md
