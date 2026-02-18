@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** Users can only access views and UDFs they've been explicitly granted access to, with deny-by-default policy and admin bypass -- closing the open-access gap in Dremio OSS.
-**Current focus:** Phase 5 executing. Plan 05-01 complete. Plans 05-02 and 05-03 ready for execution.
+**Current focus:** Phase 5 executing. Plans 05-01 and 05-02 complete. Plan 05-03 ready for execution.
 
 ## Current Position
 
 Phase: 5 of 6 (DDL Handlers and System Tables) -- IN PROGRESS
-Plan: 1 of 3 in current phase (2 plans remaining)
-Status: Plan 05-01 complete. Plans 05-02, 05-03 ready.
-Last activity: 2026-02-18 -- Plan 05-01 complete (RbacService context wiring)
+Plan: 2 of 3 in current phase (1 plan remaining)
+Status: Plan 05-02 complete. Plan 05-03 ready.
+Last activity: 2026-02-18 -- Plan 05-02 complete (6 DDL handler classes)
 
-Progress: [████████░░] 72%
+Progress: [█████████░] 78%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
+- Total plans completed: 11
 - Average duration: 5 min
-- Total execution time: 0.92 hours
+- Total execution time: ~1.0 hours
 
 **By Phase:**
 
@@ -31,10 +31,10 @@ Progress: [████████░░] 72%
 | 02-persistence-layer | 2 | 10 min | 5 min |
 | 03-service-layer | 2 | 4 min | 2 min |
 | 04-catalog-enforcement-and-di-wiring | 3 | 13 min | 4.3 min |
-| 05-ddl-handlers-and-system-tables | 1 (of 3) | 8 min | 8 min |
+| 05-ddl-handlers-and-system-tables | 2 (of 3) | 16 min | 8 min |
 
 **Recent Trend:**
-- Last 5 plans: 2 min, 7 min, 2 min, 4 min, 8 min
+- Last 5 plans: 7 min, 2 min, 4 min, 8 min, 8 min
 - Trend: stable-fast
 
 *Updated after each plan completion*
@@ -107,6 +107,9 @@ Recent decisions affecting current work:
 - [05-01]: SabotQueryContext default getRbacService() returns null -- safe for non-DAC test contexts
 - [05-01]: SabotNode test harness uses Providers.of(null) -- RBAC disabled by default in unit tests
 - [05-01]: getAccessControlListingManager() delegates to rbacServiceProvider -- system tables sys.roles, sys.privileges, sys.membership now work
+- [05-02]: DDL handlers named CatalogGrantHandler/CatalogRevokeHandler (NOT GrantHandler/RevokeHandler) -- SqlGrantOnCatalog handles VDS/Function grants, not SqlGrant
+- [05-02]: Object path uses String.join('.', entity.names) -- matches RbacConfig.grantKey() dot-delimited format ensuring grant and check keys are identical
+- [05-02]: DDL works regardless of RBAC_ENABLED flag -- admins set up roles/grants before enabling enforcement; flag only gates enforcement in CatalogImpl
 
 ### Pending Todos
 
@@ -120,16 +123,18 @@ None yet.
 
 ### Phase 5 Decisions
 
-- [05-planning]: DDL works even when RBAC enforcement is OFF — allows admins to set up roles/grants before enabling enforcement
-- [05-planning]: All DDL is admin-only — every handler checks rbacService.isAdminMember(userName) before proceeding
+- [05-planning]: DDL works even when RBAC enforcement is OFF -- allows admins to set up roles/grants before enabling enforcement
+- [05-planning]: All DDL is admin-only -- every handler checks rbacService.isAdminMember(userName) before proceeding
 - [05-planning]: Provider<RbacService> added as LAST parameter to SabotContext and ContextService constructors to minimize risk
-- [05-planning]: System tables need NO code changes — they already exist and delegate to AccessControlListingManager; wiring RbacService into SabotContext makes them work
+- [05-planning]: System tables need NO code changes -- they already exist and delegate to AccessControlListingManager; wiring RbacService into SabotContext makes them work
 - [05-planning]: isAdminMember() changed from private to public in RbacService for handler admin checks
-- [05-planning]: 6 handler classes at exact FQCNs expected by SQL parsers via Class.forName() — no parser modifications needed
-- [05-01]: Provider threading pattern: add as last param at each layer (DACDaemonModule -> ContextService -> SabotContext) — consistent with AccelerationManager/MetadataIOPool patterns
+- [05-planning]: 6 handler classes at exact FQCNs expected by SQL parsers via Class.forName() -- no parser modifications needed
+- [05-01]: Provider threading pattern: add as last param at each layer (DACDaemonModule -> ContextService -> SabotContext) -- consistent with AccelerationManager/MetadataIOPool patterns
+- [05-02]: CatalogGrantHandler/CatalogRevokeHandler (not GrantHandler/RevokeHandler) -- grammar routes VDS/Function grants to SqlGrantOnCatalog, not SqlGrant
+- [05-02]: String.join('.', entity.names) for object path -- consistent with RbacConfig.grantKey() format
 
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Plan 05-01 complete. RbacService wired through context chain. Plans 05-02 (DDL handlers) and 05-03 (system tables verification) ready.
-Resume file: .planning/phases/05-ddl-handlers-and-system-tables/05-01-SUMMARY.md
+Stopped at: Plan 05-02 complete. 6 DDL handler classes created. Plan 05-03 (system tables verification) ready.
+Resume file: .planning/phases/05-ddl-handlers-and-system-tables/05-02-SUMMARY.md
