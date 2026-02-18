@@ -40,10 +40,11 @@ import java.util.stream.Collectors;
  * users and is never stored.
  *
  * <p>Privilege resolution order (locked decision):
+ *
  * <ol>
- *   <li>Check if user is ADMIN member -- short-circuit return true</li>
- *   <li>Collect user's explicit roles + PUBLIC</li>
- *   <li>Check grants for all collected roles (OR logic)</li>
+ *   <li>Check if user is ADMIN member -- short-circuit return true
+ *   <li>Collect user's explicit roles + PUBLIC
+ *   <li>Check grants for all collected roles (OR logic)
  * </ol>
  *
  * @see #hasPrivilege(String, String, String, String)
@@ -96,12 +97,13 @@ public class RbacService implements AccessControlListingManager {
    * Checks whether the given user has the specified privilege on the given object.
    *
    * <p>Resolution order:
+   *
    * <ol>
-   *   <li>If user is an ADMIN member, return true immediately (short-circuit).</li>
-   *   <li>Collect user's explicit role IDs + PUBLIC_ROLE_ID (implicit membership).</li>
+   *   <li>If user is an ADMIN member, return true immediately (short-circuit).
+   *   <li>Collect user's explicit role IDs + PUBLIC_ROLE_ID (implicit membership).
    *   <li>For each role, check if a matching grant exists (OR logic). If any grant found, return
-   *       true.</li>
-   *   <li>If no grant found across all roles, return false (deny-by-default).</li>
+   *       true.
+   *   <li>If no grant found across all roles, return false (deny-by-default).
    * </ol>
    *
    * @param userName the user to check
@@ -145,9 +147,7 @@ public class RbacService implements AccessControlListingManager {
     return false;
   }
 
-  /**
-   * Checks whether the given user is a member of the ADMIN role.
-   */
+  /** Checks whether the given user is a member of the ADMIN role. */
   public boolean isAdminMember(String userName) {
     String key = RbacConfig.membershipKey(userName, ADMIN_ROLE_ID);
     return membershipStore.get(key) != null;
@@ -300,10 +300,39 @@ public class RbacService implements AccessControlListingManager {
    * @param privilege the privilege to revoke
    * @throws RbacEntityNotFoundException if the grant does not exist
    */
-  public void revokePrivilege(
-      String roleId, String objectType, String objectPath, String privilege)
+  public void revokePrivilege(String roleId, String objectType, String objectPath, String privilege)
       throws RbacEntityNotFoundException {
     grantStore.revoke(RbacConfig.grantKey(roleId, objectType, objectPath, privilege));
+  }
+
+  // ---------------------------------------------------------------------------
+  // REST API support
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns all memberships for the given role. Delegates to {@link MembershipStore#listByRole}.
+   *
+   * <p>Used by REST endpoint GET /api/v3/rbac/roles/{name}/members.
+   *
+   * @param roleId the role whose members to list
+   * @return list of Membership proto messages; empty if no members
+   */
+  public List<Membership> listMembersByRole(String roleId) {
+    return membershipStore.listByRole(roleId);
+  }
+
+  /**
+   * Returns all grants on the given object across all roles. Delegates to {@link
+   * GrantStore#listByObject}.
+   *
+   * <p>Used by REST endpoint GET /api/v3/rbac/grants?objectType=...&objectPath=...
+   *
+   * @param objectType the object type (e.g. "VDS", "FUNCTION")
+   * @param objectPath the dot-delimited object path
+   * @return list of Grant proto messages; empty if no grants exist
+   */
+  public List<Grant> listGrantsByObject(String objectType, String objectPath) {
+    return grantStore.listByObject(objectType, objectPath);
   }
 
   // ---------------------------------------------------------------------------
@@ -362,10 +391,8 @@ public class RbacService implements AccessControlListingManager {
   public Iterable<SysTableRoleInfo> getRoleInfo() {
     List<SysTableRoleInfo> roles = new ArrayList<>();
     // Synthetic built-in roles
-    roles.add(
-        new SysTableRoleInfo(ADMIN_ROLE_ID, ADMIN_ROLE_ID, "SYSTEM", null, null, "SYSTEM"));
-    roles.add(
-        new SysTableRoleInfo(PUBLIC_ROLE_ID, PUBLIC_ROLE_ID, "SYSTEM", null, null, "SYSTEM"));
+    roles.add(new SysTableRoleInfo(ADMIN_ROLE_ID, ADMIN_ROLE_ID, "SYSTEM", null, null, "SYSTEM"));
+    roles.add(new SysTableRoleInfo(PUBLIC_ROLE_ID, PUBLIC_ROLE_ID, "SYSTEM", null, null, "SYSTEM"));
     // User-created roles from store
     for (Role role : roleStore.listAll()) {
       roles.add(
@@ -403,8 +430,7 @@ public class RbacService implements AccessControlListingManager {
     List<SysTableMembershipInfo> memberships = new ArrayList<>();
     for (Membership membership : membershipStore.listAll()) {
       memberships.add(
-          new SysTableMembershipInfo(
-              membership.getRoleId(), membership.getUserName(), "USER"));
+          new SysTableMembershipInfo(membership.getRoleId(), membership.getUserName(), "USER"));
     }
     return memberships;
   }

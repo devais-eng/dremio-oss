@@ -37,9 +37,9 @@ import javax.inject.Provider;
  *
  * <p>Store name: {@value RbacConfig#GRANTS_STORE}
  *
- * <p>Key: composite pipe-delimited string built via {@link RbacConfig#grantKey}.
- * Format: {@code {role_id}|{object_type}|{object_path}|{privilege}}
- * Example: {@code analyst|VDS|schemas.my_view|SELECT}
+ * <p>Key: composite pipe-delimited string built via {@link RbacConfig#grantKey}. Format: {@code
+ * {role_id}|{object_type}|{object_path}|{privilege}} Example: {@code
+ * analyst|VDS|schemas.my_view|SELECT}
  *
  * <p>Uses {@code Format.ofString()} (NOT {@code Format.ofCompoundFormat()}) to preserve
  * human-readable key inspection during debugging.
@@ -56,13 +56,14 @@ public class GrantStore {
   }
 
   /**
-   * Returns the Grant for the given composite key, or null if not found.
-   * Build the key with {@link RbacConfig#grantKey}.
+   * Returns the Grant for the given composite key, or null if not found. Build the key with {@link
+   * RbacConfig#grantKey}.
    *
    * @throws IllegalArgumentException if grantKey is null or empty
    */
   public Grant get(String grantKey) {
-    Preconditions.checkArgument(!Strings.isNullOrEmpty(grantKey), "grantKey must not be null or empty");
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(grantKey), "grantKey must not be null or empty");
     Document<String, Grant> doc = store.get().get(grantKey);
     return doc == null ? null : doc.getValue();
   }
@@ -74,7 +75,8 @@ public class GrantStore {
    * @throws RbacEntityAlreadyExistsException if the grant already exists
    */
   public void grant(String grantKey, Grant grant) {
-    Preconditions.checkArgument(!Strings.isNullOrEmpty(grantKey), "grantKey must not be null or empty");
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(grantKey), "grantKey must not be null or empty");
     Preconditions.checkNotNull(grant, "grant must not be null");
     try {
       store.get().put(grantKey, grant, KVStore.PutOption.CREATE);
@@ -90,7 +92,8 @@ public class GrantStore {
    * @throws RbacEntityNotFoundException if no grant exists for grantKey
    */
   public void revoke(String grantKey) throws RbacEntityNotFoundException {
-    Preconditions.checkArgument(!Strings.isNullOrEmpty(grantKey), "grantKey must not be null or empty");
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(grantKey), "grantKey must not be null or empty");
     if (store.get().get(grantKey) == null) {
       throw new RbacEntityNotFoundException("Grant not found: " + grantKey);
     }
@@ -98,8 +101,8 @@ public class GrantStore {
   }
 
   /**
-   * Returns all grants held by the given role. Key format: "{role_id}|...".
-   * Uses scan-and-filter (not IndexedStore) per locked decision.
+   * Returns all grants held by the given role. Key format: "{role_id}|...". Uses scan-and-filter
+   * (not IndexedStore) per locked decision.
    *
    * @throws IllegalArgumentException if roleId is null or empty
    */
@@ -113,8 +116,31 @@ public class GrantStore {
   }
 
   /**
-   * Returns all grants in the store. Intended for system table queries.
+   * Returns all grants on the given object (any role, any privilege). Uses scan-and-filter because
+   * the grant key format puts role_id first, making object-based prefix matching impossible.
+   *
+   * <p>Accepted performance trade-off for v1: full scan over all grants. Consistent with the
+   * existing {@link #listByRole} pattern.
+   *
+   * @param objectType the object type to filter by (e.g. "VDS", "FUNCTION")
+   * @param objectPath the dot-delimited object path to filter by
+   * @throws IllegalArgumentException if objectType or objectPath is null or empty
    */
+  public List<Grant> listByObject(String objectType, String objectPath) {
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(objectType), "objectType must not be null or empty");
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(objectPath), "objectPath must not be null or empty");
+    return StreamSupport.stream(store.get().find().spliterator(), false)
+        .filter(
+            doc ->
+                objectType.equals(doc.getValue().getObjectType())
+                    && objectPath.equals(doc.getValue().getObjectPath()))
+        .map(Document::getValue)
+        .collect(Collectors.toList());
+  }
+
+  /** Returns all grants in the store. Intended for system table queries. */
   public List<Grant> listAll() {
     return StreamSupport.stream(store.get().find().spliterator(), false)
         .map(Document::getValue)
@@ -122,23 +148,27 @@ public class GrantStore {
   }
 
   /**
-   * Removes all grants for the given role. Package-private -- used only by RoleStore.delete() cascade.
+   * Removes all grants for the given role. Package-private -- used only by RoleStore.delete()
+   * cascade.
    *
-   * <p>Keys are collected to a list first to avoid ConcurrentModificationException on the
-   * one-shot live iterator returned by {@code find()}.
+   * <p>Keys are collected to a list first to avoid ConcurrentModificationException on the one-shot
+   * live iterator returned by {@code find()}.
    */
   void deleteByRole(String roleId) {
     String prefix = roleId + RbacConfig.KEY_SEP;
     StreamSupport.stream(store.get().find().spliterator(), false)
         .filter(doc -> doc.getKey().startsWith(prefix))
         .map(Document::getKey)
-        .collect(Collectors.toList()) // collect to list first to avoid ConcurrentModificationException on the live iterator
+        .collect(
+            Collectors
+                .toList()) // collect to list first to avoid ConcurrentModificationException on the
+        // live iterator
         .forEach(key -> store.get().delete(key));
   }
 
   /**
-   * KV store creator. The class name {@code StoreCreator} is the permanent store
-   * identifier -- do NOT rename this class in any future phase.
+   * KV store creator. The class name {@code StoreCreator} is the permanent store identifier -- do
+   * NOT rename this class in any future phase.
    */
   public static final class StoreCreator implements KVStoreCreationFunction<String, Grant> {
     @Override
