@@ -44,8 +44,8 @@ import org.junit.Test;
 
 /**
  * Unit tests for all 6 RBAC DDL handlers: RoleCreateHandler, RoleDropHandler, RoleGrantHandler,
- * RoleRevokeHandler, CatalogGrantHandler, CatalogRevokeHandler. Verifies correct RbacService
- * method calls, admin-only enforcement, and system table wiring contract.
+ * RoleRevokeHandler, CatalogGrantHandler, CatalogRevokeHandler. Verifies correct RbacService method
+ * calls, admin-only enforcement, and system table wiring contract.
  */
 public class TestRbacDdlHandlers {
 
@@ -94,7 +94,9 @@ public class TestRbacDdlHandlers {
     verify(rbacService).createRole("analyst", "analyst", "admin_user");
     assertThat(results).hasSize(1);
     assertThat(results.get(0).ok).isTrue();
-    assertThat(results.get(0).summary).containsIgnoringCase("analyst").containsIgnoringCase("created");
+    assertThat(results.get(0).summary)
+        .containsIgnoringCase("analyst")
+        .containsIgnoringCase("created");
   }
 
   @Test
@@ -104,7 +106,8 @@ public class TestRbacDdlHandlers {
 
     SqlCreateRole node = new SqlCreateRole(SqlParserPos.ZERO, id("analyst"));
 
-    assertThatThrownBy(() -> new RoleCreateHandler(queryContext).toResult("CREATE ROLE analyst", node))
+    assertThatThrownBy(
+            () -> new RoleCreateHandler(queryContext).toResult("CREATE ROLE analyst", node))
         .isInstanceOf(UserException.class)
         .hasMessageContaining("Only administrators");
   }
@@ -115,7 +118,8 @@ public class TestRbacDdlHandlers {
 
     SqlCreateRole node = new SqlCreateRole(SqlParserPos.ZERO, id("analyst"));
 
-    assertThatThrownBy(() -> new RoleCreateHandler(queryContext).toResult("CREATE ROLE analyst", node))
+    assertThatThrownBy(
+            () -> new RoleCreateHandler(queryContext).toResult("CREATE ROLE analyst", node))
         .isInstanceOf(UserException.class)
         .hasMessageContaining("Only administrators");
   }
@@ -133,7 +137,9 @@ public class TestRbacDdlHandlers {
     verify(rbacService).deleteRole("analyst");
     assertThat(results).hasSize(1);
     assertThat(results.get(0).ok).isTrue();
-    assertThat(results.get(0).summary).containsIgnoringCase("analyst").containsIgnoringCase("dropped");
+    assertThat(results.get(0).summary)
+        .containsIgnoringCase("analyst")
+        .containsIgnoringCase("dropped");
   }
 
   @Test
@@ -202,8 +208,7 @@ public class TestRbacDdlHandlers {
             SqlLiteral.createSymbol(SqlGrant.GranteeType.USER, SqlParserPos.ZERO),
             id("alice"));
     List<SimpleCommandResult> results =
-        new RoleRevokeHandler(queryContext)
-            .toResult("REVOKE ROLE analyst FROM USER alice", node);
+        new RoleRevokeHandler(queryContext).toResult("REVOKE ROLE analyst FROM USER alice", node);
 
     verify(rbacService).removeMembership("alice", "analyst");
     assertThat(results).hasSize(1);
@@ -251,11 +256,13 @@ public class TestRbacDdlHandlers {
         new CatalogGrantHandler(queryContext)
             .toResult("GRANT SELECT ON VDS myspace.myview TO ROLE analyst", node);
 
-    verify(rbacService)
-        .grantPrivilege("analyst", "VDS", "myspace.myview", "SELECT", "admin_user");
+    verify(rbacService).grantPrivilege("analyst", "VDS", "myspace.myview", "SELECT", "admin_user");
     assertThat(results).hasSize(1);
     assertThat(results.get(0).ok).isTrue();
-    assertThat(results.get(0).summary).contains("VDS").contains("myspace.myview").contains("analyst");
+    assertThat(results.get(0).summary)
+        .contains("VDS")
+        .contains("myspace.myview")
+        .contains("analyst");
   }
 
   @Test

@@ -64,7 +64,7 @@ Each task was committed atomically:
 
 1. **Task 1: Create unit tests for DDL handlers and system table wiring** - `dfefe36db` (test)
 
-**Plan metadata:** [pending] (docs: complete plan)
+**Plan metadata:** `08a4af7e5` (docs: complete plan)
 
 ## Files Created/Modified
 - `sabot/kernel/src/test/java/com/dremio/exec/planner/sql/handlers/TestRbacDdlHandlers.java` - 16 unit tests for all 6 RBAC DDL handlers, admin enforcement, system table wiring

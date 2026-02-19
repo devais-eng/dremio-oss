@@ -188,9 +188,7 @@ public class GrantStoreTest {
     List<Grant> results = grantStore.listByObject("VDS", "space.view1");
 
     assertThat(results).hasSize(2);
-    assertThat(results)
-        .extracting(Grant::getRoleId)
-        .containsExactlyInAnyOrder("analyst", "dev");
+    assertThat(results).extracting(Grant::getRoleId).containsExactlyInAnyOrder("analyst", "dev");
   }
 
   @Test

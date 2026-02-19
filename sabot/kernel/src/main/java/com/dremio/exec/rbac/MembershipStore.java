@@ -37,9 +37,8 @@ import javax.inject.Provider;
  *
  * <p>Store name: {@value RbacConfig#MEMBERSHIPS_STORE}
  *
- * <p>Key: composite pipe-delimited string built via {@link RbacConfig#membershipKey}.
- * Format: {@code {user_name}|{role_id}}
- * Example: {@code alice|analyst}
+ * <p>Key: composite pipe-delimited string built via {@link RbacConfig#membershipKey}. Format:
+ * {@code {user_name}|{role_id}} Example: {@code alice|analyst}
  *
  * <p>Uses {@code Format.ofString()} (NOT {@code Format.ofCompoundFormat()}) to preserve
  * human-readable key inspection during debugging.
@@ -56,13 +55,14 @@ public class MembershipStore {
   }
 
   /**
-   * Returns the Membership for the given composite key, or null if not found.
-   * Build the key with {@link RbacConfig#membershipKey}.
+   * Returns the Membership for the given composite key, or null if not found. Build the key with
+   * {@link RbacConfig#membershipKey}.
    *
    * @throws IllegalArgumentException if membershipKey is null or empty
    */
   public Membership get(String membershipKey) {
-    Preconditions.checkArgument(!Strings.isNullOrEmpty(membershipKey), "membershipKey must not be null or empty");
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(membershipKey), "membershipKey must not be null or empty");
     Document<String, Membership> doc = store.get().get(membershipKey);
     return doc == null ? null : doc.getValue();
   }
@@ -74,7 +74,8 @@ public class MembershipStore {
    * @throws RbacEntityAlreadyExistsException if the membership already exists
    */
   public void add(String membershipKey, Membership membership) {
-    Preconditions.checkArgument(!Strings.isNullOrEmpty(membershipKey), "membershipKey must not be null or empty");
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(membershipKey), "membershipKey must not be null or empty");
     Preconditions.checkNotNull(membership, "membership must not be null");
     try {
       store.get().put(membershipKey, membership, KVStore.PutOption.CREATE);
@@ -90,7 +91,8 @@ public class MembershipStore {
    * @throws RbacEntityNotFoundException if no membership exists for membershipKey
    */
   public void remove(String membershipKey) throws RbacEntityNotFoundException {
-    Preconditions.checkArgument(!Strings.isNullOrEmpty(membershipKey), "membershipKey must not be null or empty");
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(membershipKey), "membershipKey must not be null or empty");
     if (store.get().get(membershipKey) == null) {
       throw new RbacEntityNotFoundException("Membership not found: " + membershipKey);
     }
@@ -98,13 +100,14 @@ public class MembershipStore {
   }
 
   /**
-   * Returns all memberships for the given userName. Key format: "{user_name}|{role_id}".
-   * Filters keys starting with "userName|" (scan-and-filter, not IndexedStore).
+   * Returns all memberships for the given userName. Key format: "{user_name}|{role_id}". Filters
+   * keys starting with "userName|" (scan-and-filter, not IndexedStore).
    *
    * @throws IllegalArgumentException if userName is null or empty
    */
   public List<Membership> listByUser(String userName) {
-    Preconditions.checkArgument(!Strings.isNullOrEmpty(userName), "userName must not be null or empty");
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(userName), "userName must not be null or empty");
     String prefix = userName + RbacConfig.KEY_SEP;
     return StreamSupport.stream(store.get().find().spliterator(), false)
         .filter(doc -> doc.getKey().startsWith(prefix))
@@ -127,9 +130,7 @@ public class MembershipStore {
         .collect(Collectors.toList());
   }
 
-  /**
-   * Returns all memberships in the store. Intended for system table queries.
-   */
+  /** Returns all memberships in the store. Intended for system table queries. */
   public List<Membership> listAll() {
     return StreamSupport.stream(store.get().find().spliterator(), false)
         .map(Document::getValue)
@@ -137,23 +138,27 @@ public class MembershipStore {
   }
 
   /**
-   * Removes all memberships for the given role. Package-private -- used only by RoleStore.delete() cascade.
+   * Removes all memberships for the given role. Package-private -- used only by RoleStore.delete()
+   * cascade.
    *
-   * <p>Keys are collected to a list first to avoid ConcurrentModificationException on the
-   * one-shot live iterator returned by {@code find()}.
+   * <p>Keys are collected to a list first to avoid ConcurrentModificationException on the one-shot
+   * live iterator returned by {@code find()}.
    */
   void deleteByRole(String roleId) {
     String suffix = RbacConfig.KEY_SEP + roleId;
     StreamSupport.stream(store.get().find().spliterator(), false)
         .filter(doc -> doc.getKey().endsWith(suffix))
         .map(Document::getKey)
-        .collect(Collectors.toList()) // collect to list first to avoid ConcurrentModificationException on the live iterator
+        .collect(
+            Collectors
+                .toList()) // collect to list first to avoid ConcurrentModificationException on the
+        // live iterator
         .forEach(key -> store.get().delete(key));
   }
 
   /**
-   * KV store creator. The class name {@code StoreCreator} is the permanent store
-   * identifier -- do NOT rename this class in any future phase.
+   * KV store creator. The class name {@code StoreCreator} is the permanent store identifier -- do
+   * NOT rename this class in any future phase.
    */
   public static final class StoreCreator implements KVStoreCreationFunction<String, Membership> {
     @Override

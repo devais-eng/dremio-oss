@@ -37,8 +37,8 @@ import javax.inject.Provider;
  *
  * <p>Store name: {@value RbacConfig#ROLES_STORE}
  *
- * <p>Key: role_id (slugified role name, e.g. "analyst"). Role names are immutable --
- * no rename support; DROP and re-CREATE to rename.
+ * <p>Key: role_id (slugified role name, e.g. "analyst"). Role names are immutable -- no rename
+ * support; DROP and re-CREATE to rename.
  *
  * <p>Value: {@link Role} proto3 message serialized via {@code Format.ofProtobuf}.
  */
@@ -96,9 +96,7 @@ public class RoleStore {
     store.get().delete(roleId);
   }
 
-  /**
-   * Returns all roles in the store. Intended for system table queries.
-   */
+  /** Returns all roles in the store. Intended for system table queries. */
   public List<Role> listAll() {
     return StreamSupport.stream(store.get().find().spliterator(), false)
         .map(Document::getValue)
@@ -106,8 +104,8 @@ public class RoleStore {
   }
 
   /**
-   * KV store creator. The class name {@code StoreCreator} is the permanent store
-   * identifier -- do NOT rename this class in any future phase.
+   * KV store creator. The class name {@code StoreCreator} is the permanent store identifier -- do
+   * NOT rename this class in any future phase.
    */
   public static final class StoreCreator implements KVStoreCreationFunction<String, Role> {
     @Override

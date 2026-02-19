@@ -87,7 +87,11 @@ public class RbacResourceTest {
   }
 
   private Membership buildMembership(String userName, String roleId) {
-    return Membership.newBuilder().setUserName(userName).setRoleId(roleId).setGrantedBy("admin_user").build();
+    return Membership.newBuilder()
+        .setUserName(userName)
+        .setRoleId(roleId)
+        .setGrantedBy("admin_user")
+        .build();
   }
 
   private Grant buildGrant(String roleId, String objectType, String objectPath, String privilege) {
@@ -111,9 +115,7 @@ public class RbacResourceTest {
     assertThatThrownBy(() -> resource.listRoles())
         .isInstanceOf(UserException.class)
         .satisfies(
-            e ->
-                assertThat(((UserException) e).getErrorType().name())
-                    .isEqualTo("PERMISSION"));
+            e -> assertThat(((UserException) e).getErrorType().name()).isEqualTo("PERMISSION"));
   }
 
   @Test
@@ -123,9 +125,7 @@ public class RbacResourceTest {
     assertThatThrownBy(() -> resource.createRole(new CreateRoleRequest("analyst")))
         .isInstanceOf(UserException.class)
         .satisfies(
-            e ->
-                assertThat(((UserException) e).getErrorType().name())
-                    .isEqualTo("PERMISSION"));
+            e -> assertThat(((UserException) e).getErrorType().name()).isEqualTo("PERMISSION"));
   }
 
   // ---------------------------------------------------------------------------
@@ -186,8 +186,7 @@ public class RbacResourceTest {
   @Test
   public void testListMembers_returnsMembers() {
     List<Membership> memberships =
-        Arrays.asList(
-            buildMembership("alice", "analyst"), buildMembership("bob", "analyst"));
+        Arrays.asList(buildMembership("alice", "analyst"), buildMembership("bob", "analyst"));
     when(rbacService.listMembersByRole("analyst")).thenReturn(memberships);
 
     ResponseList<RbacMembership> response = resource.listMembers("analyst");
@@ -259,8 +258,7 @@ public class RbacResourceTest {
         .when(rbacService)
         .deleteRole("analyst");
 
-    assertThatThrownBy(() -> resource.deleteRole("analyst"))
-        .isInstanceOf(NotFoundException.class);
+    assertThatThrownBy(() -> resource.deleteRole("analyst")).isInstanceOf(NotFoundException.class);
   }
 
   @Test
@@ -272,7 +270,8 @@ public class RbacResourceTest {
     assertThatThrownBy(() -> resource.createRole(new CreateRoleRequest("analyst")))
         .isInstanceOf(WebApplicationException.class)
         .satisfies(
-            e -> assertThat(((WebApplicationException) e).getResponse().getStatus()).isEqualTo(409));
+            e ->
+                assertThat(((WebApplicationException) e).getResponse().getStatus()).isEqualTo(409));
   }
 
   @Test
@@ -305,8 +304,7 @@ public class RbacResourceTest {
 
   @Test
   public void testCreateRole_nullBodyReturns400() {
-    assertThatThrownBy(() -> resource.createRole(null))
-        .isInstanceOf(BadRequestException.class);
+    assertThatThrownBy(() -> resource.createRole(null)).isInstanceOf(BadRequestException.class);
   }
 
   @Test

@@ -43,7 +43,6 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.dremio.catalog.exception.CatalogEntityAlreadyExistsException;
-import com.dremio.config.DremioConfig;
 import com.dremio.catalog.exception.CatalogEntityNotFoundException;
 import com.dremio.catalog.exception.CatalogException;
 import com.dremio.catalog.model.CatalogEntityId;
@@ -58,6 +57,7 @@ import com.dremio.common.concurrent.bulk.BulkRequest;
 import com.dremio.common.concurrent.bulk.BulkResponse;
 import com.dremio.common.exceptions.UserException;
 import com.dremio.common.utils.PathUtils;
+import com.dremio.config.DremioConfig;
 import com.dremio.connector.ConnectorException;
 import com.dremio.connector.metadata.AttributeValue;
 import com.dremio.connector.metadata.DatasetHandle;
@@ -67,11 +67,11 @@ import com.dremio.datastore.SearchQueryUtils;
 import com.dremio.datastore.SearchTypes;
 import com.dremio.datastore.api.ImmutableFindByCondition;
 import com.dremio.exec.catalog.CatalogServiceImpl.SourceModifier;
-import com.dremio.exec.planner.sql.parser.SqlGrant;
-import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.dotfile.View;
 import com.dremio.exec.physical.base.ViewOptions;
 import com.dremio.exec.planner.logical.ViewTable;
+import com.dremio.exec.planner.sql.parser.SqlGrant;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.store.AuthorizationContext;
 import com.dremio.exec.store.ConnectionRefusedException;
 import com.dremio.exec.store.DatasetRetrievalOptions;
@@ -1446,8 +1446,7 @@ public class TestCatalogImpl {
   @Test
   public void testValidatePrivilege_noGrant_throwsNotFound() {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
-    when(rbacService.hasPrivilege(
-            eq("gnarly"), eq("SELECT"), eq("VDS"), anyString()))
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("VDS"), anyString()))
         .thenReturn(false);
     CatalogImpl catalog = newCatalogImpl(versionContextResolver);
     UserExceptionAssert.assertThatThrownBy(
@@ -1473,8 +1472,7 @@ public class TestCatalogImpl {
   @Test
   public void testValidatePrivilege_executeMapsToFunction() {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
-    when(rbacService.hasPrivilege(
-            eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString()))
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString()))
         .thenReturn(true);
     CatalogImpl catalog = newCatalogImpl(versionContextResolver);
     // Should NOT throw -- EXECUTE on FUNCTION is granted
@@ -1486,8 +1484,7 @@ public class TestCatalogImpl {
   @Test
   public void testValidatePrivilege_executeDenied_throwsNotFound() {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
-    when(rbacService.hasPrivilege(
-            eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString()))
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString()))
         .thenReturn(false);
     CatalogImpl catalog = newCatalogImpl(versionContextResolver);
     UserExceptionAssert.assertThatThrownBy(
@@ -1502,8 +1499,7 @@ public class TestCatalogImpl {
   @Test
   public void testValidatePrivilege_createViewMapsToVds() {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
-    when(rbacService.hasPrivilege(
-            eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), anyString()))
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), anyString()))
         .thenReturn(false);
     CatalogImpl catalog = newCatalogImpl(versionContextResolver);
     UserExceptionAssert.assertThatThrownBy(
@@ -1513,8 +1509,7 @@ public class TestCatalogImpl {
                     SqlGrant.Privilege.CREATE_VIEW))
         .hasErrorType(VALIDATION)
         .hasMessageContaining("not found");
-    verify(rbacService)
-        .hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), anyString());
+    verify(rbacService).hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), anyString());
   }
 
   @Test
@@ -1542,15 +1537,13 @@ public class TestCatalogImpl {
     // not any inner keys -- which is inherent in the method signature (takes one key).
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
     NamespaceKey outerView = new NamespaceKey(Arrays.asList("myspace", "outer_view"));
-    when(rbacService.hasPrivilege(
-            eq("gnarly"), eq("SELECT"), eq("VDS"), anyString()))
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("VDS"), anyString()))
         .thenReturn(true);
     CatalogImpl catalog = newCatalogImpl(versionContextResolver);
     // Should NOT throw -- user has grant on outer view
     catalog.validatePrivilege(outerView, SqlGrant.Privilege.SELECT);
     // Verify only the outer view was checked, not inner tables
-    verify(rbacService, times(1))
-        .hasPrivilege(anyString(), anyString(), anyString(), anyString());
+    verify(rbacService, times(1)).hasPrivilege(anyString(), anyString(), anyString(), anyString());
   }
 
   @Test

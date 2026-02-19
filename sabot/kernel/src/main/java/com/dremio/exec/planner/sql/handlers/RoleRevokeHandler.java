@@ -53,7 +53,6 @@ public class RoleRevokeHandler extends SimpleDirectHandler {
 
     rbacService.removeMembership(revokeeName, roleName);
     return Collections.singletonList(
-        SimpleCommandResult.successful(
-            "Role '%s' revoked from user '%s'.", roleName, revokeeName));
+        SimpleCommandResult.successful("Role '%s' revoked from user '%s'.", roleName, revokeeName));
   }
 }

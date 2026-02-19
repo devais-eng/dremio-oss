@@ -34,8 +34,8 @@ import org.junit.Test;
  * Comprehensive unit tests for {@link RbacService}.
  *
  * <p>Covers all five phase success criteria plus immutability guards, listing conversions,
- * bootstrap, and fail-fast validation. Uses {@link LocalKVStoreProvider} for real KV store
- * behavior (no mocking).
+ * bootstrap, and fail-fast validation. Uses {@link LocalKVStoreProvider} for real KV store behavior
+ * (no mocking).
  */
 public class RbacServiceTest {
 
@@ -47,8 +47,7 @@ public class RbacServiceTest {
 
   @Before
   public void setUp() throws Exception {
-    kvStoreProvider =
-        new LocalKVStoreProvider(DremioTest.CLASSPATH_SCAN_RESULT, null, true, false);
+    kvStoreProvider = new LocalKVStoreProvider(DremioTest.CLASSPATH_SCAN_RESULT, null, true, false);
     kvStoreProvider.start();
     roleStore = new RoleStore(() -> kvStoreProvider);
     grantStore = new GrantStore(() -> kvStoreProvider);
@@ -140,7 +139,8 @@ public class RbacServiceTest {
 
     List<String> roleIds =
         roles.stream().map(SysTableRoleInfo::getRole_id).collect(Collectors.toList());
-    assertThat(roleIds).containsExactlyInAnyOrder(RbacService.ADMIN_ROLE_ID, RbacService.PUBLIC_ROLE_ID);
+    assertThat(roleIds)
+        .containsExactlyInAnyOrder(RbacService.ADMIN_ROLE_ID, RbacService.PUBLIC_ROLE_ID);
 
     // Both should be SYSTEM type
     for (SysTableRoleInfo role : roles) {
@@ -160,10 +160,7 @@ public class RbacServiceTest {
 
     // Find the user-created role
     SysTableRoleInfo analystRole =
-        roles.stream()
-            .filter(r -> "analyst".equals(r.getRole_id()))
-            .findFirst()
-            .orElse(null);
+        roles.stream().filter(r -> "analyst".equals(r.getRole_id())).findFirst().orElse(null);
     assertThat(analystRole).isNotNull();
     assertThat(analystRole.getRole_type()).isEqualTo("USER");
     assertThat(analystRole.getCreated_by()).isEqualTo("admin");
@@ -174,7 +171,8 @@ public class RbacServiceTest {
             .filter(r -> "SYSTEM".equals(r.getRole_type()))
             .map(SysTableRoleInfo::getRole_id)
             .collect(Collectors.toList());
-    assertThat(systemRoleIds).containsExactlyInAnyOrder(RbacService.ADMIN_ROLE_ID, RbacService.PUBLIC_ROLE_ID);
+    assertThat(systemRoleIds)
+        .containsExactlyInAnyOrder(RbacService.ADMIN_ROLE_ID, RbacService.PUBLIC_ROLE_ID);
   }
 
   @Test
@@ -332,8 +330,7 @@ public class RbacServiceTest {
   @Test
   public void testGrantPrivilege_rejectsNonExistentRole() {
     assertThatThrownBy(
-            () ->
-                rbacService.grantPrivilege("nonexistent", "VDS", "path", "SELECT", "admin"))
+            () -> rbacService.grantPrivilege("nonexistent", "VDS", "path", "SELECT", "admin"))
         .isInstanceOf(RbacEntityNotFoundException.class);
   }
 

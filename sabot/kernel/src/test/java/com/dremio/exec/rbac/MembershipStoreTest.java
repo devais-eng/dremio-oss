@@ -34,8 +34,7 @@ public class MembershipStoreTest {
 
   @Before
   public void setUp() throws Exception {
-    kvStoreProvider =
-        new LocalKVStoreProvider(DremioTest.CLASSPATH_SCAN_RESULT, null, true, false);
+    kvStoreProvider = new LocalKVStoreProvider(DremioTest.CLASSPATH_SCAN_RESULT, null, true, false);
     kvStoreProvider.start();
     membershipStore = new MembershipStore(() -> kvStoreProvider);
   }

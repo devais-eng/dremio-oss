@@ -38,8 +38,7 @@ public class RoleStoreTest {
 
   @Before
   public void setUp() throws Exception {
-    kvStoreProvider =
-        new LocalKVStoreProvider(DremioTest.CLASSPATH_SCAN_RESULT, null, true, false);
+    kvStoreProvider = new LocalKVStoreProvider(DremioTest.CLASSPATH_SCAN_RESULT, null, true, false);
     kvStoreProvider.start();
     roleStore = new RoleStore(() -> kvStoreProvider);
     grantStore = new GrantStore(() -> kvStoreProvider);
@@ -57,7 +56,8 @@ public class RoleStoreTest {
   }
 
   // Helper: build a Grant proto
-  private static Grant buildGrant(String roleId, String objectType, String objectPath, String privilege) {
+  private static Grant buildGrant(
+      String roleId, String objectType, String objectPath, String privilege) {
     return Grant.newBuilder()
         .setRoleId(roleId)
         .setObjectType(objectType)

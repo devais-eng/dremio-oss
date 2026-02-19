@@ -43,8 +43,6 @@ import static org.mockito.Mockito.when;
 
 import com.dremio.BaseTestQuery;
 import com.dremio.catalog.model.CatalogEntityKey;
-import com.dremio.config.DremioConfig;
-import com.dremio.exec.rbac.RbacService;
 import com.dremio.catalog.model.ResolvedVersionContext;
 import com.dremio.catalog.model.VersionContext;
 import com.dremio.catalog.model.VersionedDatasetId;
@@ -52,6 +50,7 @@ import com.dremio.catalog.model.dataset.TableVersionContext;
 import com.dremio.common.collections.Tuple;
 import com.dremio.common.exceptions.UserException;
 import com.dremio.common.expression.CompleteType;
+import com.dremio.config.DremioConfig;
 import com.dremio.dac.api.CatalogEntity;
 import com.dremio.dac.api.CatalogItem;
 import com.dremio.dac.api.CatalogPageToken;
@@ -82,6 +81,7 @@ import com.dremio.exec.catalog.SourceRefreshOption;
 import com.dremio.exec.catalog.VersionedListOptions;
 import com.dremio.exec.catalog.VersionedPlugin;
 import com.dremio.exec.planner.logical.ViewTable;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.record.BatchSchema;
 import com.dremio.exec.server.SabotContext;
 import com.dremio.exec.server.SimpleJobRunner;
@@ -2267,9 +2267,7 @@ public class TestCatalogServiceHelper {
         .setFullPathList(ImmutableList.of(spaceName));
   }
 
-  /**
-   * Helper: build a NameSpaceContainer for a VIRTUAL_DATASET with the given path components.
-   */
+  /** Helper: build a NameSpaceContainer for a VIRTUAL_DATASET with the given path components. */
   private static NameSpaceContainer vdsContainer(String... pathParts) {
     List<String> path = Arrays.asList(pathParts);
     DatasetConfig datasetConfig = new DatasetConfig();
@@ -2282,9 +2280,7 @@ public class TestCatalogServiceHelper {
         .setFullPathList(path);
   }
 
-  /**
-   * Helper: build a NameSpaceContainer for a PHYSICAL_DATASET with the given path components.
-   */
+  /** Helper: build a NameSpaceContainer for a PHYSICAL_DATASET with the given path components. */
   private static NameSpaceContainer pdsContainer(String... pathParts) {
     List<String> path = Arrays.asList(pathParts);
     DatasetConfig datasetConfig = new DatasetConfig();
@@ -2313,8 +2309,8 @@ public class TestCatalogServiceHelper {
    * Common mock setup for RBAC listing tests: makes the mock namespace service return a SPACE root
    * container for "myspace" and the given list of children when listed.
    */
-  private void setupRbacMockNamespace(
-      String spaceName, List<NameSpaceContainer> children) throws Exception {
+  private void setupRbacMockNamespace(String spaceName, List<NameSpaceContainer> children)
+      throws Exception {
     NameSpaceContainer rootContainer = spaceRootContainer(spaceName);
     when(mockNamespaceService.getEntities(any())).thenReturn(ImmutableList.of(rootContainer));
     when(mockNamespaceService.list(any(), any(), anyInt())).thenReturn(children);

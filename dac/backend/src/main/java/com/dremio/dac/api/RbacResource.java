@@ -177,8 +177,7 @@ public class RbacResource {
     requireRbacEnabled();
     requireAdmin();
     List<RbacMembership> memberships = new ArrayList<>();
-    for (com.dremio.exec.rbac.proto.RbacProto.Membership m :
-        rbacService.listMembersByRole(name)) {
+    for (com.dremio.exec.rbac.proto.RbacProto.Membership m : rbacService.listMembersByRole(name)) {
       memberships.add(RbacMembership.fromProto(m));
     }
     return new ResponseList<>(memberships);
@@ -195,8 +194,7 @@ public class RbacResource {
    */
   @POST
   @Path("/roles/{name}/members")
-  public RbacMembership addMember(
-      @PathParam("name") String name, AddMemberRequest request) {
+  public RbacMembership addMember(@PathParam("name") String name, AddMemberRequest request) {
     requireRbacEnabled();
     requireAdmin();
     if (request == null || Strings.isNullOrEmpty(request.getUserName())) {
@@ -255,8 +253,7 @@ public class RbacResource {
   @GET
   @Path("/grants")
   public ResponseList<RbacGrant> listGrants(
-      @QueryParam("objectType") String objectType,
-      @QueryParam("objectPath") String objectPath) {
+      @QueryParam("objectType") String objectType, @QueryParam("objectPath") String objectPath) {
     requireRbacEnabled();
     requireAdmin();
     if (Strings.isNullOrEmpty(objectType)) {

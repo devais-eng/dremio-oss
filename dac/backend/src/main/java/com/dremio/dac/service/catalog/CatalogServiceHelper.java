@@ -40,6 +40,7 @@ import com.dremio.common.exceptions.ExecutionSetupException;
 import com.dremio.common.exceptions.UserException;
 import com.dremio.common.expression.CompleteType;
 import com.dremio.common.utils.PathUtils;
+import com.dremio.config.DremioConfig;
 import com.dremio.connector.metadata.EntityPath;
 import com.dremio.dac.api.CatalogEntity;
 import com.dremio.dac.api.CatalogItem;
@@ -95,10 +96,9 @@ import com.dremio.exec.planner.logical.ViewTable;
 import com.dremio.exec.planner.sql.CalciteArrowHelper;
 import com.dremio.exec.planner.sql.parser.ParserUtil;
 import com.dremio.exec.proto.UserBitShared;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.record.BatchSchema;
 import com.dremio.exec.record.SchemaBuilder;
-import com.dremio.config.DremioConfig;
-import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.server.SabotContext;
 import com.dremio.exec.server.SabotQueryContext;
 import com.dremio.exec.store.CatalogService;
@@ -3122,9 +3122,7 @@ public class CatalogServiceHelper {
     if (rbacService.isAdminMember(userName)) {
       return children;
     }
-    return children.stream()
-        .filter(c -> isVisibleToUser(c, userName))
-        .collect(Collectors.toList());
+    return children.stream().filter(c -> isVisibleToUser(c, userName)).collect(Collectors.toList());
   }
 
   private boolean isVisibleToUser(NameSpaceContainer container, String userName) {

@@ -34,10 +34,10 @@ import com.dremio.exec.enginemanagement.proto.EngineManagementProtos.SubEngineId
 import com.dremio.exec.expr.fn.FunctionImplementationRegistry;
 import com.dremio.exec.maestro.GlobalKeysService;
 import com.dremio.exec.planner.PhysicalPlanReader;
-import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.planner.cost.RelMetadataQuerySupplier;
 import com.dremio.exec.planner.observer.QueryObserverFactory;
 import com.dremio.exec.proto.CoordinationProtos.NodeEndpoint;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.store.CatalogService;
 import com.dremio.exec.store.dfs.FileSystemWrapper;
 import com.dremio.exec.store.dfs.LoggedFileSystemWrapper;
