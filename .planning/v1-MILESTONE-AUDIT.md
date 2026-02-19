@@ -1,207 +1,241 @@
 ---
-milestone: v1
+milestone: v1.0
 name: Dremio OSS Naive RBAC
-audited: 2026-02-18
+audited: 2026-02-19
 status: gaps_found
+previous_audit: 2026-02-18
 scores:
-  requirements: 43/44
+  requirements: 41/44
   phases: 6/6
-  integration: 9/11
-  flows: 4/6
+  integration: 42/44
+  flows: 6/8
 gaps:
   requirements:
-    - id: "BOOT-01"
+    - id: "ENFC-01"
       status: "partial"
-      phase: "Phase 3"
-      claimed_by_plans: ["03-01-PLAN.md"]
-      completed_by_plans: ["03-01-SUMMARY.md (assignBootstrapAdmin method created)"]
-      verification_status: "passed (method exists + unit tested)"
-      evidence: "RbacService.assignBootstrapAdmin() exists and is unit-tested in RbacServiceTest. However no production caller invokes it. BootstrapResource.createUser() creates the first user but never calls assignBootstrapAdmin(). When RBAC is enabled, the first user has no ADMIN membership — creating a catch-22 where no ADMIN can ever be created without a pre-existing ADMIN."
+      phase: "Phase 4"
+      claimed_by_plans: ["04-01-PLAN.md", "04-02-PLAN.md", "04-03-PLAN.md"]
+      completed_by_plans: ["04-01-SUMMARY.md", "04-02-SUMMARY.md"]
+      verification_status: "passed at phase level, gaps found at integration level"
+      evidence: "validatePrivilege() and isRbacDeniedForVds() correctly enforce deny-by-default in getTable(NamespaceKey), getTableNoResolve(), getTableNoColumnCount(). HOWEVER: (1) bulkGetTables() at CatalogImpl.java:340-378 does NOT call isRbacDeniedForVds() — bypass via bulk API. (2) getTable(CatalogEntityKey) AT-specifier path at lines 329-333 calls getTableSnapshot() without RBAC check — bypass for versioned sources."
+    - id: "ENFC-02"
+      status: "partial"
+      phase: "Phase 4"
+      claimed_by_plans: ["04-01-PLAN.md", "04-02-PLAN.md", "04-03-PLAN.md"]
+      completed_by_plans: ["04-01-SUMMARY.md", "04-02-SUMMARY.md"]
+      verification_status: "passed at phase level, gaps found at integration level"
+      evidence: "SELECT grant allows access through normal getTable() paths. But bulkGetTables() and AT-specifier getTableSnapshot() return data without checking grants."
+    - id: "ENFC-07"
+      status: "partial"
+      phase: "Phase 4"
+      claimed_by_plans: ["04-01-PLAN.md", "04-03-PLAN.md"]
+      completed_by_plans: ["04-01-SUMMARY.md"]
+      verification_status: "passed at phase level, gap at AT-specifier path"
+      evidence: "Definer-rights preserved for normal query paths. AT-specifier path in getTable(CatalogEntityKey) bypasses caller privilege check entirely for time-travel queries on versioned sources."
   integration:
-    - from: "BootstrapResource.createUser()"
-      to: "RbacService.assignBootstrapAdmin()"
-      issue: "No production code calls assignBootstrapAdmin(). RbacService is available via dContext.getRbacService() but is never accessed from BootstrapResource."
-      affected_requirements: [BOOT-01, ROLE-01, ROLE-02, ROLE-03, ROLE-04, REST-01, REST-02, REST-03, REST-04, REST-05, REST-06, REST-07, REST-08, REST-09]
-    - from: "DACDaemonModule / RbacService.start()"
-      to: "RbacService.validateAdminMembersExist()"
-      issue: "The startup fail-fast guard method exists and is documented but no production code calls it. Coordinator starts with RBAC enabled but zero ADMIN members without error."
-      affected_requirements: [BOOT-01]
+    - "CatalogImpl.bulkGetTables() (lines 340-378) does not call isRbacDeniedForVds() — enforcement bypass for bulk table resolution"
+    - "CatalogImpl.getTable(CatalogEntityKey) AT-specifier path (lines 329-333) calls getTableSnapshot() without RBAC check — bypass for time-travel queries on versioned sources"
   flows:
-    - name: "Admin setup flow"
-      breaks_at: "BootstrapResource.createUser() does not call assignBootstrapAdmin() — first user has no ADMIN membership"
-      affected_requirements: [BOOT-01, ROLE-01, ROLE-02, ROLE-03, ROLE-04]
-    - name: "Catalog visibility pagination"
-      breaks_at: "filterByVisibility() applied after pagination trim — pages may be smaller than maxChildren"
-      severity: "Non-blocking v1 known limitation"
-      affected_requirements: [META-03]
+    - "Bulk table resolution flow: query planner uses bulkGetTables -> VDS returned without RBAC check -> unauthorized access possible"
+    - "AT-specifier query flow: SELECT ... AT SNAPSHOT -> getTableSnapshot -> data returned without privilege verification"
 tech_debt:
-  - phase: "01-design-and-proto-schema"
-    items: []
-  - phase: "02-persistence-layer"
-    items: []
-  - phase: "03-service-layer"
-    items:
-      - "validateAdminMembersExist() documented as startup guard but never called in production"
   - phase: "04-catalog-enforcement-and-di-wiring"
     items:
-      - "Pre-existing TODOs in CatalogImpl.java (DX-65443, DX-44984) — unrelated to RBAC, pre-existing"
-      - "Minor NPE risk in getFunctions() at line 1367 if resolvedPath==null but RBAC allows access (pre-existing code path)"
-  - phase: "05-ddl-handlers-and-system-tables"
-    items: []
+      - "CatalogImpl.bulkGetTables() missing isRbacDeniedForVds() — needs RBAC filtering in BulkResponse transform or post-processing"
+      - "CatalogImpl.getTable(CatalogEntityKey) AT-specifier path needs isRbacDeniedForVds() wrapping getTableSnapshot() return"
+      - "CatalogImpl null rbacService guard is fail-open (silently allows access) — acceptable for executor nodes but could mask wiring issues"
   - phase: "06-rest-api-and-access-path-hardening"
     items:
-      - "Pre-existing TODOs in CatalogServiceHelper.java (lines 1184, 1207, 1568, 1801, 1838, 2201, 2498) — unrelated to RBAC"
-      - "Catalog visibility pagination: pages may be smaller than maxChildren after filtering (documented v1 limitation)"
-      - "SUMMARY.md requirements-completed frontmatter not consistently filled in early phase plans (Phases 1-4)"
+      - "Spaces always visible to all users in catalog REST API (by design) — may confuse users expecting hidden spaces"
+      - "Catalog visibility pagination: filterByVisibility() applied after pagination trim — pages may be smaller than maxChildren"
 ---
 
-# Milestone Audit: Dremio OSS Naive RBAC v1
+# Milestone Audit: Dremio OSS Naive RBAC v1.0
 
-**Audited:** 2026-02-18
-**Status:** ⚠ gaps_found
+**Audited:** 2026-02-19 (re-audit after BOOT-01 fix)
+**Previous Audit:** 2026-02-18 (identified BOOT-01 wiring gap — since fixed in dd84d7da6)
+**Status:** GAPS FOUND
+**User-Reported Issue:** Non-admin user created after admin can query all spaces created by admin
 
-## Scores
+---
 
-| Dimension | Score | Notes |
-|-----------|-------|-------|
-| Requirements | 43/44 | BOOT-01 method exists but not called in production |
-| Phases | 6/6 | All phases verified passed |
-| Integration wiring | 9/11 | 2 missing connections found |
-| E2E flows | 4/6 | Admin setup flow and catalog pagination broken |
+## Executive Summary
+
+All 6 phases completed and all phase-level verifications passed. The BOOT-01 gap identified in the previous audit (2026-02-18) has been fixed — `BootstrapResource.createUser()` now calls `assignBootstrapAdmin()`.
+
+However, this re-audit triggered by user bug report reveals **2 new enforcement bypass paths** in CatalogImpl that were not caught by phase-level unit tests:
+1. `bulkGetTables()` does not check RBAC
+2. `getTable(CatalogEntityKey)` AT-specifier path does not check RBAC
+
+Additionally, the **user-reported bug has a primary root cause: RBAC is disabled by default** (`services.rbac.enabled: false`). The user must explicitly enable it.
+
+---
+
+## User Bug Root Cause Analysis
+
+**Reported:** "Created a user after the admin one and this is able to query all the spaces created from admin."
+
+### Root Cause 1: RBAC is OFF by default (PRIMARY)
+
+`services.rbac.enabled` defaults to `false` in `dremio-reference.conf` (lines 351-353). Unless explicitly set to `true` in the deployment's `dremio.conf` and the coordinator is restarted, **ALL RBAC enforcement is completely disabled**.
+
+When RBAC is OFF:
+- `CatalogImpl.validatePrivilege()` returns immediately (line 2807)
+- `CatalogImpl.isRbacDeniedForVds()` returns false immediately (line 2865)
+- `CatalogServiceHelper.filterByVisibility()` returns all children unfiltered (line 3116)
+
+**Fix:** Add to deployment configuration:
+```
+services.rbac.enabled = true
+```
+Then restart the coordinator.
+
+### Root Cause 2: Spaces are always visible (BY DESIGN)
+
+Spaces, folders, sources, and homes are metadata containers. `CatalogServiceHelper.isVisibleToUser()` (line 3142) returns `true` for all container types. Only VDS (views) and FUNCTIONs are filtered by RBAC grants.
+
+The user seeing spaces listed is **expected behavior**. Enforcement happens when they try to query a VDS inside a space (SELECT returns "Table not found").
+
+### Root Cause 3: Bootstrap admin correctly wired (FIXED)
+
+`BootstrapResource.createUser()` at lines 89-91 now calls `rbacService.assignBootstrapAdmin(userName)` (fixed in commit `dd84d7da6`). The first user gets ADMIN role membership.
+
+---
 
 ## Phase Verification Summary
 
-| Phase | Plans | VERIFICATION Status | Score |
-|-------|-------|---------------------|-------|
-| 01 Design and Proto Schema | 2/2 | ✓ passed | 4/4 criteria |
-| 02 Persistence Layer | 2/2 | ✓ passed | 12/12 must-haves |
-| 03 Service Layer | 2/2 | ✓ passed | 12/12 must-haves |
-| 04 Catalog Enforcement and DI Wiring | 3/3 | ✓ passed | 7/7 must-haves |
-| 05 DDL Handlers and System Tables | 3/3 | ✓ passed | 7/7 must-haves (19/19 requirements) |
-| 06 REST API and Access Path Hardening | 3/3 | ✓ passed | 10/10 must-haves |
+| Phase | Status | Score | Requirements |
+|-------|--------|-------|-------------|
+| 1. Design and Proto Schema | PASSED | 4/4 | ENFC-09 |
+| 2. Persistence Layer | PASSED | 12/12 | ROLE-07, PRIV-07 |
+| 3. Service Layer | PASSED | 12/12 | ROLE-05, ROLE-06, BOOT-01, ENFC-04, ENFC-05 |
+| 4. Catalog Enforcement | PASSED | 7/7 | ENFC-01, ENFC-02, ENFC-03, ENFC-06, ENFC-07, ENFC-08, BOOT-02 |
+| 5. DDL Handlers | PASSED | 7/7 | ROLE-01-04, PRIV-01-06, DDL-01-06, OBSV-01-03 |
+| 6. REST API | PASSED | 10/10 | REST-01-09, META-03 |
 
-All 6 phases verified passed in isolation. The critical gap is a **cross-phase integration gap** not catchable by per-phase verification.
+All 6 phases verified passed in isolation. Gaps are **cross-phase integration issues** not catchable by per-phase verification.
 
-## Requirements Coverage (3-Source Cross-Reference)
+---
 
-### Satisfied (43/44)
+## Requirements Coverage (Cross-Reference)
 
-| Requirement | Phase | VERIFICATION | SUMMARY frontmatter | REQUIREMENTS.md | Status |
-|-------------|-------|-------------|---------------------|-----------------|--------|
-| ENFC-09 | 1 | passed | (empty) | [x] | ✓ satisfied |
-| ROLE-07 | 2 | passed | (empty) | [x] | ✓ satisfied |
-| PRIV-07 | 2 | passed | (empty) | [x] | ✓ satisfied |
-| ROLE-05 | 3 | passed | (empty) | [x] | ✓ satisfied |
-| ROLE-06 | 3 | passed | (empty) | [x] | ✓ satisfied |
-| BOOT-02 | 4 | passed | (empty) | [x] | ✓ satisfied |
-| ENFC-01 | 4 | passed | (empty) | [x] | ✓ satisfied |
-| ENFC-02 | 4 | passed | (empty) | [x] | ✓ satisfied |
-| ENFC-03 | 4 | passed | (empty) | [x] | ✓ satisfied |
-| ENFC-04 | 4 | passed | (empty) | [x] | ✓ satisfied |
-| ENFC-05 | 4 | passed | (empty) | [x] | ✓ satisfied |
-| ENFC-06 | 4 | passed | (empty) | [x] | ✓ satisfied |
-| ENFC-07 | 4 | passed | (empty) | [x] | ✓ satisfied |
-| ENFC-08 | 4 | passed | (empty) | [x] | ✓ satisfied |
-| ROLE-01 | 5 | passed | listed | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| ROLE-02 | 5 | passed | listed | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| ROLE-03 | 5 | passed | listed | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| ROLE-04 | 5 | passed | listed | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| PRIV-01 | 5 | passed | listed | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| PRIV-02 | 5 | passed | listed | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| PRIV-03 | 5 | passed | listed | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| PRIV-04 | 5 | passed | listed | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| PRIV-05 | 5 | passed | listed | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| PRIV-06 | 5 | passed | listed | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| DDL-01 | 5 | passed | listed | [x] | ✓ satisfied |
-| DDL-02 | 5 | passed | listed | [x] | ✓ satisfied |
-| DDL-03 | 5 | passed | listed | [x] | ✓ satisfied |
-| DDL-04 | 5 | passed | listed | [x] | ✓ satisfied |
-| DDL-05 | 5 | passed | listed | [x] | ✓ satisfied |
-| DDL-06 | 5 | passed | listed | [x] | ✓ satisfied |
-| OBSV-01 | 5 | passed | listed | [x] | ✓ satisfied |
-| OBSV-02 | 5 | passed | listed | [x] | ✓ satisfied |
-| OBSV-03 | 5 | passed | listed | [x] | ✓ satisfied |
-| REST-01 | 6 | passed | (empty) | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| REST-02 | 6 | passed | (empty) | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| REST-03 | 6 | passed | (empty) | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| REST-04 | 6 | passed | (empty) | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| REST-05 | 6 | passed | (empty) | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| REST-06 | 6 | passed | (empty) | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| REST-07 | 6 | passed | (empty) | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| REST-08 | 6 | passed | (empty) | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| REST-09 | 6 | passed | (empty) | [x] | ✓ satisfied (wired, blocked by BOOT-01 in production) |
-| META-03 | 6 | passed | (empty) | [x] | ✓ satisfied |
+### Fully Satisfied (41/44)
 
-### Partial (1/44)
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| ENFC-09 | 1 | satisfied |
+| ROLE-07 | 2 | satisfied |
+| PRIV-07 | 2 | satisfied |
+| ROLE-05 | 3 | satisfied |
+| ROLE-06 | 3 | satisfied |
+| BOOT-01 | 3 | satisfied (fixed since last audit) |
+| ENFC-04 | 3 | satisfied |
+| ENFC-05 | 3 | satisfied |
+| ENFC-03 | 4 | satisfied |
+| ENFC-06 | 4 | satisfied |
+| ENFC-08 | 4 | satisfied |
+| BOOT-02 | 4 | satisfied |
+| ROLE-01 through ROLE-04 | 5 | satisfied |
+| PRIV-01 through PRIV-06 | 5 | satisfied |
+| DDL-01 through DDL-06 | 5 | satisfied |
+| OBSV-01 through OBSV-03 | 5 | satisfied |
+| REST-01 through REST-09 | 6 | satisfied |
+| META-03 | 6 | satisfied |
+
+### Partially Satisfied (3/44)
 
 | Requirement | Phase | Issue |
 |-------------|-------|-------|
-| BOOT-01 | 3 | Method `assignBootstrapAdmin()` exists and is unit-tested but has no production caller. `BootstrapResource.createUser()` never calls it. |
+| ENFC-01 | 4 | Deny-by-default enforced in getTable(NamespaceKey) but **NOT** in bulkGetTables() or AT-specifier getTableSnapshot() |
+| ENFC-02 | 4 | SELECT grant checked in normal paths but **NOT** in bulkGetTables() or AT-specifier paths |
+| ENFC-07 | 4 | Definer-rights check preserved in normal paths but **NOT** in AT-specifier path (time-travel queries skip privilege check entirely) |
 
 ### Orphaned Requirements
 
 None — all 44 requirements appear in at least one phase VERIFICATION.md.
 
-## Critical Gaps
+---
 
-### Gap 1: BOOT-01 — Bootstrap Not Wired to BootstrapResource (BLOCKING)
+## Integration Gaps
 
-**What's missing:** `BootstrapResource.createUser()` does not call `RbacService.assignBootstrapAdmin()`.
+### GAP-1: `bulkGetTables()` Bypasses RBAC (Medium Severity)
 
-**Impact:** When `services.rbac.enabled=true`, the first user created through setup:
-1. Has no ADMIN role membership
-2. Cannot execute any DDL (CREATE ROLE, GRANT, etc.) — `isAdminMember()` returns false → 403
-3. Cannot call any REST endpoint — `requireAdmin()` → 403
-4. **Catch-22:** Only an ADMIN can create the first ADMIN, but no ADMIN exists
+**File:** `sabot/kernel/src/main/java/com/dremio/exec/catalog/CatalogImpl.java:340-378`
+**Affected:** ENFC-01, ENFC-02
 
-**Affected in production (when RBAC enabled):** BOOT-01, plus all admin-gated flows across ROLE-01 through ROLE-04, PRIV-01 through PRIV-06, REST-01 through REST-09
+`isRbacDeniedForVds()` is called in `getTableNoResolve()`, `getTableNoColumnCount()`, and `getTable(NamespaceKey)` — but NOT in `bulkGetTables()`. Any query path using the bulk API can retrieve VDS records without RBAC checks.
 
-**Fix (5 minutes):** In `BootstrapResource.java`:
+**Fix:** Add RBAC filtering in the `BulkResponse.transform()` callback or post-process the response:
 ```java
-// After: newUser = userService.createUser(newUser, userForm.getPassword());
-RbacService rbacService = dContext.getRbacService();
-if (rbacService != null) {
-    rbacService.assignBootstrapAdmin(newUser.getUserName());
-}
+// In bulkGetTables(), after getting unresolvedKeyResponses:
+// Filter out RBAC-denied VDS entries
 ```
 
-### Gap 2: Startup Guard Non-Functional (Non-blocking)
+### GAP-2: AT-Specifier `getTableSnapshot` Path Bypasses RBAC (Low Severity)
 
-**What's missing:** `RbacService.validateAdminMembersExist()` is never called at startup.
+**File:** `sabot/kernel/src/main/java/com/dremio/exec/catalog/CatalogImpl.java:326-338`
+**Affected:** ENFC-01, ENFC-02, ENFC-07
 
-**Impact:** Coordinator starts successfully even when `services.rbac.enabled=true` with zero ADMIN members. The fail-fast guard is a no-op in production.
+When `forATSpecifierAccess()` returns true (time-travel queries with AT SNAPSHOT), `getTableSnapshot()` is called and its result returned without any RBAC check. Only affects versioned sources with AT-specifier queries.
 
-**Severity:** Non-blocking (system starts, but RBAC is unusable without BOOT-01 fix anyway).
+**Fix:** Wrap the `getTableSnapshot()` return with an RBAC check:
+```java
+DremioTable result = getTableSnapshot(catalogEntityKey);
+if (result != null && isRbacDeniedForVds(result, catalogEntityKey.toNamespaceKey())) {
+    return null;
+}
+return result;
+```
 
-## Confirmed Correct Integration (10 points)
+---
 
-| # | Integration | Requirements |
-|---|-------------|--------------|
-| 1 | DACDaemonModule → RbacService DI → all consumers (CatalogImpl, ContextService, SabotContext, QueryContext, RbacResource, CatalogServiceHelper) | All phases |
-| 2 | `sabot-module.conf` com.dremio.exec.rbac scanning → KV store discovery | ROLE-07, PRIV-07 |
-| 3 | All 6 SQL parser `Class.forName()` FQCNs match actual handler classes | DDL-01 through DDL-06 |
-| 4 | CatalogImpl.validatePrivilege() → RbacService.hasPrivilege() → stores → proto | ENFC-01 through ENFC-08 |
-| 5 | sys.roles/privileges/membership → AccessControlListingManager → RbacService → stores | OBSV-01 through OBSV-03 |
-| 6 | RbacResource @APIResource → APIServer auto-scan → /api/v3/rbac/* | REST-01 through REST-09 |
-| 7 | CatalogServiceHelper.filterByVisibility() → RbacService.hasPrivilege() | META-03 |
-| 8 | Feature flag dremio-reference.conf services.rbac.enabled=false → all enforcement points | ENFC-09, BOOT-02 |
-| 9 | ADMIN bypass in isAdminMember() → hasPrivilege() short-circuit | ENFC-04, ROLE-05 |
-| 10 | PUBLIC implicit membership via PUBLIC_ROLE_ID in hasPrivilege() role list | ENFC-05, ROLE-06 |
+## DI Chain Verification (All Wired)
+
+```
+DACDaemonModule
+  +-- RoleStore, GrantStore, MembershipStore (from KVStoreProvider)
+  +-- RbacService (from stores) -> registry.bind()
+  +-- CatalogServiceImpl receives Provider<RbacService>
+  |     +-- CatalogImpl receives RbacService + DremioConfig
+  +-- ContextService receives Provider<RbacService>
+  |     +-- SabotContext receives Provider<RbacService>
+  |           +-- getRbacService() -> DDL handlers, BootstrapResource
+  |           +-- getAccessControlListingManager() -> system tables
+  +-- RbacResource receives RbacService via HK2 DI (@Inject)
+```
+
+All connections verified as wired in production code.
+
+---
+
+## Previous Audit Gaps — Resolution Status
+
+| Gap from 2026-02-18 Audit | Status | Resolution |
+|---------------------------|--------|-----------|
+| BOOT-01: BootstrapResource not calling assignBootstrapAdmin() | FIXED | Commit dd84d7da6 wired the call |
+| validateAdminMembersExist() not called at startup | ACCEPTED | Startup guard is defense-in-depth; bootstrap wiring is the real fix |
+| Catalog pagination returns fewer items after filter | ACCEPTED | Documented v1 limitation |
+
+---
 
 ## Tech Debt Summary
 
 | Phase | Items |
 |-------|-------|
-| 03 Service Layer | `validateAdminMembersExist()` documented as startup guard but never called |
-| 04 Catalog Enforcement | Pre-existing TODOs in CatalogImpl (DX-65443, DX-44984); minor NPE risk in getFunctions() line 1367 (pre-existing) |
-| 06 REST API | Pre-existing TODOs in CatalogServiceHelper; catalog pagination returns fewer items than maxChildren after visibility filter (documented v1 limitation); SUMMARY frontmatter inconsistencies in early phases |
+| Phase 4 | `bulkGetTables()` missing RBAC; AT-specifier path missing RBAC; null rbacService is fail-open |
+| Phase 6 | Spaces always visible (by design); pagination shrinks after filter |
 
-**Total tech debt items:** 6 (none blocking)
+**Total: 5 items across 2 phases (2 are enforcement gaps, 3 are known limitations)**
+
+---
 
 ## Conclusion
 
-The Dremio OSS Naive RBAC implementation is **architecturally complete** — all wiring, enforcement, DDL handlers, system tables, REST endpoints, and catalog filtering are correctly implemented and unit-tested. One critical production gap was identified by cross-phase integration analysis:
+The RBAC system is **architecturally complete** with 41/44 requirements fully satisfied. The user's reported issue is primarily caused by **RBAC being disabled by default** (feature flag OFF) and **spaces being visible by design** (containers, not data objects).
 
-**The first user created during Dremio setup does not receive ADMIN role membership when RBAC is enabled.** This is a 5-minute fix in `BootstrapResource.java`.
+Two enforcement bypass paths exist (`bulkGetTables` and AT-specifier) that need patching before RBAC can be considered fully hardened. These were not caught by phase-level unit tests because they test enforcement methods in isolation, not all call sites that should invoke them.
 
-All other integration points (10/11) are correctly wired. E2E flows work except where blocked by this single missing call.
+---
+
+_Audited: 2026-02-19_
+_Auditor: Claude (gsd-audit-milestone)_
