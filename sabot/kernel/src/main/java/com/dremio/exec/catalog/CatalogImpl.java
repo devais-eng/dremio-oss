@@ -48,13 +48,12 @@ import com.dremio.catalog.model.VersionContext;
 import com.dremio.catalog.model.VersionedDatasetId;
 import com.dremio.catalog.model.dataset.TableVersionContext;
 import com.dremio.common.concurrent.bulk.BulkRequest;
-import com.dremio.config.DremioConfig;
-import com.dremio.exec.rbac.RbacService;
 import com.dremio.common.concurrent.bulk.BulkResponse;
 import com.dremio.common.concurrent.bulk.ValueTransformer;
 import com.dremio.common.exceptions.ExecutionSetupException;
 import com.dremio.common.exceptions.UserException;
 import com.dremio.common.expression.CompleteType;
+import com.dremio.config.DremioConfig;
 import com.dremio.connector.ConnectorException;
 import com.dremio.connector.metadata.AttributeValue;
 import com.dremio.connector.metadata.DatasetHandle;
@@ -80,6 +79,7 @@ import com.dremio.exec.physical.base.WriterOptions;
 import com.dremio.exec.planner.logical.CreateTableEntry;
 import com.dremio.exec.planner.logical.ViewTable;
 import com.dremio.exec.planner.sql.parser.SqlGrant;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.record.BatchSchema;
 import com.dremio.exec.store.ColumnExtendedProperty;
 import com.dremio.exec.store.DatasetRetrievalOptions;
@@ -134,7 +134,6 @@ import com.dremio.service.namespace.PartitionChunkId;
 import com.dremio.service.namespace.PartitionChunkMetadata;
 import com.dremio.service.namespace.SourceState;
 import com.dremio.service.namespace.catalogstatusevents.CatalogStatusEvents;
-import com.dremio.service.users.SystemUser;
 import com.dremio.service.namespace.catalogstatusevents.events.DatasetDeletionCatalogStatusEvent;
 import com.dremio.service.namespace.catalogstatusevents.events.SourceDeletionCatalogStatusEvent;
 import com.dremio.service.namespace.catalogstatusevents.events.SourceUpdateCatalogStatusEvent;
@@ -156,6 +155,7 @@ import com.dremio.service.namespace.space.proto.FolderConfig;
 import com.dremio.service.namespace.space.proto.HomeConfig;
 import com.dremio.service.namespace.space.proto.SpaceConfig;
 import com.dremio.service.orphanage.Orphanage;
+import com.dremio.service.users.SystemUser;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -328,7 +328,11 @@ public class CatalogImpl implements Catalog {
     NamespaceKey namespaceKey = catalogEntityKey.toNamespaceKey();
     if (CatalogUtil.forATSpecifierAccess(catalogEntityKey, this)) {
       try {
-        return getTableSnapshot(catalogEntityKey);
+        DremioTable table = getTableSnapshot(catalogEntityKey);
+        if (table != null && isRbacDeniedForVds(table, namespaceKey)) {
+          return null; // RBAC denied -- appear as "not found"
+        }
+        return table;
       } catch (UserException e) {
         // getTableSnapshot returns a UserException when table or Reference is not found.
         return null;
@@ -366,10 +370,17 @@ public class CatalogImpl implements Catalog {
     }
 
     // define a value transformer which will update any view tables after retrieval
+    // and filter out RBAC-denied VDS entries
     ValueTransformer<NamespaceKey, Optional<DremioTable>, NamespaceKey, Optional<DremioTable>>
         updateTableAfterRetrieval =
             (originalKey, resolvedKey, optTable) -> {
-              optTable.ifPresent(table -> updateTableIfNeeded(resolvedKey, table));
+              if (optTable.isPresent()) {
+                DremioTable table = optTable.get();
+                if (isRbacDeniedForVds(table, resolvedKey)) {
+                  return Optional.empty(); // RBAC denied -- appear as "not found"
+                }
+                updateTableIfNeeded(resolvedKey, table);
+              }
               return optTable;
             };
 
@@ -2825,16 +2836,14 @@ public class CatalogImpl implements Catalog {
 
     if (!rbacService.hasPrivilege(userName, rbacPrivilege, rbacObjectType, objectPath)) {
       logger.warn("RBAC: Access denied for user '{}'", userName);
-      throw UserException.validationError()
-          .message("Table '%s' not found", key)
-          .buildSilently();
+      throw UserException.validationError().message("Table '%s' not found", key).buildSilently();
     }
   }
 
   /**
-   * Maps a namespace key and privilege to the RBAC object type string.
-   * Uses privilege as a hint: EXECUTE implies FUNCTION, CREATE_VIEW implies VDS,
-   * default is VDS for SELECT and other privileges.
+   * Maps a namespace key and privilege to the RBAC object type string. Uses privilege as a hint:
+   * EXECUTE implies FUNCTION, CREATE_VIEW implies VDS, default is VDS for SELECT and other
+   * privileges.
    */
   private String resolveRbacObjectType(NamespaceKey key, SqlGrant.Privilege privilege) {
     switch (privilege) {
@@ -2849,9 +2858,9 @@ public class CatalogImpl implements Catalog {
   }
 
   /**
-   * Checks if RBAC denies the current user access to a VDS (virtual dataset / view).
-   * Returns true if access is denied, false if access is allowed.
-   * Only checks VDS -- PDS (physical datasets) are not subject to RBAC.
+   * Checks if RBAC denies the current user access to a VDS (virtual dataset / view). Returns true
+   * if access is denied, false if access is allowed. Only checks VDS -- PDS (physical datasets) are
+   * not subject to RBAC.
    *
    * @param table the resolved table -- must be non-null
    * @param key the namespace key of the table
@@ -2887,8 +2896,8 @@ public class CatalogImpl implements Catalog {
   }
 
   /**
-   * Checks if RBAC denies the current user EXECUTE access to a UDF.
-   * Returns true if access is denied, false if access is allowed.
+   * Checks if RBAC denies the current user EXECUTE access to a UDF. Returns true if access is
+   * denied, false if access is allowed.
    *
    * @param key the namespace key of the function
    * @return true if RBAC denies EXECUTE on this function

@@ -23,6 +23,7 @@ import static java.lang.String.format;
 import com.dremio.common.exceptions.UserException;
 import com.dremio.common.utils.PathUtils;
 import com.dremio.common.utils.SqlUtils;
+import com.dremio.config.DremioConfig;
 import com.dremio.dac.annotations.RestResource;
 import com.dremio.dac.annotations.Secured;
 import com.dremio.dac.explore.model.Dataset;
@@ -61,6 +62,7 @@ import com.dremio.dac.service.errors.SourceNotFoundException;
 import com.dremio.dac.util.JobRequestUtil;
 import com.dremio.dac.util.ResourceUtil;
 import com.dremio.exec.catalog.DatasetCatalog;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.server.options.ProjectOptionManager;
 import com.dremio.file.File;
 import com.dremio.file.FileName;
@@ -93,6 +95,8 @@ import java.util.Collections;
 import java.util.ConcurrentModificationException;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import javax.annotation.security.RolesAllowed;
 import javax.inject.Inject;
 import javax.ws.rs.Consumes;
@@ -131,6 +135,8 @@ public class HomeResource extends BaseResourceWithAllocator {
   private final CatalogServiceHelper catalogServiceHelper;
   private final DatasetCatalog datasetCatalog;
   private final ProjectOptionManager projectOptionManager;
+  @Nullable private final RbacService rbacService;
+  @Nullable private final DremioConfig dremioConfig;
 
   @Inject
   public HomeResource(
@@ -144,7 +150,9 @@ public class HomeResource extends BaseResourceWithAllocator {
       ProjectOptionManager projectOptionManager,
       CollaborationHelper collaborationService,
       @PathParam("homeName") HomeName homeName,
-      BufferAllocatorFactory allocatorFactory) {
+      BufferAllocatorFactory allocatorFactory,
+      @Nullable RbacService rbacService,
+      @Nullable DremioConfig dremioConfig) {
     super(allocatorFactory);
     this.namespaceService = namespaceService;
     this.datasetService = datasetService;
@@ -157,6 +165,8 @@ public class HomeResource extends BaseResourceWithAllocator {
     this.catalogServiceHelper = catalogServiceHelper;
     this.datasetCatalog = datasetCatalog;
     this.projectOptionManager = projectOptionManager;
+    this.rbacService = rbacService;
+    this.dremioConfig = dremioConfig;
   }
 
   protected File newFile(
@@ -221,9 +231,10 @@ public class HomeResource extends BaseResourceWithAllocator {
               .setExtendedConfig(new ExtendedConfig().setDatasetCount(dsCount));
       Home home = newHome(homePath, homeConfig);
       if (includeContents) {
-        home.setContents(
-            newNamespaceTree(
-                namespaceService.list(homePath.toNamespaceKey(), null, Integer.MAX_VALUE)));
+        List<NameSpaceContainer> children =
+            namespaceService.list(homePath.toNamespaceKey(), null, Integer.MAX_VALUE);
+        children = filterByRbacVisibility(children);
+        home.setContents(newNamespaceTree(children));
       }
       return home;
     } catch (NamespaceNotFoundException nfe) {
@@ -502,9 +513,10 @@ public class HomeResource extends BaseResourceWithAllocator {
       final FolderConfig folderConfig = namespaceService.getFolder(folderPath.toNamespaceKey());
       NamespaceTree contents = null;
       if (includeContents) {
-        contents =
-            newNamespaceTree(
-                namespaceService.list(folderPath.toNamespaceKey(), null, Integer.MAX_VALUE));
+        List<NameSpaceContainer> children =
+            namespaceService.list(folderPath.toNamespaceKey(), null, Integer.MAX_VALUE);
+        children = filterByRbacVisibility(children);
+        contents = newNamespaceTree(children);
       }
       return newHomeFolder(folderPath, folderConfig, contents);
     } catch (NamespaceNotFoundException nfe) {
@@ -582,4 +594,34 @@ public class HomeResource extends BaseResourceWithAllocator {
   }
 
   protected void checkHomeSpaceExists(HomePath homePath) {}
+
+  private List<NameSpaceContainer> filterByRbacVisibility(List<NameSpaceContainer> children) {
+    if (rbacService == null
+        || dremioConfig == null
+        || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return children;
+    }
+    String userName = securityContext.getUserPrincipal().getName();
+    if (rbacService.isAdminMember(userName)) {
+      return children;
+    }
+    return children.stream()
+        .filter(
+            c -> {
+              if (c.getType() == NameSpaceContainer.Type.DATASET) {
+                DatasetConfig ds = c.getDataset();
+                if (ds.getType() == DatasetType.VIRTUAL_DATASET) {
+                  String objectPath = String.join(".", c.getFullPathList());
+                  return rbacService.hasPrivilege(userName, "SELECT", "VDS", objectPath);
+                }
+                return true; // PDS always visible
+              }
+              if (c.getType() == NameSpaceContainer.Type.FUNCTION) {
+                String objectPath = String.join(".", c.getFullPathList());
+                return rbacService.hasPrivilege(userName, "EXECUTE", "FUNCTION", objectPath);
+              }
+              return true; // folders always visible
+            })
+        .collect(Collectors.toList());
+  }
 }

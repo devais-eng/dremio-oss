@@ -18,6 +18,7 @@ package com.dremio.dac.resource;
 import static com.dremio.service.namespace.proto.NameSpaceContainer.Type.FOLDER;
 
 import com.dremio.common.utils.PathUtils;
+import com.dremio.config.DremioConfig;
 import com.dremio.dac.annotations.RestResource;
 import com.dremio.dac.annotations.Secured;
 import com.dremio.dac.model.folder.FolderModel;
@@ -32,14 +33,19 @@ import com.dremio.dac.service.errors.ClientErrorException;
 import com.dremio.dac.service.errors.DatasetNotFoundException;
 import com.dremio.dac.service.errors.FolderNotFoundException;
 import com.dremio.dac.util.ResourceUtil;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.service.namespace.NamespaceException;
 import com.dremio.service.namespace.NamespaceNotFoundException;
 import com.dremio.service.namespace.NamespaceService;
+import com.dremio.service.namespace.dataset.proto.DatasetConfig;
+import com.dremio.service.namespace.dataset.proto.DatasetType;
 import com.dremio.service.namespace.proto.NameSpaceContainer;
 import com.dremio.service.namespace.space.proto.FolderConfig;
 import java.util.Arrays;
 import java.util.ConcurrentModificationException;
 import java.util.List;
+import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import javax.annotation.security.RolesAllowed;
 import javax.inject.Inject;
 import javax.ws.rs.Consumes;
@@ -51,7 +57,9 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.SecurityContext;
 
 /** Rest resource for spaces. */
 @RestResource
@@ -63,17 +71,26 @@ public class SpaceFolderResource {
   private final NamespaceService namespaceService;
   private final CollaborationHelper collaborationHelper;
   private final SpaceName spaceName;
+  @Nullable private final RbacService rbacService;
+  @Nullable private final DremioConfig dremioConfig;
+  private final SecurityContext securityContext;
 
   @Inject
   public SpaceFolderResource(
       DatasetVersionMutator datasetService,
       NamespaceService namespaceService,
       CollaborationHelper collaborationHelper,
-      @PathParam("space") SpaceName spaceName) {
+      @PathParam("space") SpaceName spaceName,
+      @Context SecurityContext securityContext,
+      @Nullable RbacService rbacService,
+      @Nullable DremioConfig dremioConfig) {
     this.datasetService = datasetService;
     this.namespaceService = namespaceService;
     this.collaborationHelper = collaborationHelper;
     this.spaceName = spaceName;
+    this.securityContext = securityContext;
+    this.rbacService = rbacService;
+    this.dremioConfig = dremioConfig;
   }
 
   // TODO(DX-98540): Refactor to call into CatalogFolder interface instead of NamespaceService
@@ -89,9 +106,10 @@ public class SpaceFolderResource {
       FolderConfig folderConfig = namespaceService.getFolder(folderPath.toNamespaceKey());
       NamespaceTree contents = null;
       if (includeContents) {
-        contents =
-            newNamespaceTree(
-                namespaceService.list(folderPath.toNamespaceKey(), null, Integer.MAX_VALUE));
+        List<NameSpaceContainer> children =
+            namespaceService.list(folderPath.toNamespaceKey(), null, Integer.MAX_VALUE);
+        children = filterByRbacVisibility(children);
+        contents = newNamespaceTree(children);
       }
       return newSpaceFolder(folderPath, folderConfig, contents);
     } catch (NamespaceNotFoundException nfe) {
@@ -164,5 +182,35 @@ public class SpaceFolderResource {
   protected NamespaceTree newNamespaceTree(List<NameSpaceContainer> children)
       throws DatasetNotFoundException, NamespaceException {
     return NamespaceTree.newInstance(datasetService, children, FOLDER, collaborationHelper);
+  }
+
+  private List<NameSpaceContainer> filterByRbacVisibility(List<NameSpaceContainer> children) {
+    if (rbacService == null
+        || dremioConfig == null
+        || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return children;
+    }
+    String userName = securityContext.getUserPrincipal().getName();
+    if (rbacService.isAdminMember(userName)) {
+      return children;
+    }
+    return children.stream()
+        .filter(
+            c -> {
+              if (c.getType() == NameSpaceContainer.Type.DATASET) {
+                DatasetConfig ds = c.getDataset();
+                if (ds.getType() == DatasetType.VIRTUAL_DATASET) {
+                  String objectPath = String.join(".", c.getFullPathList());
+                  return rbacService.hasPrivilege(userName, "SELECT", "VDS", objectPath);
+                }
+                return true; // PDS always visible
+              }
+              if (c.getType() == NameSpaceContainer.Type.FUNCTION) {
+                String objectPath = String.join(".", c.getFullPathList());
+                return rbacService.hasPrivilege(userName, "EXECUTE", "FUNCTION", objectPath);
+              }
+              return true; // folders always visible
+            })
+        .collect(Collectors.toList());
   }
 }

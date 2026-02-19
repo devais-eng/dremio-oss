@@ -18,6 +18,7 @@ package com.dremio.dac.resource;
 import static com.dremio.service.namespace.proto.NameSpaceContainer.Type.SPACE;
 
 import com.dremio.common.exceptions.UserException;
+import com.dremio.config.DremioConfig;
 import com.dremio.dac.annotations.RestResource;
 import com.dremio.dac.annotations.Secured;
 import com.dremio.dac.explore.model.Dataset;
@@ -34,15 +35,19 @@ import com.dremio.dac.service.datasets.DatasetVersionMutator;
 import com.dremio.dac.service.errors.DatasetNotFoundException;
 import com.dremio.dac.service.errors.FileNotFoundException;
 import com.dremio.dac.service.errors.SpaceNotFoundException;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.service.namespace.BoundedDatasetCount;
 import com.dremio.service.namespace.NamespaceException;
 import com.dremio.service.namespace.NamespaceNotFoundException;
 import com.dremio.service.namespace.NamespaceService;
 import com.dremio.service.namespace.dataset.proto.DatasetConfig;
+import com.dremio.service.namespace.dataset.proto.DatasetType;
 import com.dremio.service.namespace.proto.NameSpaceContainer;
 import com.dremio.service.namespace.space.proto.SpaceConfig;
 import java.security.AccessControlException;
 import java.util.List;
+import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import javax.annotation.security.RolesAllowed;
 import javax.inject.Inject;
 import javax.ws.rs.DefaultValue;
@@ -51,7 +56,9 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.SecurityContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,18 +75,27 @@ public class SpaceResource {
   private final CollaborationHelper collaborationService;
   private final SpaceName spaceName;
   private final SpacePath spacePath;
+  @Nullable private final RbacService rbacService;
+  @Nullable private final DremioConfig dremioConfig;
+  private final SecurityContext securityContext;
 
   @Inject
   public SpaceResource(
       NamespaceService namespaceService,
       DatasetVersionMutator datasetService,
       CollaborationHelper collaborationService,
-      @PathParam("spaceName") SpaceName spaceName) {
+      @PathParam("spaceName") SpaceName spaceName,
+      @Context SecurityContext securityContext,
+      @Nullable RbacService rbacService,
+      @Nullable DremioConfig dremioConfig) {
     this.namespaceService = namespaceService;
     this.datasetService = datasetService;
     this.collaborationService = collaborationService;
     this.spaceName = spaceName;
     this.spacePath = new SpacePath(spaceName);
+    this.securityContext = securityContext;
+    this.rbacService = rbacService;
+    this.dremioConfig = dremioConfig;
   }
 
   protected Space newSpace(SpaceConfig spaceConfig, NamespaceTree contents, int datasetCount)
@@ -103,9 +119,10 @@ public class SpaceResource {
               .getCount();
       NamespaceTree contents = null;
       if (includeContents) {
-        contents =
-            newNamespaceTree(
-                namespaceService.list(spacePath.toNamespaceKey(), null, Integer.MAX_VALUE));
+        List<NameSpaceContainer> children =
+            namespaceService.list(spacePath.toNamespaceKey(), null, Integer.MAX_VALUE);
+        children = filterByRbacVisibility(children);
+        contents = newNamespaceTree(children);
       }
       return newSpace(config, contents, datasetCount);
     } catch (AccessControlException e) {
@@ -139,5 +156,35 @@ public class SpaceResource {
   protected NamespaceTree newNamespaceTree(List<NameSpaceContainer> children)
       throws DatasetNotFoundException, NamespaceException {
     return NamespaceTree.newInstance(datasetService, children, SPACE, collaborationService);
+  }
+
+  private List<NameSpaceContainer> filterByRbacVisibility(List<NameSpaceContainer> children) {
+    if (rbacService == null
+        || dremioConfig == null
+        || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return children;
+    }
+    String userName = securityContext.getUserPrincipal().getName();
+    if (rbacService.isAdminMember(userName)) {
+      return children;
+    }
+    return children.stream()
+        .filter(
+            c -> {
+              if (c.getType() == NameSpaceContainer.Type.DATASET) {
+                DatasetConfig ds = c.getDataset();
+                if (ds.getType() == DatasetType.VIRTUAL_DATASET) {
+                  String objectPath = String.join(".", c.getFullPathList());
+                  return rbacService.hasPrivilege(userName, "SELECT", "VDS", objectPath);
+                }
+                return true; // PDS always visible
+              }
+              if (c.getType() == NameSpaceContainer.Type.FUNCTION) {
+                String objectPath = String.join(".", c.getFullPathList());
+                return rbacService.hasPrivilege(userName, "EXECUTE", "FUNCTION", objectPath);
+              }
+              return true; // folders, spaces, sources always visible
+            })
+        .collect(Collectors.toList());
   }
 }
