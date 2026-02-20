@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control and catalog connectivity.
-**Current focus:** v1.1 Enable Iceberg REST Catalog — Phase 7: Plugin Wiring
+**Current focus:** v1.1 Enable Iceberg REST Catalog — Phase 8: End-to-End Validation
 
 ## Current Position
 
-Phase: 7 of 8 (Plugin Wiring)
-Plan: 1 of 1 in current phase (complete)
-Status: Phase 7 complete — ready for Phase 8
-Last activity: 2026-02-20 — Phase 7 plan 01 complete; RESTCATALOG plugin wired
+Phase: 8 of 8 (End-to-End Validation)
+Plan: 2 of 2 in current phase (08-01 complete, 08-02 in progress)
+Status: Infrastructure ready — validating end-to-end read path
+Last activity: 2026-02-20 — Plan 08-01 complete; Lakekeeper + MinIO + Dremio stack running, test data seeded
 
-Progress: [███████░░░] ~70% (v1.0 complete; Phase 7 wiring done; Phase 8 validation pending)
+Progress: [████████░░] ~85% (v1.0 complete; Phase 7 wiring done; Phase 8 infra ready, validation in progress)
 
 ## Performance Metrics
 
@@ -65,5 +65,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Completed 07-01-PLAN.md — plugin wiring complete (RESTCATALOG source type now discoverable via @SourceType; restcatalog-layout.json and RESTCATALOG.svg at classpath root).
+Stopped at: Plan 08-01 complete — infrastructure running (Lakekeeper warehouse "demo", MinIO, testns.users 10 rows). Executing Plan 08-02 validation.
 Resume file: None
