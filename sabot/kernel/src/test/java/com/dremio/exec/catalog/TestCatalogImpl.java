@@ -1444,7 +1444,7 @@ public class TestCatalogImpl {
   }
 
   @Test
-  public void testValidatePrivilege_noGrant_throwsNotFound() {
+  public void testValidatePrivilege_noGrant_throwsPermissionDenied() {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
     when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("VDS"), anyString()))
         .thenReturn(false);
@@ -1455,7 +1455,8 @@ public class TestCatalogImpl {
                     new NamespaceKey(Arrays.asList("myspace", "myview")),
                     SqlGrant.Privilege.SELECT))
         .hasErrorType(VALIDATION)
-        .hasMessageContaining("not found");
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("SELECT");
   }
 
   @Test
@@ -1482,7 +1483,7 @@ public class TestCatalogImpl {
   }
 
   @Test
-  public void testValidatePrivilege_executeDenied_throwsNotFound() {
+  public void testValidatePrivilege_executeDenied_throwsPermissionDenied() {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
     when(rbacService.hasPrivilege(eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString()))
         .thenReturn(false);
@@ -1493,7 +1494,8 @@ public class TestCatalogImpl {
                     new NamespaceKey(Arrays.asList("myspace", "myfunc")),
                     SqlGrant.Privilege.EXECUTE))
         .hasErrorType(VALIDATION)
-        .hasMessageContaining("not found");
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("EXECUTE");
   }
 
   @Test
@@ -1508,12 +1510,13 @@ public class TestCatalogImpl {
                     new NamespaceKey(Arrays.asList("myspace", "myview")),
                     SqlGrant.Privilege.CREATE_VIEW))
         .hasErrorType(VALIDATION)
-        .hasMessageContaining("not found");
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("CREATE_VIEW");
     verify(rbacService).hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), anyString());
   }
 
   @Test
-  public void testGetTable_vdsDenied_returnsNotFound() {
+  public void testGetTable_vdsDenied_throwsPermissionDenied() {
     // Since DatasetManager is constructed internally and not mockable directly,
     // we verify the validatePrivilege -> hasPrivilege -> deny path.
     // The getTable RBAC check uses the same isRbacDeniedForVds helper,
@@ -1526,7 +1529,8 @@ public class TestCatalogImpl {
     UserExceptionAssert.assertThatThrownBy(
             () -> catalog.validatePrivilege(key, SqlGrant.Privilege.SELECT))
         .hasErrorType(VALIDATION)
-        .hasMessageContaining("not found");
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("SELECT");
   }
 
   @Test
@@ -1572,6 +1576,89 @@ public class TestCatalogImpl {
     // Should NOT throw -- null config treated as RBAC disabled
     catalog.validatePrivilege(
         new NamespaceKey(Arrays.asList("myspace", "myview")), SqlGrant.Privilege.SELECT);
+  }
+
+  @Test
+  public void testValidatePrivilege_alterDenied_throwsPermissionDenied() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("ALTER"), eq("VDS"), anyString()))
+        .thenReturn(false);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    UserExceptionAssert.assertThatThrownBy(
+            () ->
+                catalog.validatePrivilege(
+                    new NamespaceKey(Arrays.asList("myspace", "myview")),
+                    SqlGrant.Privilege.ALTER))
+        .hasErrorType(VALIDATION)
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("ALTER");
+  }
+
+  @Test
+  public void testValidatePrivilege_dropDenied_throwsPermissionDenied() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("DROP"), eq("VDS"), anyString()))
+        .thenReturn(false);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    UserExceptionAssert.assertThatThrownBy(
+            () ->
+                catalog.validatePrivilege(
+                    new NamespaceKey(Arrays.asList("myspace", "myview")),
+                    SqlGrant.Privilege.DROP))
+        .hasErrorType(VALIDATION)
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("DROP");
+  }
+
+  @Test
+  public void testValidatePrivilege_dropMapsToVds() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("DROP"), eq("VDS"), anyString()))
+        .thenReturn(true);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // Should NOT throw -- DROP on VDS is granted
+    catalog.validatePrivilege(
+        new NamespaceKey(Arrays.asList("myspace", "myview")), SqlGrant.Privilege.DROP);
+    verify(rbacService).hasPrivilege(eq("gnarly"), eq("DROP"), eq("VDS"), anyString());
+  }
+
+  @Test
+  public void testValidateCreateViewPrivilege_denied_throwsPermissionDenied() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), anyString()))
+        .thenReturn(false);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    UserExceptionAssert.assertThatThrownBy(
+            () ->
+                catalog.validateCreateViewPrivilege(
+                    new NamespaceKey(Arrays.asList("myspace", "myfolder", "myview"))))
+        .hasErrorType(VALIDATION)
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("CREATE_VIEW");
+    // Verify container path (parent) was used, not the view path itself
+    verify(rbacService).hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), eq("myspace.myfolder"));
+  }
+
+  @Test
+  public void testValidateCreateViewPrivilege_granted_passes() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), eq("myspace.myfolder")))
+        .thenReturn(true);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // Should NOT throw -- CREATE_VIEW on parent container is granted
+    catalog.validateCreateViewPrivilege(
+        new NamespaceKey(Arrays.asList("myspace", "myfolder", "myview")));
+    verify(rbacService).hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), eq("myspace.myfolder"));
+  }
+
+  @Test
+  public void testValidateCreateViewPrivilege_rbacDisabled_noEnforcement() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(false);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // Should NOT throw -- RBAC is disabled
+    catalog.validateCreateViewPrivilege(
+        new NamespaceKey(Arrays.asList("myspace", "myfolder", "myview")));
+    verifyNoInteractions(rbacService);
   }
 
   private interface FakeVersionedPlugin extends VersionedPlugin, StoragePlugin {}
