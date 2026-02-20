@@ -2835,8 +2835,30 @@ public class CatalogImpl implements Catalog {
     String objectPath = key.getSchemaPath();
 
     if (!rbacService.hasPrivilege(userName, rbacPrivilege, rbacObjectType, objectPath)) {
-      logger.warn("RBAC: Access denied for user '{}'", userName);
-      throw UserException.validationError().message("Table '%s' not found", key).buildSilently();
+      logger.warn("RBAC: Access denied for user '{}' — privilege {} on {}", userName, rbacPrivilege, objectPath);
+      throw UserException.validationError()
+          .message("Permission denied: %s privilege required on '%s'", rbacPrivilege, objectPath)
+          .buildSilently();
+    }
+  }
+
+  @Override
+  public void validateCreateViewPrivilege(NamespaceKey viewKey) {
+    if (dremioConfig == null || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return;
+    }
+    if (SystemUser.isSystemUserName(userName)) {
+      return;
+    }
+    if (rbacService == null) {
+      return;
+    }
+    String containerPath = viewKey.getParent().getSchemaPath();
+    if (!rbacService.hasPrivilege(userName, "CREATE_VIEW", "VDS", containerPath)) {
+      logger.warn("RBAC: Access denied for user '{}' — privilege CREATE_VIEW on {}", userName, containerPath);
+      throw UserException.validationError()
+          .message("Permission denied: CREATE_VIEW privilege required on '%s'", containerPath)
+          .buildSilently();
     }
   }
 
@@ -2852,6 +2874,7 @@ public class CatalogImpl implements Catalog {
       case CREATE_VIEW:
       case SELECT:
       case ALTER:
+      case DROP:
       default:
         return "VDS";
     }
