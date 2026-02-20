@@ -1,291 +1,369 @@
-# RBAC Retrofit Pitfalls
+# Pitfalls Research
 
-**Research Date:** 2026-02-17
-**Scope:** Adding deny-by-default RBAC to Dremio OSS — catalog-level enforcement via `CatalogImpl.validatePrivilege()`
-
----
-
-## P1 — The Bootstrap Deadlock: Who Grants the First ADMIN?
-
-**Description:**
-Deny-by-default means no user has any privilege until someone grants it. But `GRANT ROLE ADMIN TO USER alice` is itself an operation that requires ADMIN. If the `validatePrivilege()` enforcement is enabled before any ADMIN assignment exists, every user including the first one is locked out — including from the UI and REST API.
-
-**Warning Signs:**
-- New cluster fresh-installs fail to complete setup because the first login attempt hits a privilege check before any grant exists.
-- Integration tests that wipe KV state and restart see "access denied" on the very first SQL query.
-
-**Prevention Strategy:**
-1. Wire the bootstrap sequence to the existing `BootstrapResource` (`dac/backend/src/main/java/com/dremio/dac/resource/BootstrapResource.java`) — the first user created via `/bootstrap/firstuser` must atomically receive the ADMIN role in the same transaction as user creation.
-2. Alternatively, use an `Option` flag (via `OptionManager` / `ExecConstants`) that defaults to `false` (RBAC off). RBAC enforcement only activates after the flag is explicitly set. This gives operators a safe window to configure grants before enforcement starts.
-3. At startup, if the RBAC KV store is empty and RBAC is enabled, log a loud ERROR and refuse to start (fail-fast) rather than silently accepting deny-all.
-
-**Phase:** Implementation — Phase 1, before any enforcement goes live.
+**Domain:** Wiring an existing Iceberg REST Catalog plugin in Dremio OSS (v1.1)
+**Researched:** 2026-02-20
+**Confidence:** HIGH — findings derived directly from codebase analysis
 
 ---
 
-## P2 — SYSTEM_USERNAME as a Silent Backdoor
+## Critical Pitfalls
 
-**Description:**
-Dremio has a `SystemUser.SYSTEM_USERNAME` that already bypasses authorization in dozens of places. `CatalogUtil.getSystemCatalog()`, `MetadataSynchronizer`, `ViewExpander.stringToRelRootAsSystemUser()`, and reflection/materialization jobs all run as the system user. If `validatePrivilege()` naively checks only username-based grants without an explicit system-user bypass, these internal operations will break. If the bypass is too broad, attackers who can impersonate the system user get free access.
+### Pitfall 1: Missing @SourceType Annotation Causes Silent Non-Discovery
 
-**Warning Signs:**
-- Metadata refresh jobs fail after enabling RBAC (`MetadataSynchronizer` uses `SYSTEM_USERNAME`).
-- Reflection/acceleration refreshes fail (ReflectionManager calls catalog as system user).
-- Dataset lineage updates (`MetadataSynchronizer.updateDatasetLineageMetadata()`) throw access denied.
+**What goes wrong:**
+`ConnectionReaderImpl.makeReader()` scans the classpath for classes annotated with `@SourceType` via `scanResult.getAnnotatedClasses(SourceType.class)`. Without the annotation, `RestIcebergCatalogPluginConfig` is invisible to this scan — no error is thrown, the source type simply does not appear in `GET /api/v3/catalog/source/type/list`, and the UI never offers Iceberg REST Catalog as a choice. Creating the source via the REST API with `"type": "RESTCATALOG"` will fail with a deserialization error from the `schemaByName` lookup.
 
-**Prevention Strategy:**
-1. Make `validatePrivilege()` an explicit no-op when the catalog was constructed with `CatalogUser.from(SystemUser.SYSTEM_USERNAME)` — check the `SchemaConfig` identity at the entry point.
-2. Do not rely on role membership for the system user — hard-code the bypass in `validatePrivilege()` rather than granting ADMIN to the system user (granting would create a persistent record that could confuse audits).
-3. Audit all `CatalogUtil.getSystemCatalog()` call sites before enabling enforcement to confirm none of them originate from user-controlled inputs.
+The annotation must be on the concrete config class directly (`RestIcebergCatalogPluginConfig`), not on the abstract parent (`IcebergCatalogPluginConfig`). `ConnectionReaderImpl.getCandidateSources()` skips abstract classes explicitly:
+```java
+if (Modifier.isAbstract(input.getModifiers()) ...) { continue; }
+```
 
-**Phase:** Implementation — before any enforcement check is active.
+**Why it happens:**
+The plugin JAR is on the classpath (confirmed in `dac/daemon/pom.xml`) and `sabot-module.conf` registers the package for scanning. But classpath scanning finds `@SourceType` only. A class that inherits from a type that implements `ConnectionConf` but has no `@SourceType` of its own is invisible.
 
----
+**How to avoid:**
+Add `@SourceType(value = "RESTCATALOG", label = "Iceberg REST Catalog", uiConfig = "restcatalog-layout.json")` directly to `RestIcebergCatalogPluginConfig`. Verify after adding: call `GET /api/v3/catalog/source/type/RESTCATALOG` and confirm the type appears.
 
-## P3 — The Definer-Rights Confusion: Check Once at the Outer Layer Only
+**Warning signs:**
+- Source type missing from `GET /api/v3/catalog/source/type/list` response.
+- `ConnectionReaderImpl.getConnectionConf("RESTCATALOG", ...)` throws `NullPointerException` or `MissingSourceTypeException`.
+- No warning or error in Dremio logs — the absence is completely silent.
 
-**Description:**
-Views use definer rights: `ViewExpander` calls `builder.withUser(viewOwner)` so inner table resolution runs under the view creator's identity, not the caller's. This is the correct SQL standard behavior and the security model is sound — but implementing it wrong is easy. Common mistakes: (a) checking `SELECT` privilege on both the outer view AND inner tables for the end-user, which breaks definer rights; (b) failing to check the outer view at all because the planner has already resolved it through definer rights; (c) not checking privilege at the point where the view is first looked up (`getTable`/`getDataset`) before the view expander takes over.
-
-**Warning Signs:**
-- A user with `SELECT` on view `V` cannot query it because the inner table access check fails under their identity.
-- A user with no grants on view `V` can query the underlying table directly if that table was promoted and has no privilege check.
-- UDF calls fail because `UserDefinedFunctionExpanderImpl` switches identity before privilege check is evaluated.
-
-**Prevention Strategy:**
-1. Place the `SELECT` privilege check in `DatasetManager` at the point where the `DremioTable` is first resolved for the calling user — before the view expansion machinery runs. The check must use the caller's identity, not the view owner's.
-2. For UDFs, check `EXECUTE` privilege before `UserDefinedFunctionExpanderImpl` switches to the definer identity. The check point is `CatalogImpl.getFunction()`.
-3. Write a test: user A creates view V over table T; user B has `SELECT` on V but no grant on T; confirm user B can query V and that the inner table read uses user A's identity.
-
-**Phase:** Implementation — the most critical correctness test to have before enabling enforcement.
+**Phase to address:**
+Phase 1 (Wiring) — first line of code in the milestone.
 
 ---
 
-## P4 — Access Path Gaps: SQL is Not the Only Door
+### Pitfall 2: uiConfig File Not on Classpath Causes Silent Degraded UI
 
-**Description:**
-Dremio has at least four distinct client paths: SQL via JDBC (port 31010), REST API (port 9047), Arrow Flight (port 32010), and internal gRPC (Fabric, port 45678). `CatalogImpl.validatePrivilege()` is in the catalog layer, which is shared — but some REST endpoints bypass the catalog entirely and interact with `NamespaceService` or `DatasetVersionResource` directly. `DACSecurityContext.isUserInRole()` currently returns `true` unconditionally for all roles, which means any JAX-RS `@RolesAllowed` annotation on REST resources is effectively disabled.
+**What goes wrong:**
+`SourceTypeTemplate.fromSourceClass()` loads the UI layout file using `sourceClass.getClassLoader().getResourceAsStream(type.uiConfig())`. If the file does not exist, it logs a `warn("Failed to load ui config file")` and returns a `SourceTypeTemplate` with `uiConfig = null`. The source becomes creatable via REST API but the UI "Add Source" dialog renders nothing — no fields at all, blank form. Users cannot configure the source through the UI.
 
-**Warning Signs:**
-- A user denied `SELECT` on a view via SQL can still retrieve its definition via `GET /api/v3/catalog/{id}`.
-- Arrow Flight clients connecting directly don't hit the same code path as JDBC.
-- `DatasetVersionResource` (1422 lines, flagged as a God class) performs dataset operations without going through `CatalogImpl`.
+The file name must match the `uiConfig` attribute in the annotation exactly and must be placed in `plugins/icebergcatalog/src/main/resources/`.
 
-**Prevention Strategy:**
-1. Update `DACSecurityContext.isUserInRole()` (`dac/backend/src/main/java/com/dremio/dac/server/DACSecurityContext.java`) to call the RBAC store for real role lookups rather than returning `true`.
-2. Audit all `@Path` REST resources in `dac/backend/src/main/java/com/dremio/dac/resource/` for direct `NamespaceService` calls that bypass `CatalogImpl`.
-3. Arrow Flight session creation (`DremioFlightAuthUtils`) authenticates via tokens — verify the catalog instance created per Flight session is the same privilege-enforcing instance used by SQL queries.
-4. After the first enforcement build, run a systematic access test: for each privilege type, attempt access via SQL, REST, and Flight independently.
+**Why it happens:**
+The warn log is swallowed at INFO level in most deployments. The REST API returns an empty `uiConfig` field in the JSON, which the frontend silently ignores. The developer adds `@SourceType(... uiConfig = "restcatalog-layout.json")` but forgets to create the file.
 
-**Phase:** Implementation — Phase 2 after catalog-layer checks are done; REST/Flight gaps are second priority but must not be deferred past MVP.
+**How to avoid:**
+Create `plugins/icebergcatalog/src/main/resources/restcatalog-layout.json` before adding the annotation. Use `nessie-layout.json` as the structural reference. Confirm via `GET /api/v3/catalog/source/type/RESTCATALOG` that the `uiConfig` field in the response is non-null and contains the expected JSON layout.
 
----
+**Warning signs:**
+- `WARN: Failed to load ui config file [restcatalog-layout.json]` in server log.
+- `GET /api/v3/catalog/source/type/RESTCATALOG` returns `"uiConfig": null`.
+- UI "Add Source" form is blank or missing the Endpoint URI field.
 
-## P5 — Cache Invalidation: Grants Change, Cached Decisions Don't
-
-**Description:**
-`CachingCatalog` (`sabot/kernel/src/main/java/com/dremio/exec/catalog/CachingCatalog.java`) caches catalog state per query. If privilege decisions are cached (e.g., a positive access check cached for a user), a subsequent `REVOKE` of that privilege will not take effect until the cache expires. In multi-coordinator deployments, the problem is worse: the token invalidation bug already noted in CONCERNS.md (`TokenManagerImpl` cache is per-coordinator and not broadcast) applies equally to any per-coordinator grant cache.
-
-**Warning Signs:**
-- After revoking a grant, the affected user continues to access the resource for several minutes.
-- Coordinator 2 still allows access after a revoke issued on Coordinator 1.
-
-**Prevention Strategy:**
-1. Do not cache grant decisions across query boundaries. The per-query `CachingCatalog` is acceptable because it lives only for one query's lifetime — do not add a longer-lived privilege cache initially.
-2. If a grant cache is introduced later for performance (see P6), implement invalidation via NATS pub/sub (`services/pubsub-nats/`) — the infrastructure already exists for distributed messaging.
-3. RocksDB reads for grant lookups are local and sub-millisecond at the record count expected for v1 (thousands of grants). Defer caching until profiling shows it is necessary.
-
-**Phase:** Implementation — avoid the problem by not caching; revisit in optimization phase.
+**Phase to address:**
+Phase 1 (Wiring) — create alongside the annotation.
 
 ---
 
-## P6 — Performance: A KV Lookup on Every Catalog Resolution
+### Pitfall 3: Feature Flag Default is TRUE — Plugin Active Without Explicit Enable
 
-**Description:**
-`validatePrivilege()` will be called on every `getTable`/`getDataset`/`getFunction` resolution, which happens for every table reference in every query — including multi-table joins, subqueries, and reflection-rewrite substitution. For a complex query with 20 table references, that is 20+ RocksDB lookups per query. The existing `BatchLookupOptimiser` in `NamespaceService` already exists because individual namespace lookups were a bottleneck. Adding unbatched KV reads inside the hot planning path is a known anti-pattern in this codebase.
+**What goes wrong:**
+`RESTCATALOG_PLUGIN_ENABLED` defaults to `true` (`new TypeValidators.BooleanValidator("plugins.restcatalog.enabled", true)`). Once `@SourceType` is added, any user who can create sources can immediately create an Iceberg REST Catalog source — without the admin explicitly enabling it. For a v1.1 milestone targeting read-only validation, this means write operations through `RESTCATALOG_PLUGIN_MUTABLE_ENABLED` (also defaults `true`) are also live.
 
-**Warning Signs:**
-- Query planning latency increases by more than 5ms per table reference after enabling RBAC.
-- Profiling shows `validatePrivilege` appearing in query planning flame graphs.
+This is the opposite of v1.0 RBAC which defaulted to `false` (safe rollout). For v1.1, the risk is accepting connections before connectivity and auth are validated.
 
-**Prevention Strategy:**
-1. For v1, accept the KV reads — at the scale of OSS deployments (tens not thousands of concurrent queries), RocksDB local reads will not be the bottleneck.
-2. Implement a request-scoped grant cache keyed by `(userId, privilege, entityKey)` — populated on first check per query, evicted when the query ends. This is safe because no grant changes during a single query's planning phase.
-3. Batch the privilege check for all tables in a query plan using a set lookup rather than per-table sequential reads.
-4. Do not implement cross-request caching (see P5) until a multi-coordinator invalidation mechanism is in place.
+**Why it happens:**
+The plugin was designed by the upstream team with `true` defaults because it is intended to be generally available. But for OSS enablement of an unvalidated source, defaulting to `true` means write paths are immediately available.
 
-**Phase:** Optimization — after correctness is validated; monitor before optimizing.
+**How to avoid:**
+For the read-only validation milestone, verify that the `validateOnStart()` guard works as designed: if `!optionManager.getOption(getEnableOption())` → throw `UnsupportedError`. If read-only is the goal, confirm mutable operations (CREATE TABLE, DROP TABLE, etc.) throw via the `RESTCATALOG_PLUGIN_MUTABLE_ENABLED` guard. Do not change the default — document that operators should set `plugins.restcatalog.mutable.enabled = false` if they want read-only behavior.
 
----
+**Warning signs:**
+- User creates a CTAS against the Lakekeeper source without hitting an error during the read-only validation phase.
+- Mutable write operations succeed when they should be blocked.
 
-## P7 — The Migration Lock-Out: Existing Views and UDFs Have No Owner
-
-**Description:**
-Enabling deny-by-default on an existing deployment means every view and UDF that was created before RBAC existed has no owner and no grants. All existing queries will fail immediately. Views stored in `NamespaceService` have a `VirtualDataset.getOwner()` field — if that field is empty or null for legacy datasets, the definer-rights model breaks and the privilege check has no valid entity to match against.
-
-**Warning Signs:**
-- Turning on RBAC flag on an existing cluster breaks all existing view queries.
-- `VirtualDataset.getOwner()` returns null or empty string for views created before RBAC was added.
-- UDF owner field (`DremioScalarUserDefinedFunction.getOwner()`) is unpopulated.
-
-**Prevention Strategy:**
-1. Before enabling enforcement, run a migration job that reads all `VirtualDataset` records from the namespace store and backfills an empty owner with the username that created the dataset (using job history if available, or defaulting to a known admin user).
-2. Implement a "grant PUBLIC SELECT on all existing views" migration step that runs atomically with enabling RBAC. The PUBLIC role (which all users implicitly belong to) serves as the open-access default for pre-existing datasets.
-3. Provide an `--rbac-migrate` command or startup flag that runs the migration before enforcement activates, with a dry-run mode that reports what would change.
-
-**Phase:** Migration — must be completed before production deployment of enforcement.
+**Phase to address:**
+Phase 1 (Wiring) — verify the mutable flag behavior before validation testing starts.
 
 ---
 
-## P8 — EE Conflict: Clobbering the Enterprise RBAC
+### Pitfall 4: Namespace Separator Mismatch Between allowedNamespaces Config and Catalog Entries
 
-**Description:**
-Dremio Enterprise Edition has its own production-grade RBAC implementation that also implements `validatePrivilege()`. The OSS build and EE build share the same `CatalogImpl.java`. The OSS no-op is replaced by the EE implementation via dependency injection or class override. If the OSS RBAC implementation creates conflicting KV store keys, protobuf types, or SQL grammar changes, it will corrupt EE deployments or cause merge conflicts that block upstream synchronization.
+**What goes wrong:**
+`allowedNamespaces` in `RestIcebergCatalogPluginConfig` is a `List<String>` where each string represents a hierarchical namespace. The accessor splits each entry using `RESTCATALOG_ALLOWED_NS_SEPARATOR` (default regex `"\\."`), meaning the expected format for a two-level namespace is `"db.schema"`. Lakekeeper namespaces can themselves contain dots if namespace components are named with dots. A user configuring `allowedNamespaces = ["my.db"]` intends to allow the namespace `my.db` (a single-level namespace with a dot in the name), but the separator splits it into `["my", "db"]` — a two-level namespace. The table filtering will silently show empty or wrong results.
 
-**Warning Signs:**
-- KV store key prefixes for OSS RBAC tables clash with EE key prefixes.
-- Protobuf message names added for OSS RBAC conflict with EE proto definitions.
-- SQL grammar changes for `GRANT`/`REVOKE` handlers conflict with EE handler registration.
+**Why it happens:**
+The separator is a configurable option (`RESTCATALOG_ALLOWED_NS_SEPARATOR`) that defaults to `"\\."` (the dot). The `AbstractRestCatalogAccessor` constructor applies `s.split(separator)` where `separator` is the raw option string treated as a regex:
+```java
+Namespace.of(s.split(separator))
+```
+A user who wants to allow a namespace containing a literal dot has no obvious way to escape it.
 
-**Prevention Strategy:**
-1. Namespace all OSS RBAC KV store keys with a distinct prefix (e.g., `"oss_rbac_"`) that will not collide with EE key spaces.
-2. Do not modify the `SqlGrant` / `SqlCreateRole` parsers — they already parse correctly. Only add the handler implementations that dispatch from the existing no-op or `UnsupportedOperationException` handlers.
-3. Place all new RBAC code under a package that EE does not touch: `com.dremio.exec.catalog.rbac` or similar. The `validatePrivilege()` override in EE should remain the canonical implementation; OSS should provide a distinct, independently testable one.
-4. Before merging, confirm that the OSS RBAC feature flag (`Option`) defaults to `false` so EE deployments (which have their own RBAC active) are unaffected.
+**How to avoid:**
+When configuring `allowedNamespaces` for Lakekeeper, use only namespaces whose names do not contain dots, or change the separator option (`plugins.restcatalog.allowed.ns.separator`) to a character that does not appear in namespace names (e.g., `"\u001f"` — the same unit separator used for `NAMESPACE_SEPARATOR` internally). Document this constraint clearly in the UI layout.
 
-**Phase:** Design — namespace and packaging decisions must be made before writing any persistence code.
+**Warning signs:**
+- `allowedNamespaces` is set but no tables appear in the source browser.
+- The namespace configured in `allowedNamespaces` exists in Lakekeeper but `listDatasetHandles` returns empty.
+- Debug logging shows namespace filtering discarding all entries.
 
----
-
-## P9 — The Implicit ADMIN: Internal System Operations That Must Not Be Blocked
-
-**Description:**
-Internal operations that run as the system user (reflections, metadata sync, schema refresh) are covered by P2. But there is a subtler case: jobs submitted on behalf of a user but executed by an internal service. `LocalJobsService` has `// TODO (DX-17909): Add and use username in request` comments — meaning authorization username is currently a no-op in job cancellation and retrieval flows. If RBAC privilege checks are added to catalog access during job execution but the username is not correctly propagated through the job service, internal operations will fail with permission denied under the wrong identity.
-
-**Warning Signs:**
-- `DX-17909` comment still present in `LocalJobsService` at lines 3084 and 1534.
-- Scheduled refresh jobs (reflection refresh, metadata sync) fail with access denied after enabling RBAC.
-- Job cancellation by admin fails because the job was recorded under `SYSTEM_USERNAME` but queried under a user identity.
-
-**Prevention Strategy:**
-1. Do not add privilege checks inside the job execution path (fragment execution, `LocalJobsService`). Privilege is checked once at query submission time in the catalog layer.
-2. Audit any code path that creates a `Catalog` instance during job execution: confirm those all either use `SYSTEM_USERNAME` (and are exempt by P2's bypass) or correctly carry the original submitting user's identity.
-3. Flag `DX-17909` as a dependency risk — the authorization username gap in job service means audit logging of who did what will be inaccurate even if access control is correct.
-
-**Phase:** Implementation — audit before enabling enforcement.
+**Phase to address:**
+Phase 2 (Validation against Lakekeeper) — caught during namespace browsing tests.
 
 ---
 
-## P10 — INFORMATION_SCHEMA and sys Tables: Privilege Leakage Through Metadata
+### Pitfall 5: ExpiringCatalogCache Requires Concrete RESTCatalog — Fails on Subclass
 
-**Description:**
-A user who is denied `SELECT` on view `V` should not be able to discover `V`'s existence, schema, or SQL definition via `INFORMATION_SCHEMA.VIEWS`, `sys.privileges`, or the REST catalog API. Failing to filter these metadata results by the caller's grants is a privilege escalation: even without data access, schema information reveals business logic, column names, and join relationships.
+**What goes wrong:**
+`ExpiringCatalogCache.get()` asserts:
+```java
+Preconditions.checkArgument(catalog instanceof RESTCatalog, "RESTCatalog instance expected");
+```
+`IcebergRestCatalogAccessor.checkStateInternal()` also asserts:
+```java
+Preconditions.checkState(catalog instanceof RESTCatalog, ...);
+```
+If authentication or Lakekeeper-specific wiring requires a different catalog implementation (e.g., a `SessionCatalog`, custom `BaseCatalog` subclass, or a proxied `RESTCatalog`), these hard `instanceof` checks will throw `IllegalArgumentException` at startup — not a clean `UserException`, but a raw Preconditions failure that surfaces as a generic connection error.
 
-**Warning Signs:**
-- `SELECT * FROM INFORMATION_SCHEMA.VIEWS` returns views the user has no `SELECT` grant on.
-- `GET /api/v3/catalog` lists datasets the user cannot query.
-- `sys.privileges` is readable by all users (it should only be readable by ADMIN or by users querying their own grants).
+**Why it happens:**
+The `restCatalogImpl()` method is protected and overridable, but the caching infrastructure hardcodes `RESTCatalog` class check. If a future auth wrapper or Lakekeeper-specific adapter is not a direct `RESTCatalog` instance, the cache will reject it.
 
-**Prevention Strategy:**
-1. Filter `INFORMATION_SCHEMA.VIEWS` and `INFORMATION_SCHEMA.TABLES` results by the calling user's effective grants — only return rows for entities the user can actually access.
-2. For v1, restrict `sys.privileges`, `sys.roles`, and `sys.membership` to ADMIN-only read access. Regular users can see only their own rows.
-3. Apply the same `validatePrivilege(SELECT)` check in the `InformationSchemaCatalog` implementation for view/function listing endpoints.
+**How to avoid:**
+For Lakekeeper with OAuth2/bearer token auth, authentication is passed via catalog properties (`rest.auth.type = oauth2` or `rest.credential = <token>`) into the standard `RESTCatalog` — no custom class needed. Verify that the catalog returned by `CatalogUtil.loadCatalog()` is exactly `org.apache.iceberg.rest.RESTCatalog` and not a subclass. If using a custom catalog implementation for testing, ensure it extends `RESTCatalog`.
 
-**Phase:** Implementation — Phase 2; can be deferred from MVP but must be tracked.
+**Warning signs:**
+- Source shows as `BAD` state immediately after creation.
+- Dremio logs show `IllegalArgumentException: RESTCatalog instance expected` or `IllegalStateException: Catalog is not an instance of RESTCatalog`.
+- `validateOnStart()` passes but `getState()` returns BAD.
 
----
-
-## P11 — Broad Error Messages That Reveal Object Existence
-
-**Description:**
-If `validatePrivilege()` throws "You do not have SELECT privilege on view `finance.revenue_2024`", a user without access has confirmed that `finance.revenue_2024` exists. The correct behavior for deny-by-default is to return `NOT FOUND` (not `FORBIDDEN`) for entities the user has no `SELECT` on — identical to how the object would appear if it did not exist. This prevents enumeration attacks.
-
-**Warning Signs:**
-- Access-denied exceptions include the full path of the denied object.
-- Error messages say "Access denied to `X`" vs "Object `X` not found" depending on whether the object exists.
-
-**Prevention Strategy:**
-1. In `validatePrivilege()`, throw `UserException.validationError().message("Object not found")` rather than a permission-denied message. Use Dremio's existing `UserException` patterns — consistent with how `CatalogEntityNotFoundException` is surfaced.
-2. Reserve permission-denied messages for operations where the user already knows the object exists (e.g., `DROP VIEW` when you own it, but ADMIN revoked your DDL privilege).
-3. This is specifically important for `getTable`/`getDataset` in the dataset resolution path — those already return `null` for not-found; a privilege failure should also return `null` (not found) rather than throw.
-
-**Phase:** Implementation — bake into the initial `validatePrivilege()` implementation.
+**Phase to address:**
+Phase 1 (Wiring) — caught at first source creation attempt.
 
 ---
 
-## P12 — KV Store Schema Evolution: Protobuf Changes Cannot Break Existing Records
+### Pitfall 6: Lakekeeper OAuth2/Bearer Auth Must Be Passed as Catalog Properties, Not Hadoop Config
 
-**Description:**
-RBAC grant records, role records, and membership records will be stored in RocksDB via protobuf serialization. Dremio uses `ProtostuffSerializer` for some stores and direct protobuf for others. If field numbers are reused, required fields are added, or enum values are removed in a schema update, existing records in RocksDB will fail to deserialize — silently returning nulls or throwing on read. This is particularly dangerous for RBAC because a deserialization failure on a grant record could default to "no grant" (deny) or crash the coordinator.
+**What goes wrong:**
+The `buildCatalogProperties()` method in `RestIcebergCatalogPlugin` accepts arbitrary `Property` entries from both `propertyList` and `secretPropertyList` and puts them into the catalog properties map. The Iceberg `RESTCatalog` reads OAuth2 credentials (`rest.auth.type`, `rest.credential`, `oauth2.server-uri`, `oauth2.scope`, `oauth2.credential`) from this map. If the user puts auth properties into `propertyList` instead of `secretPropertyList`, the bearer token will be stored in plaintext in Dremio's KV store and exposed in `GET /api/v3/catalog/source/{id}` responses.
 
-**Warning Signs:**
-- After a version upgrade, privilege checks fail for users who had explicit grants before the upgrade.
-- RocksDB records from the previous version throw protobuf parse errors in logs.
+Additionally, properties put into `conf.set(p.name, p.value)` on the Hadoop `Configuration` do not flow to the `RESTCatalog` auth layer — the auth layer reads from the catalog properties map, not Hadoop config. Putting auth properties only in Hadoop config will silently fail authentication (server returns 401, which manifests as a connection error).
 
-**Prevention Strategy:**
-1. Use proto3 for all new RBAC message types — all fields are optional by default, which is safe for forward/backward evolution.
-2. Never reuse field numbers in proto definitions, even after removing a field.
-3. Test deserialization of records written by the previous version as part of the upgrade integration test suite.
-4. Choose a well-defined key schema (e.g., `{storePrefix}/{entityId}/{userId}/{privilege}`) so that key parsing is also version-stable.
+**Why it happens:**
+The code does both:
+```java
+config.set(p.name, p.value);         // Hadoop conf
+properties.put(p.name, p.value);     // Catalog properties
+```
+But the distinction between `propertyList` and `secretPropertyList` is only about storage encryption in Dremio's KV store — both get merged into the same catalog properties map at runtime. The pitfall is UI-level: using the wrong input field.
 
-**Phase:** Design — before writing any protobuf definitions.
+**How to avoid:**
+- Always put bearer token, OAuth2 credentials, and any sensitive auth values in `secretPropertyList` (labeled "Catalog Credentials" in the UI). This ensures they are encrypted at rest.
+- For Lakekeeper with bearer token auth: use property name `rest.credential` = `<token>` in the secret properties.
+- For Lakekeeper with OAuth2: use `rest.auth.type = oauth2`, `oauth2.server-uri = <token endpoint>`, `oauth2.credential = <client_id:client_secret>` in secret properties.
+- Verify the source state is GOOD after creation — a 401 from Lakekeeper surfaces as `SourceState.BAD`.
 
----
+**Warning signs:**
+- Source created successfully (no startup error) but state shows BAD with "Could not connect... check credentials".
+- Lakekeeper server logs show 401 Unauthorized on the initial catalog config request.
+- Bearer token appears in plaintext in `GET /api/v3/catalog/source/{id}` response.
 
-## P13 — The DACSecurityContext `isUserInRole()` Time Bomb
-
-**Description:**
-`DACSecurityContext.isUserInRole(String role)` currently returns `true` for every role check. This means every `@RolesAllowed("admin")` annotation on REST resources has been silently ineffective. When RBAC is enabled and `isUserInRole()` is updated to return real results, any JAX-RS resource that was relying on the broken implementation to allow all access will suddenly enforce role checks. This could break REST-based admin operations that legitimate admin users depend on — if their role name does not exactly match the string passed to `isUserInRole()`.
-
-**Warning Signs:**
-- REST endpoints that previously worked for all users return 403 after `isUserInRole()` is fixed.
-- REST admin endpoints become inaccessible to the ADMIN role because the role name string does not match the expected JAX-RS role string.
-
-**Prevention Strategy:**
-1. Before fixing `isUserInRole()`, audit all `@RolesAllowed` annotations in REST resources to catalog what role strings are expected.
-2. Map JAX-RS role strings to RBAC role names explicitly. The ADMIN built-in role should be the canonical answer for `@RolesAllowed("admin")`.
-3. Fix `isUserInRole()` in a separate, isolated change from the `validatePrivilege()` implementation. Treat it as a REST authorization layer distinct from the catalog layer.
-
-**Phase:** Implementation — Phase 2, after catalog-level enforcement is stable.
+**Phase to address:**
+Phase 2 (Validation against Lakekeeper) — first connection attempt.
 
 ---
 
-## P14 — Legacy KV Store API: Don't Add Debt to a Deprecated Layer
+### Pitfall 7: Dataset Depth Constraint Breaks Flat Namespace Configurations
 
-**Description:**
-Dremio's `LegacyKVStore` / `LegacyKVStoreProvider` are fully `@Deprecated` but still in active use. If RBAC store classes are implemented using the deprecated API, they join the cleanup debt pile. More concretely, if the legacy API is removed in a future cleanup, RBAC code written against it breaks.
+**What goes wrong:**
+`AbstractRestCatalogAccessor.namespaceFromDataset()` enforces:
+```java
+Preconditions.checkState(size >= 3, "A dataset must only be created underneath of a folder.");
+```
+The path components list is `[sourceName, namespace..., tableName]`. For a minimum valid path, this requires at least one namespace level between the source name and the table name — i.e., `[sourceName, namespace, tableName]` = 3 elements. A table at the Iceberg root namespace (`Namespace.empty()`) with path `[sourceName, tableName]` = 2 elements will throw an `IllegalStateException` during `datasetExists()`, `getDatasetHandle()`, or `getTableMetadata()`.
 
-**Warning Signs:**
-- RBAC store implementation imports `com.dremio.datastore.api.LegacyKVStore` or `LegacyKVStoreProvider`.
+Lakekeeper (and most production Iceberg REST catalogs) require tables to be in at least one namespace. But if a Lakekeeper instance has tables directly under the root or if Dremio constructs a path with fewer than 3 components, the error is unchecked and surfaces as an internal error rather than a user-facing message.
 
-**Prevention Strategy:**
-1. Implement RBAC stores using the current `KVStore` / `KVStoreProvider` API (`com.dremio.datastore.api.KVStore`), not the legacy layer.
-2. If existing RBAC-adjacent infrastructure (e.g., `AccessControlListingManager`) uses the legacy API, implement the RBAC store independently and do not extend the legacy code.
-3. Use `KVStoreCreationFunction` as the standard store registration pattern, consistent with `TokenManagerImpl` and `NamespaceServiceImpl`.
+**Why it happens:**
+The constraint is a Preconditions check, not a graceful UserException. The `datasetExists()` method wraps only `BadRequestException` and `IllegalStateException` — but `IllegalStateException` from a Preconditions violation is not a `BadRequestException`. The path size check fires before the HTTP request is made.
 
-**Phase:** Implementation — first line of code constraint.
+**How to avoid:**
+- Configure Lakekeeper with at least one namespace level for all tables: `my_namespace.my_table`, not `my_table`.
+- When testing, validate that all Lakekeeper tables are in a non-root namespace.
+- Do not attempt to browse root-level tables through Dremio's source browser.
 
----
+**Warning signs:**
+- `IllegalStateException: A dataset must only be created underneath of a folder` in server logs.
+- Source browser shows the source but clicking on it fails with an internal error.
+- Tables visible via `GET /api/v3/catalog` but not queryable.
 
-## Summary Table
-
-| # | Pitfall | Phase |
-|---|---------|-------|
-| P1 | Bootstrap deadlock: who grants the first ADMIN | Phase 1 |
-| P2 | SYSTEM_USERNAME as a silent backdoor | Phase 1 |
-| P3 | Definer-rights confusion: checking the wrong layer | Phase 1 |
-| P4 | Access path gaps: SQL is not the only door | Phase 2 |
-| P5 | Cache invalidation when grants change | Phase 1 |
-| P6 | Performance: KV lookup on every catalog resolution | Optimization |
-| P7 | Migration lock-out: existing views/UDFs have no owner | Migration |
-| P8 | EE conflict: clobbering the Enterprise RBAC | Design |
-| P9 | Implicit ADMIN: internal operations blocked by wrong identity | Phase 1 |
-| P10 | INFORMATION_SCHEMA leaks object existence | Phase 2 |
-| P11 | Error messages reveal object existence | Phase 1 |
-| P12 | KV store schema evolution: protobuf changes break records | Design |
-| P13 | DACSecurityContext.isUserInRole() time bomb | Phase 2 |
-| P14 | Using the deprecated LegacyKVStore API | Phase 1 |
+**Phase to address:**
+Phase 2 (Validation against Lakekeeper) — caught during namespace browsing.
 
 ---
 
-*Pitfall research: 2026-02-17*
+### Pitfall 8: Table Cache Served Per-User Blocks Staleness Detection
+
+**What goes wrong:**
+`AbstractRestCatalogAccessor` uses a per-user Caffeine cache keyed by `(userId, tableIdentifier)` with a default TTL of 3 seconds (minimum) and up to 120 seconds (`RESTCATALOG_PLUGIN_TABLE_CACHE_EXPIRE_AFTER_WRITE_SECONDS`). During read-only validation against Lakekeeper, if a table schema is updated in Lakekeeper between two Dremio queries, the second query may read stale metadata from the cache and produce incorrect results. The cache is per-user, so different users querying the same table see different metadata if their cache entries are at different ages.
+
+Additionally, `invalidateTableCacheForAllUsers()` iterates the entire cache map to find keys matching a table identifier — this is a full cache scan, which degrades proportionally with cache size if many tables are cached.
+
+**Why it happens:**
+The cache is designed for performance in a multi-user query environment. For validation testing where schema accuracy is the goal, the default 120-second TTL is too long to catch schema changes quickly.
+
+**How to avoid:**
+- During validation testing, set `plugins.restcatalog.table_cache.expire_after_write_seconds = 3` (the minimum) or disable table caching entirely with `plugins.restcatalog.table_cache.enabled = false`.
+- In production, use `ALTER TABLE ... REFRESH METADATA` or the `ForceUpdateOption` path to bypass the cache when freshness is required.
+- Do not rely on cache TTL expiry as the primary mechanism for detecting schema changes during testing.
+
+**Warning signs:**
+- Two successive `SELECT *` queries on the same table return different column counts.
+- Schema changes made in Lakekeeper are not reflected in Dremio for up to 120 seconds.
+- Debug logs show "cache miss" on first query but no miss on subsequent queries for the same table.
+
+**Phase to address:**
+Phase 2 (Validation against Lakekeeper) — configure TTL before starting validation tests.
+
+---
+
+### Pitfall 9: Catalog Expiry Closes and Reopens RESTCatalog — OAuth Token Not Refreshed
+
+**What goes wrong:**
+`ExpiringCatalogCache` holds a single `RESTCatalog` instance and re-creates it after `RESTCATALOG_PLUGIN_CATALOG_EXPIRE_SECONDS` (default 1800 seconds = 30 minutes). When the cache expires, the old `RESTCatalog` is closed via `Closeable.close()` and a new one is created by calling `catalogSupplier.get()`. The new catalog re-reads properties and re-initializes auth.
+
+The risk: if the OAuth2 access token in the catalog properties is a static bearer token stored at plugin creation time (from `secretPropertyList`), the new catalog will present the same token to Lakekeeper. If the token has expired in the meantime (e.g., short-lived tokens with 15-minute TTL), the new catalog creation will get a 401 from Lakekeeper and `ExpiringCatalogCache.get()` will throw from the `catalogSupplier.get()` call — the plugin enters BAD state.
+
+**Why it happens:**
+The `catalogSupplier` is a lambda that closes over the static `properties` map from `buildCatalogProperties()`. Properties are read once at plugin creation (in `RestIcebergCatalogPlugin.createRestCatalog()`). Token refresh is not implemented — there is no mechanism to re-read secrets from the KV store when the catalog is re-created.
+
+**How to avoid:**
+- For Lakekeeper validation, use long-lived tokens (personal access tokens or tokens with >2 hour TTL).
+- For OAuth2 client credentials flow, use `rest.auth.type = oauth2` with `oauth2.server-uri` and `oauth2.credential` — the `RESTCatalog` handles token refresh internally when using the OAuth2 flow, unlike static bearer tokens.
+- Avoid static short-lived bearer tokens in production.
+- After catalog expiry (every 30 minutes), check source state and confirm it remains GOOD.
+
+**Warning signs:**
+- Source flips from GOOD to BAD approximately every 30 minutes.
+- Lakekeeper logs show 401 errors starting at the catalog cache TTL boundary.
+- Plugin restarts fix the issue temporarily (new token loaded on restart).
+
+**Phase to address:**
+Phase 2 (Validation against Lakekeeper) — test with token TTL awareness.
+
+---
+
+## Technical Debt Patterns
+
+Shortcuts that seem reasonable but create long-term problems.
+
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| Skipping UI layout JSON (no `uiConfig`) | Faster wiring, source usable via REST API | UI form is blank; users cannot create source without knowing exact property names | Never — the layout is mandatory for a usable source |
+| Using `propertyList` for auth tokens instead of `secretPropertyList` | Simpler setup | Tokens stored plaintext in KV store, exposed via REST API | Never |
+| Leaving `RESTCATALOG_PLUGIN_MUTABLE_ENABLED = true` during read-only validation | No config change needed | Write operations accepted and attempted against catalog | Never during v1.1 read-only phase; set to `false` if read-only is required |
+| Omitting `allowedNamespaces` filter | All namespaces visible immediately | Full recursive namespace scan on every metadata refresh — expensive on large Lakekeeper instances | Acceptable for local testing; set namespaces in production |
+| Using `IcebergRestCatalogAccessor` (marked `@Deprecated`) | It's what `RestIcebergCatalogPlugin.createCatalog()` uses today | Signals the class will be replaced; future changes may not maintain backward compatibility | Acceptable for v1.1; track the deprecation |
+
+---
+
+## Integration Gotchas
+
+Common mistakes when connecting to Lakekeeper specifically.
+
+| Integration | Common Mistake | Correct Approach |
+|-------------|----------------|------------------|
+| Lakekeeper auth | Passing `Authorization: Bearer <token>` as a custom HTTP header via propertyList | Use `rest.credential = <token>` as a catalog property — `RESTCatalog` adds the header automatically |
+| Lakekeeper endpoint | Using the base URL without `/v1` suffix (e.g., `http://lakekeeper:8080`) | Lakekeeper expects `http://lakekeeper:8080/catalog` — the Iceberg REST spec base; verify with Lakekeeper docs |
+| Lakekeeper namespaces | Creating tables at root level (`Namespace.empty()`) | All tables must be in at least one namespace; Dremio enforces minimum path depth of 3 (`[source, ns, table]`) |
+| Lakekeeper warehouse | Not specifying `warehouse` property for multi-warehouse deployments | Set `warehouse = <warehouse-name>` in `propertyList` when connecting to a specific warehouse |
+| Lakekeeper OAuth2 | Using `rest.auth.type = bearer` with a rotating token | Use `rest.auth.type = oauth2` with client credentials so the `RESTCatalog` handles token refresh |
+| File system access | Assuming Dremio can reach the table data storage directly | Lakekeeper vends table locations (S3/GCS/ADLS paths) — Dremio needs separate cloud storage credentials configured as Hadoop config properties |
+
+---
+
+## Performance Traps
+
+Patterns that work at small scale but fail as usage grows.
+
+| Trap | Symptoms | Prevention | When It Breaks |
+|------|----------|------------|----------------|
+| Recursive namespace scan without `allowedNamespaces` | Metadata refresh takes minutes; Lakekeeper rate-limited | Set `allowedNamespaces` to the specific namespaces needed | >100 namespaces in Lakekeeper |
+| No table cache TTL tuning | Every query hits Lakekeeper's HTTP API for metadata | Leave cache enabled (default); tune TTL based on schema change frequency | >50 concurrent users |
+| Full cache scan in `invalidateTableCacheForAllUsers()` | Cache invalidation becomes slow | Acceptable for v1.1 scale; redesign cache key structure later if needed | >10,000 cache entries |
+| Catalog re-creation every 30 min with token exchange overhead | Brief latency spikes at 30-minute intervals | Use OAuth2 client credentials to minimize per-creation cost | Not a concern at v1.1 scale |
+
+---
+
+## Security Mistakes
+
+Domain-specific security issues beyond general web security.
+
+| Mistake | Risk | Prevention |
+|---------|------|------------|
+| `hasAccessPermission()` is a `// TODO: implement RBAC` no-op | All users can see all tables in the Iceberg REST Catalog source regardless of Dremio RBAC grants | Documented limitation for v1.1; enforce access at the Lakekeeper level using its native auth for now |
+| Secrets in `propertyList` instead of `secretPropertyList` | Bearer tokens exposed in GET API responses and stored plaintext in RocksDB | Always use `secretPropertyList` for any credential, token, or password |
+| Missing warehouse scoping | A user of source A can query tables in warehouse B if namespaces overlap | Use `allowedNamespaces` to limit visibility to the intended warehouse's namespaces |
+| No TLS validation on REST endpoint | Man-in-the-middle possible if `http://` is used | Use `https://` for the REST endpoint in production; `http://` only acceptable for localhost testing |
+
+---
+
+## "Looks Done But Isn't" Checklist
+
+Things that appear complete but are missing critical pieces.
+
+- [ ] **Source discoverable via API:** Verify `GET /api/v3/catalog/source/type/RESTCATALOG` returns HTTP 200 with a non-null body — not just that the annotation compiles.
+- [ ] **UI layout present:** Verify `GET /api/v3/catalog/source/type/RESTCATALOG` returns `uiConfig` with non-null JSON, not `null`.
+- [ ] **Source state GOOD after creation:** Verify `GET /api/v3/catalog/source/{id}/state` returns `"status": "good"` after creating a Lakekeeper source — source creation can succeed while the actual connection fails.
+- [ ] **Namespace browsing works:** Navigate the source in the Dremio UI schema browser and confirm namespaces from Lakekeeper appear — the catalog may connect but return empty results due to `allowedNamespaces` misconfiguration.
+- [ ] **Table listing returns results:** Confirm at least one table appears under a namespace — namespace browsing can work while table listing fails due to path depth issues.
+- [ ] **SELECT query executes:** Run `SELECT * FROM "source"."namespace"."table" LIMIT 10` and get actual rows — metadata resolution can succeed while data scan fails due to missing file system credentials.
+- [ ] **Mutable operations blocked:** Attempt a `CREATE TABLE ... AS SELECT` against the source and confirm it throws `UnsupportedOperationException` (if `RESTCATALOG_PLUGIN_MUTABLE_ENABLED = false`), not a 500 error.
+- [ ] **Feature flag defaults confirmed:** Check that `RESTCATALOG_PLUGIN_ENABLED` is `true` (source can be created) and `RESTCATALOG_PLUGIN_MUTABLE_ENABLED` is `true` (write ops live) — verify expected behavior for each.
+
+---
+
+## Recovery Strategies
+
+When pitfalls occur despite prevention, how to recover.
+
+| Pitfall | Recovery Cost | Recovery Steps |
+|---------|---------------|----------------|
+| Missing `@SourceType` annotation | LOW | Add annotation, rebuild JAR, restart Dremio — no data migration needed |
+| Missing `uiConfig` JSON | LOW | Create the file, rebuild JAR, restart Dremio — no data loss |
+| Wrong auth property placement (token in propertyList) | MEDIUM | Delete source, recreate with token in secretPropertyList — existing KV record with plaintext token must be deleted manually |
+| Namespace separator mismatch causing empty results | LOW | Update source config with corrected `allowedNamespaces` format — no restart needed |
+| Plugin in BAD state due to expired token | LOW | Update source credentials via PUT `/api/v3/catalog/source/{id}` with fresh token — no restart needed |
+| Tables not visible due to flat namespace (depth < 3) | LOW | Move tables to a proper namespace in Lakekeeper; no Dremio change needed |
+
+---
+
+## Pitfall-to-Phase Mapping
+
+How roadmap phases should address these pitfalls.
+
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| Missing `@SourceType` annotation (P1) | Phase 1: Wiring | `GET /api/v3/catalog/source/type/RESTCATALOG` returns 200 |
+| Missing `uiConfig` JSON file (P2) | Phase 1: Wiring | Response includes non-null `uiConfig` JSON |
+| Feature flag defaults understanding (P3) | Phase 1: Wiring | Document mutable vs read-only behavior before testing |
+| Namespace separator mismatch (P4) | Phase 2: Validation | Namespace browsing returns correct Lakekeeper namespaces |
+| ExpiringCatalogCache RESTCatalog constraint (P5) | Phase 1: Wiring | Source reaches GOOD state on first connection |
+| Lakekeeper auth via catalog properties (P6) | Phase 2: Validation | Source GOOD state confirmed; Lakekeeper logs show 200 responses |
+| Dataset depth constraint (P7) | Phase 2: Validation | Tables appear in browser; SELECT queries succeed |
+| Table cache TTL during testing (P8) | Phase 2: Validation | Cache TTL reduced before validation tests start |
+| OAuth2 token refresh on catalog expiry (P9) | Phase 2: Validation | Source state checked 30+ minutes after creation |
+
+---
+
+## Sources
+
+- Codebase analysis: `/home/emanuele/IdeaProjects/dremio-oss/plugins/icebergcatalog/src/`
+  - `RestIcebergCatalogPlugin.java` — plugin wiring, auth property merging, catalog creation
+  - `RestIcebergCatalogPluginConfig.java` — config fields, missing `@SourceType` confirmation
+  - `IcebergCatalogPlugin.java` — feature flag guard, `hasAccessPermission` TODO, `validateOnStart`
+  - `AbstractRestCatalogAccessor.java` — namespace filtering, table cache, path depth constraint
+  - `ExpiringCatalogCache.java` — RESTCatalog instanceof check, catalog expiry behavior
+  - `IcebergCatalogPluginOptions.java` — feature flag defaults (all TRUE)
+  - `CatalogOptions.java` — `RESTCATALOG_VIEWS_SUPPORTED`, `RESTCATALOG_FOLDERS_SUPPORTED` defaults (TRUE)
+  - `IcebergCatalogPluginUtils.java` — `NAMESPACE_SEPARATOR = "\u001f"` (unit separator char)
+- Codebase analysis: `dac/backend/src/main/java/com/dremio/dac/api/SourceTypeTemplate.java`
+  - ClassLoader resource lookup, silent warn on missing `uiConfig` file
+- Codebase analysis: `sabot/kernel/src/main/java/com/dremio/exec/catalog/ConnectionReaderImpl.java`
+  - `@SourceType` classpath scanning mechanism, abstract class exclusion
+- Reference plugin: `plugins/dataplane/src/main/resources/nessie-layout.json` — UI layout structure
+
+---
+*Pitfall research for: Dremio OSS v1.1 Iceberg REST Catalog wiring against Lakekeeper*
+*Researched: 2026-02-20*
