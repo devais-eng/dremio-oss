@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-02-20)
 
 ## Current Position
 
-Phase: 9 — Maven Build in CI
+Phase: 10 — Dockerfile Adaptation
 Plan: 01 complete
-Status: Phase 9 in progress (1/1 plans complete)
-Last activity: 2026-02-20 — 09-01 complete: docker-ecr.yml workflow created
+Status: Phase 10 complete (1/1 plans complete)
+Last activity: 2026-02-20 — 10-01 complete: Dockerfile rewritten as multi-stage COPY-based build
 
 ## Performance Metrics
 
@@ -27,9 +27,9 @@ Last activity: 2026-02-20 — 09-01 complete: docker-ecr.yml workflow created
 - Total execution time: ~45 min
 
 **Velocity (v1.2):**
-- Total plans completed: 1
+- Total plans completed: 2
 - Average duration: ~2 min
-- Total execution time: ~2 min
+- Total execution time: ~4 min
 
 ## Accumulated Context
 
@@ -38,6 +38,8 @@ Last activity: 2026-02-20 — 09-01 complete: docker-ecr.yml workflow created
 Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 09-maven-build-in-ci]: Added !.github/ exception to .gitignore to allow CI workflow files to be tracked in git
 - [Phase 09-maven-build-in-ci]: Use actions/setup-java@v5 with cache: maven for automatic ~/.m2/repository caching keyed on pom.xml hashes
+- [Phase 10-dockerfile-adaptation]: Use busybox as extractor stage base for multi-stage Dockerfile — minimal, discarded after build
+- [Phase 10-dockerfile-adaptation]: Upgrade Dockerfile runtime base from eclipse-temurin:11-jdk to eclipse-temurin:17-jre-jammy for JRE17 production runtime
 
 ### Pending Todos
 
@@ -52,5 +54,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Completed 09-01-PLAN.md — docker-ecr.yml workflow created
+Stopped at: Completed 10-01-PLAN.md — Dockerfile rewritten as multi-stage COPY-based build
 Resume file: None
