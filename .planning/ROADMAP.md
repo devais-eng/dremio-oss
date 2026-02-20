@@ -26,7 +26,7 @@ See `milestones/v1.0-ROADMAP.md` for full phase details.
 **Milestone Goal:** Wire the existing Iceberg REST Catalog plugin into Dremio's source discovery system and validate read-only operations against a live Lakekeeper instance.
 
 - [x] **Phase 7: Plugin Wiring** - Add `@SourceType` annotation and UI layout JSON to make the REST catalog source type discoverable and configurable (completed 2026-02-20)
-- [ ] **Phase 8: End-to-End Validation** - Validate namespace browsing, table listing, SELECT queries, and credential vending against a live Lakekeeper instance
+- [x] **Phase 8: End-to-End Validation** - Validate namespace browsing, table listing, SELECT queries, and credential vending against a live Lakekeeper instance (completed 2026-02-20)
 
 ## Phase Details
 
@@ -54,7 +54,7 @@ Plans:
   4. `SELECT * FROM restcatalog.namespace.tablename LIMIT 10` executes and returns rows from an Iceberg table backed by Parquet files
   5. A source authenticated via OAuth2 bearer token (set via `rest.token` catalog property) successfully connects — source reaches GOOD state and all read operations work
   6. Storage credentials vended by Lakekeeper in `loadTable()` responses propagate through DremioFileIO — Parquet reads succeed without storage permission errors
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 08-01-PLAN.md — Rebuild plugin JAR, stand up Lakekeeper Docker stack, seed test data, start Dremio
 - [ ] 08-02-PLAN.md — Validate source creation, namespace browsing, table listing, SELECT queries, OAuth2 auth, and credential vending
@@ -70,4 +70,4 @@ Plans:
 | 5. DDL Handlers and System Tables | v1.0 | 3/3 | Complete | 2026-02-18 |
 | 6. REST API and Access Path Hardening | v1.0 | 3/3 | Complete | 2026-02-18 |
 | 7. Plugin Wiring | v1.1 | Complete    | 2026-02-20 | - |
-| 8. End-to-End Validation | v1.1 | 0/? | Not started | - |
+| 8. End-to-End Validation | v1.1 | Complete    | 2026-02-20 | - |
