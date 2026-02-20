@@ -3,6 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Naive RBAC** — Phases 1-6 (shipped 2026-02-19)
+- 🚧 **v1.2 Privilege Context & Enforcement** — Phases 7-12 (in progress)
 
 ## Phases
 
@@ -20,6 +21,88 @@ See `milestones/v1.0-ROADMAP.md` for full phase details.
 
 </details>
 
+### 🚧 v1.2 Privilege Context & Enforcement (In Progress)
+
+**Milestone Goal:** Add privilege context switching (definer rights for VDS and UDF), SELECT grants on physical tables, container visibility filtering, complete VDS lifecycle privilege enforcement, and metadata safety checks. Every access path — views, tables, UDFs, containers, describe, explain — is governed by explicit grants with deny-by-default policy.
+
+- [ ] **Phase 7: VDS Lifecycle Privilege Enforcement** — Wire ALTER, DROP, and CREATE_VIEW enforcement into the three missing call sites; close the v1.0 enforcement gap
+- [ ] **Phase 8: VDS Definer Rights Safety Cluster** — Implement view expansion under the last modifier's identity, shipping all eight interdependent pitfall guards as a single atomic unit
+- [ ] **Phase 9: UDF Rights Verification and Owner Resolution** — Confirm and harden UDF definer semantics; fix CatalogEntityOwnershipImpl for FUNCTION type; add integration test coverage
+- [ ] **Phase 10: PDS SELECT Enforcement (Opt-in)** — Grant SELECT on physical tables to roles; enforce access on tables that have explicit grants; tables without grants remain universally accessible
+- [ ] **Phase 11: Container Visibility Filtering** — Sources, spaces, and folders are hidden from non-admin users unless they have access to at least one child object; full ancestor path is shown
+- [ ] **Phase 12: Metadata Safety and Integration Testing** — Restrict sys.privileges to ADMIN; gate DESCRIBE and EXPLAIN on existing privilege model; end-to-end integration tests across all v1.2 features
+
+## Phase Details
+
+### Phase 7: VDS Lifecycle Privilege Enforcement
+**Goal**: Users can only create, alter, and drop views when they hold the corresponding privilege — no view lifecycle operation succeeds without an explicit grant
+**Depends on**: Phase 6 (v1.0 complete)
+**Requirements**: LIFE-01, LIFE-02, LIFE-03
+**Success Criteria** (what must be TRUE):
+  1. A user without ALTER privilege who issues `ALTER VIEW` receives a permission denied error, not a silent success
+  2. A user without DROP privilege who issues `DROP VIEW` receives a permission denied error, not a silent success
+  3. A user without CREATE_VIEW privilege who issues `CREATE VIEW` receives a permission denied error (closes v1.0 enforcement gap where createView() had no validatePrivilege() call)
+  4. An ADMIN user can perform all three operations regardless of explicit grants (admin bypass preserved)
+  5. GRANT/REVOKE ALTER and GRANT/REVOKE DROP on a VDS are accepted by the SQL DDL layer and persisted correctly in the grant store
+**Plans:** 2 plans
+Plans:
+- [ ] 07-01-PLAN.md — Core enforcement infrastructure: error message format, DROP object type, validateCreateViewPrivilege() method + interface chain, updated tests
+- [ ] 07-02-PLAN.md — Call site wiring: fix DropViewHandler, CreateOrUpdateViewHandler ALTER/CREATE_VIEW, CatalogServiceHelper REST API enforcement
+
+### Phase 8: VDS Definer Rights Safety Cluster
+**Goal**: View expansion runs under the last modifier's identity, enabling users to query views over tables they cannot directly access — with all eight pitfall guards active as a unit
+**Depends on**: Phase 7
+**Requirements**: DEFN-01, DEFN-02, DEFN-03, DEFN-04, DEFN-05, DEFN-06
+**Success Criteria** (what must be TRUE):
+  1. User B with SELECT on view V can successfully query V even when V's underlying physical table T is not directly accessible to B (definer's grants are used during expansion)
+  2. A VDS-over-VDS chain with different owners at each level resolves correctly — each view expands under its own creator's identity, not the final querying user's identity
+  3. Revoking the definer's SELECT on the underlying table immediately causes view queries to fail for all invokers (no stale grant snapshot; live KV store is checked at expansion time)
+  4. Querying a view whose owner account has been deleted produces an explicit "View owner no longer exists" permission error, not a silent fallback to the query user's grants
+  5. A cyclic VDS chain (view A references view B references view A) produces a clear validation error, not a StackOverflowError
+**Plans**: TBD
+
+### Phase 9: UDF Rights Verification and Owner Resolution
+**Goal**: UDF definer semantics are confirmed working, the owner resolution bug in CatalogEntityOwnershipImpl is fixed for FUNCTION type, and integration tests document the expected caller/body identity split
+**Depends on**: Phase 8
+**Requirements**: UDF-01, UDF-02, UDF-03
+**Success Criteria** (what must be TRUE):
+  1. A user with EXECUTE privilege on a UDF can call it successfully even when the UDF body references tables the calling user cannot directly access (body runs as UDF owner)
+  2. A user without EXECUTE privilege on a UDF receives a permission denied error when attempting to call it
+  3. CatalogEntityOwnershipImpl.getCatalogEntityOwner() returns the correct owner username for FUNCTION entity type (no longer returns Optional.empty())
+**Plans**: TBD
+
+### Phase 10: PDS SELECT Enforcement (Opt-in)
+**Goal**: Admins can lock down specific physical tables by granting SELECT to explicit roles; only users with that grant can access those tables; tables with no grants remain universally accessible
+**Depends on**: Phase 8
+**Requirements**: PDS-01, PDS-02, PDS-03
+**Success Criteria** (what must be TRUE):
+  1. An admin can issue `GRANT SELECT ON PDS source.schema.table TO ROLE analyst` and the grant is persisted with a distinct "PDS" object type key (no collision with VDS grants on same path)
+  2. Once at least one PDS grant exists for a table, users without a matching grant receive a permission denied error when querying that table directly
+  3. Physical tables with no grants configured remain accessible to all users (opt-in enforcement: no grants = universally accessible, backward compatible)
+  4. A user with SELECT on a VDS wrapping a PDS can query the view successfully because definer rights are used during expansion — even if the user has no direct PDS SELECT grant
+**Plans**: TBD
+
+### Phase 11: Container Visibility Filtering
+**Goal**: Non-admin users see only the sources, spaces, and folders that contain at least one object they have access to — the catalog tree reflects actual access, not the full hierarchy
+**Depends on**: Phase 6 (independent of Phases 7-10; can follow Phase 6 directly)
+**Requirements**: CONT-01, CONT-02, CONT-03, CONT-04
+**Success Criteria** (what must be TRUE):
+  1. A non-admin user with SELECT on one VDS inside a space sees that space in the catalog listing; spaces containing no accessible objects are hidden
+  2. A non-admin user with SELECT on a VDS inside a nested folder sees the folder and all its ancestor containers up to the source root
+  3. A non-admin user who has no access to any object inside a source does not see that source in catalog listings
+  4. An ADMIN user sees all sources, spaces, and folders regardless of grant coverage
+**Plans**: TBD
+
+### Phase 12: Metadata Safety and Integration Testing
+**Goal**: sys.privileges is admin-only, DESCRIBE and EXPLAIN are gated on existing privilege grants, and end-to-end integration tests prove all v1.2 features work correctly together
+**Depends on**: Phases 7, 8, 9, 10, 11 (all features must be present)
+**Requirements**: META-01, META-02, META-03
+**Success Criteria** (what must be TRUE):
+  1. A non-admin user who queries `SELECT * FROM sys.privileges` receives a permission denied error; an ADMIN user can query it without restriction
+  2. A user without SELECT on a VDS or PDS who issues `DESCRIBE table_or_view` receives a permission denied error (DESCRIBE inherits SELECT enforcement)
+  3. An EXPLAIN command referencing objects the user does not have access to fails with a permission denied error; EXPLAIN succeeds only when the user holds all required privileges on all referenced objects
+**Plans**: TBD
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -30,3 +113,9 @@ See `milestones/v1.0-ROADMAP.md` for full phase details.
 | 4. Catalog Enforcement and DI Wiring | v1.0 | 3/3 | Complete | 2026-02-18 |
 | 5. DDL Handlers and System Tables | v1.0 | 3/3 | Complete | 2026-02-18 |
 | 6. REST API and Access Path Hardening | v1.0 | 3/3 | Complete | 2026-02-18 |
+| 7. VDS Lifecycle Privilege Enforcement | v1.2 | 0/2 | Planned | - |
+| 8. VDS Definer Rights Safety Cluster | v1.2 | 0/? | Not started | - |
+| 9. UDF Rights Verification and Owner Resolution | v1.2 | 0/? | Not started | - |
+| 10. PDS SELECT Enforcement (Opt-in) | v1.2 | 0/? | Not started | - |
+| 11. Container Visibility Filtering | v1.2 | 0/? | Not started | - |
+| 12. Metadata Safety and Integration Testing | v1.2 | 0/? | Not started | - |
