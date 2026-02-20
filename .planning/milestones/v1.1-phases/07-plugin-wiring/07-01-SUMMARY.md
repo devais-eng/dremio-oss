@@ -71,7 +71,7 @@ Each task was committed atomically:
 1. **Task 1: Add @SourceType annotation and create layout JSON** - `37b035f80` (feat)
 2. **Task 2: Copy RESTCATALOG.svg to plugin resources** - `0b319652d` (feat)
 
-**Plan metadata:** `[pending]` (docs: complete plan)
+**Plan metadata:** `0f6b17270` (docs: complete plugin-wiring plan)
 
 ## Files Created/Modified
 - `plugins/icebergcatalog/src/main/java/com/dremio/plugins/icebergcatalog/store/RestIcebergCatalogPluginConfig.java` - Added `@SourceType` annotation and `import com.dremio.exec.catalog.conf.SourceType`
