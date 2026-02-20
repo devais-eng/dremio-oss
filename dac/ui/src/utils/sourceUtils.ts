@@ -84,9 +84,8 @@ export const isIcebergSource = (sourceType: string) => {
 export const getSourceIcon = (sourceType: string) => {
   if (NESSIE === sourceType) {
     return "entities/nessie-source";
-  } else {
-    return "entities/datalake-source";
   }
+  return `sources/${sourceType}`;
 };
 
 export const showSourceIcon = (sourceType: string) => {

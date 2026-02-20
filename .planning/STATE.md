@@ -2,25 +2,37 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-19)
+See: .planning/PROJECT.md (updated 2026-02-20)
 
-**Core value:** Users can only access views and UDFs they've been explicitly granted access to, with deny-by-default policy and admin bypass -- closing the open-access gap in Dremio OSS.
-**Current focus:** v1.0 milestone shipped. Planning next milestone.
+**Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control and catalog connectivity.
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: v1.0 complete (6 phases, 15 plans)
-Status: MILESTONE SHIPPED
-Last activity: 2026-02-19 -- v1.0 milestone archived
+Phase: All phases complete
+Plan: N/A
+Status: v1.1 shipped — milestone archived
+Last activity: 2026-02-20 — v1.1 Enable Iceberg REST Catalog milestone completed
 
-Progress: [██████████] 100% (v1.0)
+Progress: [██████████] 100% (v1.0 + v1.1 complete)
+
+## Performance Metrics
+
+**Velocity (v1.0):**
+- Total plans completed: 15
+- Average duration: ~20 min
+- Total execution time: ~5 hours
+
+**Velocity (v1.1):**
+- Total plans completed: 3
+- Average duration: ~15 min
+- Total execution time: ~45 min
 
 ## Accumulated Context
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
-All v1.0 decisions evaluated with outcomes at milestone completion.
 
 ### Pending Todos
 
@@ -28,9 +40,10 @@ None.
 
 ### Blockers/Concerns
 
-- [Build]: Maven build requires Java 21 (enforcer [21,22) range); only Java 11/17 available. Full Maven compile blocked until Java 21 JDK is installed.
+- [Build]: Maven build requires Java 21 (enforcer [21,22) range); only Java 11/17 available.
 
 ## Session Continuity
 
-Last session: 2026-02-19
-Stopped at: v1.0 milestone archived and tagged.
+Last session: 2026-02-20
+Stopped at: v1.1 milestone shipped and archived.
+Resume file: None

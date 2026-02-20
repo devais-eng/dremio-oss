@@ -1,12 +1,12 @@
-# Dremio OSS Naive RBAC
+# Dremio OSS Enhancements
 
 ## What This Is
 
-A role-based access control system for Dremio OSS that controls who can SELECT views (VDS), CREATE OR REPLACE views, and EXECUTE user-defined functions. Built on top of Dremio's existing catalog infrastructure, wiring up the previously no-op `validatePrivilege()` to enforce real permission checks backed by RocksDB. Manageable via SQL DDL, REST API, and observable through system tables.
+Enterprise-grade enhancements for Dremio OSS. v1.0 delivered deny-by-default RBAC for views and UDFs. v1.1 enabled the Iceberg REST Catalog source type, allowing Dremio OSS to connect to external Iceberg REST catalog servers (Lakekeeper, Nessie, Polaris) and query tables through standard SQL. Validated against both Lakekeeper and Nessie.
 
 ## Core Value
 
-Users can only access views and UDFs they've been explicitly granted access to, with deny-by-default policy and admin bypass — closing the open-access gap in Dremio OSS.
+Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control and catalog connectivity.
 
 ## Requirements
 
@@ -28,12 +28,15 @@ Users can only access views and UDFs they've been explicitly granted access to, 
 - ✓ Wire up existing GRANT/REVOKE SQL DDL (no longer throws UnsupportedError in OSS) — v1.0
 - ✓ REST API endpoints for role and grant management (9 endpoints at /api/v3/rbac) — v1.0
 - ✓ System tables populated: sys.roles, sys.privileges, sys.membership — v1.0
+- ✓ Iceberg REST Catalog source type discoverable and creatable via UI/API — v1.1
+- ✓ Read-only operations: browse namespaces, list tables, SELECT from tables — v1.1
+- ✓ Validated end-to-end against Lakekeeper and Nessie — v1.1
 
 ### Active
 
-<!-- Current scope. Building toward these. -->
+<!-- Next milestone scope. -->
 
-(None yet — define in next milestone)
+(None yet — define with `/gsd:new-milestone`)
 
 ### Out of Scope
 
@@ -48,25 +51,19 @@ Users can only access views and UDFs they've been explicitly granted access to, 
 - Ownership transfer (GRANT OWNERSHIP) — not needed for naive model
 - Source-level or space-level permissions — out of scope; focus is on VDS and UDFs
 - Offline mode — real-time catalog enforcement is the model
+- Credential vending propagation — DremioFileIO uses static Hadoop Config; static creds workaround sufficient for v1.1
 
 ## Context
 
-Shipped v1.0 with ~4,577 LOC Java across 69 files.
-Tech stack: Java, Proto3, RocksDB KV stores, Jersey/JAX-RS REST, Dremio CatalogImpl enforcement.
-All RBAC code lives in `com.dremio.exec.rbac` package (sabot/kernel module).
+**v1.0 RBAC:** Shipped with ~4,577 LOC Java across 69 files. All RBAC code in `com.dremio.exec.rbac` package.
 
-Post-v1.0 audit identified and fixed 2 enforcement bypass paths (bulkGetTables, AT-specifier) and v2 API visibility gaps.
-Known v1.0 limitation: catalog visibility pagination may return fewer items than requested when RBAC filters are active.
-Build caveat: Maven build requires Java 21 (enforcer [21,22) range); proto verified with protoc 3.6.0 directly.
+**v1.1 Iceberg REST Catalog:** `@SourceType(value="RESTCATALOG")` added to `RestIcebergCatalogPluginConfig`, `restcatalog-layout.json` created with 3-tab UI form, `RESTCATALOG.svg` icon at classpath root. 120 LOC across 3 files. Validated against Lakekeeper and Nessie. Static `fs.s3a.*` credentials needed as workaround for credential vending gap.
 
-### v2 candidates (from requirements backlog)
-- WITH GRANT OPTION (delegate privilege granting)
-- REVOKE CASCADE
-- Container grants (space/folder-level)
-- INFORMATION_SCHEMA filtering
-- Audit logging for RBAC DDL operations
-- Migration tooling for existing deployments
-- DACSecurityContext.isUserInRole() real implementation
+Build caveat: Maven build requires Java 21 (enforcer [21,22) range).
+
+### Future candidates
+- RBAC: WITH GRANT OPTION, REVOKE CASCADE, container grants, INFORMATION_SCHEMA filtering, audit logging, privilege caching
+- Iceberg REST Catalog: write operations, credential vending fix, RBAC integration, auth config validation, multi-catalog validation (Polaris, Unity, Gravitino)
 
 ## Constraints
 
@@ -90,6 +87,9 @@ Build caveat: Maven build requires Java 21 (enforcer [21,22) range); proto verif
 | Role IDs = slugified names (not UUIDs) | Human-readable keys, immutable (no rename support) | ✓ Good — simple lookup |
 | No privilege caching in v1 | Hit KV store every hasPrivilege() call; simplicity over performance | ⚠️ Revisit — may need caching at scale |
 | DDL works when RBAC flag is OFF | Admins set up roles/grants before enabling enforcement | ✓ Good — enables staged rollout |
+| @SourceType on concrete class only | ConnectionReaderImpl.getCandidateSources() skips abstract classes | ✓ Good — scanner finds it correctly |
+| Static fs.s3a.* credentials workaround | DremioFileIO discards vended credentials from loadTable(); static Hadoop Config is the only path | ⚠️ Revisit — need credential vending propagation for IAM/STS |
+| Validate against multiple REST catalogs | Nessie + Lakekeeper confirms plugin is spec-compliant, not server-specific | ✓ Good — portable across implementations |
 
 ---
-*Last updated: 2026-02-19 after v1.0 milestone*
+*Last updated: 2026-02-20 after v1.1 milestone shipped*

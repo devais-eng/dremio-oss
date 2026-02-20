@@ -1,337 +1,334 @@
-# RBAC Stack Research — Dremio OSS
+# Technology Stack — v1.1 Enable Iceberg REST Catalog
 
-**Research type**: Stack dimension — permission storage and enforcement
-**Date**: 2026-02-17
-**Scope**: Subsequent milestone; existing system already understood
+**Project:** Dremio OSS Enhancements
+**Milestone:** v1.1 — Wire up existing Iceberg REST Catalog plugin for read-only use
+**Researched:** 2026-02-20
 
 ---
 
 ## Summary
 
-The stack for RBAC in Dremio OSS is almost entirely dictated by patterns that already exist and are used consistently across a dozen services. There is no gap requiring a new dependency or unfamiliar abstraction. The core pattern is: **proto3 Protobuf value + string key + LegacyKVStoreCreationFunction + service class injected via `Provider<LegacyKVStoreProvider>` + `SingletonRegistry` binding**.
+The stack for v1.1 requires **zero new dependencies and zero new Maven modules**. The plugin code is complete. What is missing is three artifacts that connect the implementation to Dremio's source registration system:
 
-The one divergence from the simplest pattern is that the grant lookup (permission check at query time) has a read pattern that does not map cleanly to the standard indexed-store scan. This is addressed in the caching section below.
+1. A `@SourceType` annotation on `RestIcebergCatalogPluginConfig` — the single hook that makes `ConnectionReaderImpl.makeReader()` discover the plugin
+2. A UI layout JSON file in `plugins/icebergcatalog/src/main/resources/` — consumed by `SourceTypeTemplate.fromSourceClass()`
+3. A Lakekeeper instance (Docker) for end-to-end validation
+
+Everything else — classpath scanning, source type visibility gating, icon serving — is already wired to handle `"RESTCATALOG"` by type name.
 
 ---
 
-## 1. Protobuf Schema Design
+## 1. The Core Wiring Mechanism (HIGH confidence)
 
-### Recommendation: Use proto3 with Format.ofProtobuf(), not Protostuff
+### How Dremio discovers source plugins
 
-**Why**: Two serialization formats coexist in Dremio: Protostuff (.proto files compiled by Protostuff, using `io.protostuff.Message`) and proto3 (compiled by the standard protoc, using `com.google.protobuf.Message`). Newer services — `scripts`, `jobcounts`, `accelerator` reflected goals/entries — use proto3 with `Format.ofProtobuf()`. Older services like `users`, `tokens`, `configuration` use Protostuff with `Format.ofProtostuff()`.
+`ConnectionReaderImpl.makeReader(ScanResult)` at `sabot/kernel/src/main/java/com/dremio/exec/catalog/ConnectionReaderImpl.java` scans classpath for all classes with `@SourceType`. For each non-abstract concrete class that extends `ConnectionConf`, it registers the class under its `@SourceType.value()` string.
 
-For new code, proto3 is the right choice. `Format.ofProtobuf(MyMessage.class)` is directly supported as a first-class path in `Format.java`. Schema evolution is cleaner (default field values, no required fields that break on schema change). The `ScriptStoreImpl` at `services/scripts/src/main/java/com/dremio/service/scripts/ScriptStoreImpl.java` is the cleanest recent exemplar — it uses `Format.ofProtobuf(Script.class)` with a proto3 schema.
+The package `com.dremio.plugins.icebergcatalog` is already declared in `plugins/icebergcatalog/src/main/resources/sabot-module.conf`:
 
-**Confidence**: High. `Format.ofProtobuf()` is fully supported and is the newer pattern; zero evidence of proto3 causing issues.
-
-### Three proto messages needed
-
-```protobuf
-syntax = "proto3";
-package com.dremio.service.rbac.proto;
-option java_package = "com.dremio.service.rbac.proto";
-option optimize_for = SPEED;
-option java_outer_classname = "RbacProto";
-
-// Stored in "rbac_roles" table. Key: role_id (UUID string)
-message Role {
-  string role_id    = 1;  // UUID, immutable
-  string role_name  = 2;  // mutable display name, unique
-  string created_by = 3;
-  uint64 created_at = 4;
-}
-
-// Stored in "rbac_grants" table.
-// Key: role_id + "|" + object_type + "|" + object_path + "|" + privilege
-// Value is thin — existence of the key IS the grant.
-message Grant {
-  string role_id     = 1;  // FK to Role.role_id
-  string object_type = 2;  // "VDS" or "FUNCTION"
-  string object_path = 3;  // canonical dot-joined path, e.g. "space.folder.view"
-  string privilege   = 4;  // "SELECT", "CREATE_VIEW", "EXECUTE"
-  string granted_by  = 5;
-  uint64 granted_at  = 6;
-}
-
-// Stored in "rbac_memberships" table. Key: user_name + "|" + role_id
-// Value is thin — existence is the membership.
-message Membership {
-  string user_name  = 1;
-  string role_id    = 2;
-  string granted_by = 3;
-  uint64 granted_at = 4;
-}
+```
+dremio.classpath.scanning.packages += com.dremio.plugins.icebergcatalog
 ```
 
-**Why the key design matters more than the value**: RocksDB has no secondary index unless you use an `IndexedStore`. For RBAC permission checks (the hot path), you need to look up "does role X have SELECT on path Y?" by exact key. The key must encode all lookup dimensions so you can use `store.get(compositeKey)` rather than a full scan. See section 2 for key design details.
+This means `RestIcebergCatalogPluginConfig` is already scanned. It is not discovered only because it lacks `@SourceType`. The fix is one annotation.
 
-**What NOT to do**: Do not put a `repeated Grant grants` list inside a Role message. This forces a read-modify-write cycle on every GRANT and cannot be scanned efficiently by object path. Flat messages with composite keys are the right model.
+### How the UI gates visibility
 
----
-
-## 2. KV Store Key Design
-
-### Three stores, three key shapes
-
-#### Store 1: rbac_roles
-
-- **Key**: `Format.ofString()` — the role UUID
-- **Value**: `Format.ofProtobuf(Role.class)`
-- **Lookups needed**: get by ID (handler level), scan all (sys.roles), get by name (CREATE ROLE idempotency check)
-
-For "get by name", use `LegacyIndexedStore` with a `DocumentConverter` that writes the `role_name` field to a Lucene index key. This follows the exact pattern in `SimpleUserService.UserGroupStoreBuilder` at `services/users/src/main/java/com/dremio/service/users/SimpleUserService.java` — it indexes `name_lowercase` on `UserInfo` and retrieves via `LegacyFindByCondition` + `SearchQueryUtils.newTermQuery()`.
-
-#### Store 2: rbac_grants
-
-- **Key**: composite string `role_id + "|" + object_type + "|" + object_path + "|" + privilege`
-- **Value**: `Format.ofProtobuf(Grant.class)`
-- **Lookups needed**: exact existence check (hot path), scan all for a role (REVOKE, sys.privileges), scan all for an object path (drop view cascade revoke)
-
-The `"|"` separator works because role IDs are UUIDs (no `|`) and object paths in Dremio use dots as separators (no `|`). Privileges are enum string names (no `|`).
-
-For the exact existence check (does this user have SELECT on this VDS?) the call chain is:
-1. Get user's role IDs from `rbac_memberships` (a small set, cached — see section 3)
-2. For each role ID, call `grantStore.get(compositeKey)` — O(1) RocksDB point lookup
-
-**Key design rationale**: This makes the hot path a point lookup, which is what RocksDB is optimized for. Each GRANT and REVOKE is an atomic `put` / `delete` with no read-modify-write.
-
-#### Store 3: rbac_memberships
-
-- **Key**: composite string `user_name + "|" + role_id`
-- **Value**: `Format.ofProtobuf(Membership.class)`
-- **Lookups needed**: scan all memberships for a user (resolved at query time, then cached), scan all memberships for a role (REVOKE ROLE FROM USER, sys.membership)
-
-For "scan all memberships for a user" — use `LegacyIndexedStore` with `user_name` as an indexed field, then `find(condition where user_name = X)`. This returns the small set of role IDs for a user. This scan happens once per cache miss (see section 3).
-
-**What NOT to do**: Do not use a `Role` message with `repeated string member_ids`. Scanning all roles to find memberships for a given user requires reading every role record. The flat membership store with indexed `user_name` is an O(1) Lucene lookup.
-
-### Concrete exemplars from the codebase
-
-- **Minimal plain KVStore**: `TokenStoreCreator` at `services/tokens/src/main/java/com/dremio/service/tokens/TokenStoreCreator.java` — a static class implementing `LegacyKVStoreCreationFunction`, accessed via `provider.getStore(TokenStoreCreator.class)`. Copy this pattern for `rbac_grants`.
-- **IndexedStore with DocumentConverter**: `ScriptStoreImpl.StoreCreator` at `services/scripts/src/main/java/com/dremio/service/scripts/ScriptStoreImpl.java` — implements `IndexedStoreCreationFunction`, uses `Format.ofProtobuf()`, and registers searchable fields via `DocumentConverter`. Copy this pattern for `rbac_roles` and `rbac_memberships`.
-- **IndexedStore with LegacyFindByCondition**: `SimpleUserService.findUserByUserName()` uses `SearchQueryUtils.newTermQuery(UserIndexKeys.NAME_LOWERCASE, userName.toLowerCase())` — copy this for role-by-name and memberships-by-user lookups.
-
----
-
-## 3. Caching Strategy
-
-### Existing mechanism: PermissionCheckCache
-
-`PermissionCheckCache` at `sabot/kernel/src/main/java/com/dremio/exec/catalog/PermissionCheckCache.java` is a Guava `Cache<Key, Value>` keyed on `(username, NamespaceKey)`. It caches the result of `StoragePlugin.hasAccessPermission()` with a configurable TTL. The cache is on `ManagedStoragePlugin`, one per source.
-
-RBAC enforcement needs a similar but distinct cache because:
-- The storage plugin cache is per-source; RBAC checks are per-user/per-object at the catalog level
-- RBAC cache invalidation must happen on GRANT/REVOKE, not on TTL expiry alone
-
-### Recommendation: A dedicated RbacPermissionCache inside RbacService
+`DeprecatedSourceResource.isSourceTypeVisible()` at `dac/backend/src/main/java/com/dremio/dac/api/DeprecatedSourceResource.java` already has a case for `"RESTCATALOG"`:
 
 ```java
-// Keyed on (username, objectPath, privilege)
-// Value: Boolean (has access)
-// Invalidation: explicit on every GRANT/REVOKE mutation
-Cache<RbacCacheKey, Boolean> cache = CacheBuilder.newBuilder()
-    .maximumSize(10_000)
-    .expireAfterWrite(5, TimeUnit.MINUTES)  // safety TTL
-    .build();
+case "RESTCATALOG":
+    return optionManager.getOption(RESTCATALOG_PLUGIN_ENABLED);
 ```
 
-**Why not reuse `PermissionCheckCache`**: That cache is designed around the storage plugin access check paradigm. It is not accessible from `CatalogImpl.validatePrivilege()` without threading through `ManagedStoragePlugin`. The RBAC check happens above the plugin layer.
+`RESTCATALOG_PLUGIN_ENABLED` defaults to `true` (`plugins.restcatalog.enabled`). The source type will appear in the UI source picker as soon as the annotation is present — no option changes needed.
 
-**Why a TTL at all if you do explicit invalidation**: Guards against cache leaks if REVOKE fails silently or if two coordinator nodes diverge briefly. Five minutes is conservative and suitable for an initial implementation; it can be made configurable via `OptionManager` in a later iteration.
+### How icons are served
 
-**Cache population flow**:
-1. `validatePrivilege(key, privilege)` is called on `CatalogImpl`
-2. Cache miss: ask `RbacService.hasPrivilege(username, path, privilege)`
-3. Inside `hasPrivilege`: look up user's role IDs from membership sub-cache (below), then for each role do a point lookup in grant store
-4. Cache hit: return cached Boolean directly
-5. On `GRANT` or `REVOKE` DDL: call `rbacService.invalidatePermissionCache(affectedUser, affectedPath, privilege)`
+`SourceTypeTemplate.fromSourceClass()` loads `{sourceType.value()}.svg` from the classloader:
 
-**Membership sub-cache**: User-to-roles mapping changes rarely. Cache `Cache<String, Set<String>>` (username -> set of role IDs). Invalidate on membership mutation. This eliminates the Lucene index scan from the common read path so that the common case is: membership sub-cache hit -> N point lookups in grant store (where N = number of roles a user has, typically small).
+```java
+final URL resource = sourceClass.getClassLoader().getResource(type.value() + ".svg");
+```
 
-**What NOT to do**: Do not cache at the RocksDB level (no write-through or read-through cache). RocksDB already has a block cache. Adding another Java-level cache in front of it for individual raw store entries adds complexity without benefit. Cache the derived boolean result, not the raw store entries.
+`RESTCATALOG.svg` already exists at `dac/ui-lib/icons/dremio/sources/RESTCATALOG.svg` and is included in the frontend build output. The icon is served by the frontend asset pipeline, not the plugin's own resources. No action needed.
 
 ---
 
-## 4. Service Class Structure and Guice Wiring
+## 2. The `@SourceType` Annotation (HIGH confidence)
 
-### Pattern to follow: SimpleUserService + SingletonRegistry
+**File to modify:** `plugins/icebergcatalog/src/main/java/com/dremio/plugins/icebergcatalog/store/RestIcebergCatalogPluginConfig.java`
 
-The binding pattern in Dremio is not standard Guice `AbstractModule`. It uses `SingletonRegistry.bind()` and `SingletonRegistry.bindProvider()` via `DACDaemonModule` at `dac/backend/src/main/java/com/dremio/dac/daemon/DACDaemonModule.java`. The RBAC service must follow this pattern.
+**Exact annotation to add:**
 
 ```java
-// In DACDaemonModule.bootstrap() or run():
-final RbacService rbacService = new RbacService(
-    registry.provider(LegacyKVStoreProvider.class)
-);
-registry.bind(RbacService.class, rbacService);
-registry.bind(AccessControlListingManager.class, rbacService);
-registry.bindSelf(rbacService);  // registers for lifecycle (start/close)
+@SourceType(value = "RESTCATALOG", label = "Iceberg REST Catalog", uiConfig = "restcatalog-layout.json")
+public class RestIcebergCatalogPluginConfig extends IcebergCatalogPluginConfig {
 ```
 
-The `RbacService` class implements `com.dremio.service.Service` (which has `start()` and `close()`) and takes `Provider<LegacyKVStoreProvider>` in its constructor — not the `LegacyKVStoreProvider` directly. This deferred initialization via `Suppliers.memoize()` is used everywhere. See `SimpleUserService` constructor (line 101) and `ReflectionGoalsStore` constructor (line 76).
+**Rationale for each parameter:**
 
-### Handler access to RbacService
+- `value = "RESTCATALOG"` — This exact string is required. `DeprecatedSourceResource.isSourceTypeVisible()` already matches on `"RESTCATALOG"` (line 231). Using any other value would cause the visibility gate to fall to the `default: return true` branch and bypass feature flag control.
+- `label = "Iceberg REST Catalog"` — Human-readable name shown in the UI source picker. Follows the pattern of `label = "Amazon S3"`, `label = "Nessie"`, `label = "Elasticsearch"`.
+- `uiConfig = "restcatalog-layout.json"` — Points to the UI layout file. If omitted, the UI falls back to reflecting `@Tag`-annotated fields directly. Use `uiConfig` to control field ordering and grouping.
+- `configurable = true` (default) — Source can be created/edited via UI. Do not set to false.
+- `listable = true` (default) — Source appears in the source type picker. Do not set to false.
+- `isVersioned = false` (default) — REST catalog is not a versioned catalog like Nessie. Correct.
+- `externalQuerySupported = false` (default) — REST catalog does not support external SQL passthrough.
 
-The SQL DDL handlers (`GrantHandler`, `RevokeHandler`, `RoleCreateHandler`) receive a `QueryContext`. They reach the RBAC service through:
-
-```
-QueryContext.sabotQueryContext (SabotQueryContext)
-  -> SabotContext.getRbacService()
-```
-
-Concretely:
-1. Add `getRbacService()` to the `PluginSabotContext` interface at `sabot/kernel/src/main/java/com/dremio/exec/catalog/PluginSabotContext.java`
-2. Implement it in `SabotContext` to return the registered `RbacService` from the registry
-3. In handlers: `context.getSabotContext().getRbacService().createRole(roleName)`
-
-This is exactly how `AccessControlListingManager` is exposed via `sabotContext.getAccessControlListingManager()` at `sabot/kernel/src/main/java/com/dremio/exec/server/SabotContext.java` line 554 — currently returning null in OSS, ready to be filled.
-
-**What NOT to do**: Do not pass `RbacService` through `QueryContext` directly (adding a new constructor parameter breaks a long construction chain). Do not use a static singleton. Do not use `@Inject` on the handler class itself — handlers are instantiated reflectively by `SimpleDirectHandler.Creator.toDirectHandler()`, not by Guice.
+**Pattern references:**
+- `@SourceType(value = "NAS", uiConfig = "nas-layout.json")` — NASConf, simplest pattern
+- `@SourceType(value = "NESSIE", label = "Nessie", uiConfig = "nessie-layout.json", isVersioned = true)` — NessiePluginConfig
+- `@SourceType(value = "ELASTIC", label = "Elasticsearch", uiConfig = "elastic-storage-layout.json")` — ElasticStoragePluginConfig
 
 ---
 
-## 5. Integrating with AccessControlListingManager
+## 3. The UI Layout JSON (HIGH confidence)
 
-The interface `AccessControlListingManager` at `sabot/kernel/src/main/java/com/dremio/exec/store/sys/accesscontrol/AccessControlListingManager.java` is the bridge between the RBAC store and the system tables `sys.roles`, `sys.privileges`, `sys.membership`.
+**File to create:** `plugins/icebergcatalog/src/main/resources/restcatalog-layout.json`
 
-`SabotContext.getAccessControlListingManager()` currently returns `null`. The `RbacService` should implement this interface directly:
+This file is loaded by `SourceTypeTemplate.fromSourceClass()` via `sourceClass.getClassLoader().getResourceAsStream(type.uiConfig())`. It must be in `src/main/resources/` to land on the plugin's classpath.
 
-```java
-public class RbacService implements Service, AccessControlListingManager {
-    @Override
-    public Iterable<SysTableRoleInfo> getRoleInfo() {
-        // scan rbac_roles store, map Role -> SysTableRoleInfo
-    }
-    @Override
-    public Iterable<SysTablePrivilegeInfo> getPrivilegeInfo() {
-        // scan rbac_grants store, map Grant -> SysTablePrivilegeInfo
-    }
-    @Override
-    public Iterable<SysTableMembershipInfo> getMembershipInfo() {
-        // scan rbac_memberships store, map Membership -> SysTableMembershipInfo
-    }
+**Minimum viable layout** for read-only v1.1 (maps to `RestIcebergCatalogPluginConfig` and `IcebergCatalogPluginConfig` `@Tag`-annotated fields):
+
+```json
+{
+  "sourceType": "RESTCATALOG",
+  "metadataRefresh": {
+    "isFileSystemSource": false
+  },
+  "form": {
+    "tabs": [
+      {
+        "name": "General",
+        "isGeneral": true,
+        "sections": [
+          {
+            "name": "Connection",
+            "elements": [
+              {
+                "propName": "config.restEndpointUri",
+                "label": "Endpoint URI",
+                "placeholder": "https://catalog.example.com/catalog",
+                "errMsg": "Required",
+                "validate": {
+                  "isRequired": true
+                }
+              }
+            ]
+          },
+          {
+            "name": "Namespace Filter (optional)",
+            "elements": [
+              {
+                "propName": "config.allowedNamespaces",
+                "emptyLabel": "All namespaces visible",
+                "addLabel": "Add namespace"
+              },
+              {
+                "propName": "config.isRecursiveAllowedNamespaces"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Advanced Options",
+        "sections": [
+          {
+            "name": "Catalog Properties",
+            "elements": [
+              {
+                "propName": "config.propertyList",
+                "emptyLabel": "No properties added",
+                "addLabel": "Add property"
+              }
+            ]
+          },
+          {
+            "name": "Catalog Credentials",
+            "elements": [
+              {
+                "propName": "config.secretPropertyList",
+                "emptyLabel": "No credentials added",
+                "addLabel": "Add credential"
+              }
+            ]
+          },
+          {
+            "name": "Cache Options",
+            "elements": [
+              {
+                "propName": "config.isCachingEnabled"
+              },
+              {
+                "propName": "config.maxCacheSpacePct"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
-The sys table schema classes — `SysTableRoleInfo`, `SysTablePrivilegeInfo`, `SysTableMembershipInfo` — are already defined with the right fields in the `accesscontrol` package. The mapping from protobuf store values to these classes is straightforward field projection.
+**Key design decisions for this layout:**
 
-**Confidence**: High. The interface is already defined, the system tables are already wired to it via `SystemTable.ROLES`, `SystemTable.PRIVILEGES`, `SystemTable.MEMBERSHIP` in `SystemTable.java`, and the `SabotContext` method is a hook waiting to be filled.
+- `"isFileSystemSource": false` — REST catalog is not a filesystem source. The Nessie layout sets this to `true` because Nessie actually has a filesystem storage backend; REST catalog does not.
+- `config.restEndpointUri` — The mandatory field. Maps to `@Tag(10) public String restEndpointUri` in `RestIcebergCatalogPluginConfig`.
+- `config.propertyList` — Maps to `@Tag(1) public List<Property> propertyList` in `IcebergCatalogPluginConfig`. Used to pass bearer tokens, warehouse names, or other Iceberg catalog properties.
+- `config.secretPropertyList` — Maps to `@Tag(2) @Secret public List<Property> secretPropertyList`. Used for OAuth2 client secrets or API keys. Secret fields are redacted in logs and API responses.
+- Async (`enableAsync`) omitted from v1.1 layout — can be added once read-only path is validated. It is on the `IcebergCatalogPluginConfig` base class but irrelevant for initial wiring.
+
+**propName field naming convention:** All propNames use the `config.` prefix followed by the Java field name exactly. This is consistent across all layout files (Nessie uses `config.nessieEndpoint`, S3 uses `config.credentialType`).
 
 ---
 
-## 6. Enforcement in CatalogImpl.validatePrivilege()
+## 4. Lakekeeper for End-to-End Validation (MEDIUM confidence — based on Lakekeeper public docs and project context)
 
-The current implementation at line 2767 of `sabot/kernel/src/main/java/com/dremio/exec/catalog/CatalogImpl.java`:
+### Why Lakekeeper
 
-```java
-public void validatePrivilege(NamespaceKey key, SqlGrant.Privilege privilege) {
-    // For the default implementation, don't validate privilege.
-}
+Lakekeeper is a production-grade open-source Iceberg REST catalog server (Apache-2.0). It is the primary target for v1.1 validation because:
+- It implements the Iceberg REST Catalog spec completely
+- It supports anonymous (no-auth) mode for quick testing
+- Its Docker image is the simplest compliant REST catalog to stand up
+
+### Docker setup for manual end-to-end validation
+
+Lakekeeper's official image is `quay.io/iceberg-catalog/iceberg-catalog`. The simplest local setup:
+
+```bash
+# Start Lakekeeper in anonymous mode (no auth, in-memory storage)
+docker run -d \
+  --name lakekeeper \
+  -p 8181:8181 \
+  quay.io/iceberg-catalog/iceberg-catalog:latest \
+  serve
+
+# Lakekeeper REST endpoint is at:
+# http://localhost:8181/catalog
 ```
 
-`CatalogImpl` already holds `CatalogIdentity identity` from `options.getSchemaConfig().getAuthContext().getSubject()`. The username is `identity.getName()`.
+When configuring the source in Dremio, use:
+- `Endpoint URI`: `http://localhost:8181/catalog`
+- No credentials needed for anonymous mode
 
-The wired-up implementation needs:
-1. Get current user: `identity.getName()` — already available
-2. Admin bypass: check if user is in the ADMIN role via `rbacService`
-3. PUBLIC role: always include grants for the synthetic PUBLIC role in the check
-4. Permission check: call `rbacService.hasPrivilege(username, key.toString(), privilege.name())`
-5. Deny: throw `UserException.permissionError().message("Access denied on " + key).build(logger)`
+**For persistent storage with a warehouse on local filesystem:**
 
-`CatalogImpl` needs access to `RbacService`. It is constructed in `CatalogServiceImpl`. The cleanest injection is adding `Optional<RbacService> rbacService` as a constructor parameter with a default of `Optional.empty()` — when empty, `validatePrivilege` remains a no-op (backward compatible). When present, enforcement is active.
-
-**Confidence**: High for the enforcement logic itself. Medium for the constructor injection point — the construction chain from `DACDaemonModule` to `CatalogImpl` must be traced to confirm the `RbacService` reference is available at that point. An alternative is a service-locator lookup via `SabotContext` from within `CatalogImpl` (SabotContext is already accessible there), which avoids touching the constructor.
-
----
-
-## 7. Handler Dispatch: Overriding the Enterprise Edition Bridge
-
-The existing `SqlCreateRole.toDirectHandler()` at `sabot/kernel/src/main/java/com/dremio/exec/planner/sql/parser/SqlCreateRole.java` already has an OSS branch:
-
-```java
-} else {
-    cl = Class.forName("com.dremio.exec.planner.sql.handlers.RoleCreateHandler");
-}
+```bash
+docker run -d \
+  --name lakekeeper \
+  -p 8181:8181 \
+  -e ICEBERG_REST__BASE_URI=http://localhost:8181 \
+  -e ICEBERG_REST__WAREHOUSE_PATH=/warehouse \
+  -v /tmp/lakekeeper-warehouse:/warehouse \
+  quay.io/iceberg-catalog/iceberg-catalog:latest
 ```
 
-This class does not exist in OSS, so it throws a reflective exception. The solution is to create `RoleCreateHandler` at exactly that class path. The reflective dispatch (`Class.forName`) is intentional — it allows EE and OSS to coexist in the same parser module by having EE override OSS handlers by providing the class on the classpath. Placing the OSS handler at `sabot/kernel/src/main/java/com/dremio/exec/planner/sql/handlers/RoleCreateHandler.java` means it will be found in OSS and overridden in EE (which provides a class at the same name from a different jar). This is the correct pattern to follow.
+**MEDIUM confidence on exact image tag and env vars** — these are derived from Lakekeeper documentation patterns. Verify the exact current release tag at `https://quay.io/repository/iceberg-catalog/iceberg-catalog` before using in a test plan.
 
-Similarly for `SqlGrant.toDirectHandler()` which references `com.dremio.exec.planner.sql.handlers.GrantHandler` and `SqlRevoke.toDirectHandler()` which references `com.dremio.exec.planner.sql.handlers.RevokeHandler`. Create those classes in the kernel module.
+### Automated test strategy (no Testcontainers for unit tests)
 
-**Confidence**: High — the reflective dispatch pattern is intentional and well-established in the codebase.
+For v1.1 read-only validation, the existing test pattern is adequate:
 
----
+1. **Unit tests (existing):** All in `TestRestIcebergCatalogPlugin` and `TestRestCatalogAccessor` — mock-based, Mockito. Already exist and pass. No changes needed.
 
-## 8. What NOT To Do
+2. **End-to-end validation (manual/Docker):** Start Lakekeeper via Docker, register source via Dremio UI or `PUT /api/v3/catalog` API, run SQL queries.
 
-### Do not implement permission storage as an in-memory map initialized at startup
+3. **Integration test (optional, IT suffix):** If automated integration test is desired, follow the `NatsContainerIT` pattern: JUnit 5 class ending in `IT`, `@Testcontainers` annotation, use `GenericContainer` from `testcontainers-java` with the Lakekeeper image. Requires adding `testcontainer` to `plugins/icebergcatalog/pom.xml` as test scope.
 
-The temptation is to load all grants into a `HashMap` at startup and check against it. This breaks in a multi-node or future distributed configuration where another node writes a GRANT. Use RocksDB as the source of truth; use the Guava cache for read performance with explicit invalidation on mutation.
+The `DremioTestcontainersUsageValidator` requires:
+- Class name ends with `IT`
+- System property `dremio.testcontainers.enabled=true` is set
+- System property `dremio.testcontainers.validate.skip=true` OR tests run under the approved testcontainers infrastructure
 
-### Do not use IndexedStore for rbac_grants
+For v1.1 scope (read-only validation), a Testcontainers IT test is a nice-to-have, not required. Manual Docker validation is sufficient for the milestone.
 
-`IndexedStore` adds Lucene overhead to every write. For `rbac_grants`, where the hot path is a point lookup by composite key and the only scan needed is "all grants for a role" (a cold admin path), a plain `LegacyKVStore` is sufficient and simpler. Use `LegacyIndexedStore` only for `rbac_roles` (need name lookup) and `rbac_memberships` (need user lookup).
+### Lakekeeper warehouse initialization for test data
 
-### Do not create a new Guice AbstractModule
+After starting Lakekeeper, create a test warehouse and table:
 
-Dremio does not use standard Guice modules for service wiring — it uses `SingletonRegistry`. Creating a `GuiceModule extends AbstractModule` and installing it will not integrate with the lifecycle management (start/stop ordering) that `SingletonRegistry` provides. Follow the pattern in `DACDaemonModule`.
+```bash
+# Create warehouse via Lakekeeper management API
+curl -X POST http://localhost:8181/management/v1/warehouse \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "test-warehouse", "location": "file:///warehouse"}'
 
-### Do not use Format.ofProtostuff() for new protos
-
-Protostuff uses `io.protostuff.Message` and a different compiler toolchain. The newer proto3 path (`Format.ofProtobuf()`) handles field additions/deletions gracefully without the `required` field trap and generates cleaner Java. Existing services use Protostuff because they predate the migration; new code should use proto3.
-
-### Do not add RBAC enforcement in the Calcite planner
-
-Catalog-level enforcement at `validatePrivilege()` and at the dataset resolution path (`getTable`, `getFunction`) covers all access paths: SQL queries, REST API catalog lookups, and reflection planning. Adding checks in the planner would be a second enforcement layer that duplicates logic without adding coverage.
-
-### Do not couple the PUBLIC role to a database record
-
-PUBLIC is a synthetic role. Every user implicitly belongs to it. Implement it as a special string constant (`"PUBLIC"`) that is included in every `hasPrivilege()` check alongside the user's real roles — not as a row in `rbac_memberships`. This avoids the need to maintain N membership rows (one per user) and the need to update them when users are created or deleted.
-
----
-
-## 9. Decision Summary
-
-| Concern | Recommendation | Confidence |
-|---------|---------------|------------|
-| Value serialization | proto3 + `Format.ofProtobuf()` | High |
-| Key format: roles | `Format.ofString()` UUID | High |
-| Key format: grants | Composite string `role\|type\|path\|privilege` | High |
-| Key format: memberships | Composite string `user\|role` | High |
-| IndexedStore for roles? | Yes — need role-by-name lookup | High |
-| IndexedStore for grants? | No — point lookup only; cold scans via store.find(all) | High |
-| IndexedStore for memberships? | Yes — need memberships-by-user lookup | High |
-| Caching | Dedicated RbacPermissionCache in RbacService (Guava), explicit invalidation on mutation | High |
-| Membership sub-cache | Yes — separate Cache<String, Set<String>>, invalidate on membership change | High |
-| Service wiring | `SingletonRegistry.bind()` in `DACDaemonModule` | High |
-| System tables integration | `RbacService implements AccessControlListingManager` | High |
-| Handler dispatch | Create `GrantHandler`, `RevokeHandler`, `RoleCreateHandler` at the class paths referenced by reflective dispatch | High |
-| PUBLIC role implementation | Synthetic constant, not a database record | High |
-| ADMIN bypass | First check in `hasPrivilege()`, short-circuit all further checks | High |
-| CatalogImpl injection of RbacService | Optional constructor parameter or SabotContext service-locator lookup | Medium |
+# Then use PyIceberg or spark-sql to create tables in the REST catalog
+pip install pyiceberg
+python3 -c "
+from pyiceberg.catalog.rest import RestCatalog
+catalog = RestCatalog('test', **{'uri': 'http://localhost:8181/catalog', 'warehouse': 'test-warehouse'})
+catalog.create_namespace('mydb')
+from pyiceberg.schema import Schema
+from pyiceberg.types import NestedField, StringType, LongType
+schema = Schema(NestedField(1, 'id', LongType()), NestedField(2, 'name', StringType()))
+catalog.create_table('mydb.users', schema)
+"
+```
 
 ---
 
-## 10. Suggested New File Locations
+## 5. No New Dependencies Required (HIGH confidence)
 
-Following Dremio's module structure:
+The following are already present and sufficient:
 
-| Artifact | Suggested location |
-|----------|-------------------|
-| `rbac.proto` | `sabot/kernel/src/main/protobuf/rbac.proto` (keeps it in kernel where CatalogImpl lives) |
-| `RbacService.java` | `services/rbac/src/main/java/com/dremio/service/rbac/RbacService.java` (new module) |
-| `RoleStoreCreator.java` | same module, same package |
-| `GrantStoreCreator.java` | same |
-| `MembershipStoreCreator.java` | same |
-| `RbacPermissionCache.java` | `sabot/kernel/src/main/java/com/dremio/exec/catalog/RbacPermissionCache.java` (near `PermissionCheckCache`) |
-| `GrantHandler.java` | `sabot/kernel/src/main/java/com/dremio/exec/planner/sql/handlers/GrantHandler.java` |
-| `RevokeHandler.java` | same package |
-| `RoleCreateHandler.java` | same package |
-| `RoleDropHandler.java` | same package |
-| `RoleResource.java` (REST) | `dac/backend/src/main/java/com/dremio/dac/api/RoleResource.java` |
+| Library | Version | Location | Status |
+|---------|---------|----------|--------|
+| `org.apache.iceberg:iceberg-core` | 1.7.0 (custom Dremio build) | `dremio-sabot-kernel` transitive | Already available |
+| `org.apache.iceberg:iceberg-api` | 1.7.0 | same | Already available |
+| `RESTCatalog` class | Iceberg 1.7.0 | `org.apache.iceberg.rest.RESTCatalog` | Already imported in `RestIcebergCatalogPlugin` |
+| `ConnectionConf` | Dremio internal | `sabot/kernel` | Base class already extended |
+| `@SourceType` annotation | Dremio internal | `com.dremio.exec.catalog.conf.SourceType` | Already imported in S3, GCS, Nessie, etc. |
+| `io.protostuff.Tag` | Protostuff | transitive | Already on `IcebergCatalogPluginConfig` fields |
+| `DisplayMetadata` | Dremio internal | Already on config fields | No change |
 
-If the `services/rbac` module needs to reference `SqlGrant.Privilege` from the kernel, that creates a circular dependency. Resolution: define a separate `RbacPrivilege` enum in the rbac module, or move the privilege enum to a shared `rbac-api` module that both kernel and rbac-service can depend on. Alternatively, use plain strings for privilege names at the store level (the proto uses `string privilege`) and only reference `SqlGrant.Privilege` in the handlers (which are already in the kernel module).
+**What NOT to add:**
+- Do not add Lakekeeper client library — the plugin uses `org.apache.iceberg.rest.RESTCatalog` directly, which speaks standard Iceberg REST spec. No Lakekeeper-specific client needed.
+- Do not add WireMock or MockServer — existing tests use Mockito to mock `CatalogAccessor`. The `TestRestIcebergCatalogPlugin` test already covers the plugin layer. Adding an HTTP-level mock for Lakekeeper's REST API would test Iceberg's RESTCatalog client, not our plugin.
+- Do not add testcontainers to the plugin's pom for v1.1 — unit tests are sufficient for the annotation + layout wiring validation. Manual Docker validation covers the end-to-end path.
 
 ---
 
-*Research: 2026-02-17. Based on analysis of Dremio OSS codebase at commit 799ccbda4.*
+## 6. Tag Number Reservation (HIGH confidence)
+
+`IcebergCatalogPluginConfig` reserves tags 1-9. `RestIcebergCatalogPluginConfig` has comment:
+
+```java
+// 1-9   - IcebergCatalogPluginConfig
+// 10-19 - RestIcebergCatalogPluginConfig
+// 20-109 - Reserved by other plugins
+```
+
+Current fields use tags 10, 11, 12. Next available tag in `RestIcebergCatalogPluginConfig`: `@Tag(13)`. If new config fields are needed, use tags 13-19.
+
+---
+
+## 7. File Change Summary
+
+| File | Change | Why |
+|------|--------|-----|
+| `plugins/icebergcatalog/src/main/java/com/dremio/plugins/icebergcatalog/store/RestIcebergCatalogPluginConfig.java` | Add `@SourceType(value = "RESTCATALOG", label = "Iceberg REST Catalog", uiConfig = "restcatalog-layout.json")` | Makes plugin discoverable by classpath scanner |
+| `plugins/icebergcatalog/src/main/resources/restcatalog-layout.json` | Create new file with UI layout | Required by `SourceTypeTemplate.fromSourceClass()` when `uiConfig` is non-empty |
+| `plugins/icebergcatalog/pom.xml` | No change | All dependencies already present |
+| `plugins/icebergcatalog/src/main/resources/sabot-module.conf` | No change | Already declares the package for scanning |
+
+All other existing code — `IcebergRestCatalogAccessor`, `ExpiringCatalogCache`, `DatasetFileSystemCache`, `IcebergCatalogPlugin` lifecycle methods — requires no changes for the read-only wiring milestone.
+
+---
+
+## 8. Validation Checklist
+
+After adding the annotation and layout JSON:
+
+1. **Classpath scanning:** `GET /api/v3/source/type` should return `RESTCATALOG` in the source type list
+2. **Icon:** Source type list entry should include the SVG icon content (served from frontend assets)
+3. **UI layout:** `GET /api/v3/source/type/RESTCATALOG` should return the `uiConfig` JSON inline
+4. **Source creation:** `PUT /api/v3/catalog` with `{"entityType":"source","type":"RESTCATALOG","name":"myrest","config":{"restEndpointUri":"http://localhost:8181/catalog"}}` should succeed
+5. **Namespace browsing:** Source should appear in `sys.sources`, namespace listing should return Lakekeeper namespaces
+6. **Table query:** `SELECT * FROM myrest.mydb.users LIMIT 10` should return rows
+
+---
+
+*Research: 2026-02-20. Based on analysis of Dremio OSS codebase at current HEAD (milestones/enable_iceberg_rest_catalog branch). Lakekeeper setup at MEDIUM confidence — verify Docker image tag before use.*
