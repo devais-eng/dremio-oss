@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-20)
 ## Current Position
 
 Phase: 8 of 8 (End-to-End Validation)
-Plan: 2 of 2 in current phase (08-01 complete, 08-02 in progress)
-Status: Infrastructure ready — validating end-to-end read path
-Last activity: 2026-02-20 — Plan 08-01 complete; Lakekeeper + MinIO + Dremio stack running, test data seeded
+Plan: 2 of 2 in current phase (all complete)
+Status: Phase 8 complete — all 6 success criteria validated; awaiting verification
+Last activity: 2026-02-20 — Plan 08-02 complete; RESTCATALOG source creation, browsing, SELECT, OAuth2, credential workaround all validated
 
-Progress: [████████░░] ~85% (v1.0 complete; Phase 7 wiring done; Phase 8 infra ready, validation in progress)
+Progress: [█████████░] ~95% (v1.0 complete; Phase 7+8 complete; awaiting phase verification)
 
 ## Performance Metrics
 
@@ -59,11 +59,12 @@ None.
 ### Blockers/Concerns
 
 - [Build]: Maven build requires Java 21 (enforcer [21,22) range); only Java 11/17 available. Full Maven compile blocked until Java 21 JDK is installed.
-- [Phase 8 — Research gap]: Credential vending path from `loadTable()` through `DremioFileIO` was not fully traced during research; may require a targeted fix if SELECT queries fail with permission errors. Starting point: `AbstractRestCatalogAccessor.getTableHandleInternal()`.
-- [Phase 8 — Research gap]: Lakekeeper Docker image exact tag needs runtime verification at `quay.io/repository/iceberg-catalog/iceberg-catalog` before Phase 8 test plan is written.
+- [Phase 8 — RESOLVED]: Credential vending from Lakekeeper `loadTable()` NOT propagated through `DremioFileIO` — confirmed by code trace. Workaround: static `fs.s3a.*` creds in `propertyList`. Known v1.1 limitation for IAM/STS.
+- [Phase 8 — RESOLVED]: Lakekeeper Docker image `quay.io/lakekeeper/catalog:latest-main` used successfully via minimal example compose.
+- [Phase 8 — Discovery]: `fs.s3a.endpoint` must be without protocol (e.g., `localhost:9000` not `http://localhost:9000`); `fs.s3a.connection.ssl.enabled=false` for HTTP; explicit `SimpleAWSCredentialsProvider` required; `dremio.s3.compat=true` for MinIO.
 
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Plan 08-01 complete — infrastructure running (Lakekeeper warehouse "demo", MinIO, testns.users 10 rows). Executing Plan 08-02 validation.
+Stopped at: Phase 8 plans complete — all 6 success criteria validated. Awaiting phase verification.
 Resume file: None
