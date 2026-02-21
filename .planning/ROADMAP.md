@@ -29,7 +29,7 @@ See `milestones/v1.0-ROADMAP.md` for full phase details.
 - [x] **Phase 8: VDS Definer Rights Safety Cluster** — Implement view expansion under the last modifier's identity, shipping all eight interdependent pitfall guards as a single atomic unit
 - [x] **Phase 9: UDF Rights Verification and Owner Resolution** — Confirm and harden UDF definer semantics; fix CatalogEntityOwnershipImpl for FUNCTION type; add integration test coverage
 - [x] **Phase 10: PDS SELECT Enforcement (Opt-in)** — Grant SELECT on physical tables to roles; enforce access on tables that have explicit grants; tables without grants remain universally accessible
-- [ ] **Phase 11: Container Visibility Filtering** — Sources, spaces, and folders are hidden from non-admin users unless they have access to at least one child object; full ancestor path is shown
+- [x] **Phase 11: Container Visibility Filtering** — Sources, spaces, and folders are hidden from non-admin users unless they have access to at least one child object; full ancestor path is shown (completed 2026-02-21)
 - [ ] **Phase 12: Metadata Safety and Integration Testing** — Restrict sys.privileges to ADMIN; gate DESCRIBE and EXPLAIN on existing privilege model; end-to-end integration tests across all v1.2 features
 
 ## Phase Details
@@ -100,7 +100,7 @@ Plans:
   2. A non-admin user with SELECT on a VDS inside a nested folder sees the folder and all its ancestor containers up to the source root
   3. A non-admin user who has no access to any object inside a source does not see that source in catalog listings
   4. An ADMIN user sees all sources, spaces, and folders regardless of grant coverage
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 11-01-PLAN.md — Core algorithm (RbacService getAccessibleObjectPaths + hasAccessibleChildUnderPath) + CatalogServiceHelper space/folder filtering
 - [ ] 11-02-PLAN.md — Resource endpoint wiring (SpaceResource, HomeResource, SpaceFolderResource, ResourceTreeResource) + RbacService unit tests
@@ -129,5 +129,5 @@ Plans:
 | 8. VDS Definer Rights Safety Cluster | v1.2 | 2/2 | Complete | 2026-02-21 |
 | 9. UDF Rights Verification and Owner Resolution | v1.2 | 2/2 | Complete | 2026-02-21 |
 | 10. PDS SELECT Enforcement (Opt-in) | v1.2 | Complete    | 2026-02-21 | 2026-02-21 |
-| 11. Container Visibility Filtering | v1.2 | 0/2 | Planned | - |
+| 11. Container Visibility Filtering | v1.2 | Complete    | 2026-02-21 | - |
 | 12. Metadata Safety and Integration Testing | v1.2 | 0/? | Not started | - |
