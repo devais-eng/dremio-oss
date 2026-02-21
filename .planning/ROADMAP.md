@@ -100,7 +100,10 @@ Plans:
   2. A non-admin user with SELECT on a VDS inside a nested folder sees the folder and all its ancestor containers up to the source root
   3. A non-admin user who has no access to any object inside a source does not see that source in catalog listings
   4. An ADMIN user sees all sources, spaces, and folders regardless of grant coverage
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 11-01-PLAN.md — Core algorithm (RbacService getAccessibleObjectPaths + hasAccessibleChildUnderPath) + CatalogServiceHelper space/folder filtering
+- [ ] 11-02-PLAN.md — Resource endpoint wiring (SpaceResource, HomeResource, SpaceFolderResource, ResourceTreeResource) + RbacService unit tests
 
 ### Phase 12: Metadata Safety and Integration Testing
 **Goal**: sys.privileges is admin-only, DESCRIBE and EXPLAIN are gated on existing privilege grants, and end-to-end integration tests prove all v1.2 features work correctly together
@@ -126,5 +129,5 @@ Plans:
 | 8. VDS Definer Rights Safety Cluster | v1.2 | 2/2 | Complete | 2026-02-21 |
 | 9. UDF Rights Verification and Owner Resolution | v1.2 | 2/2 | Complete | 2026-02-21 |
 | 10. PDS SELECT Enforcement (Opt-in) | v1.2 | Complete    | 2026-02-21 | 2026-02-21 |
-| 11. Container Visibility Filtering | v1.2 | 0/? | Not started | - |
+| 11. Container Visibility Filtering | v1.2 | 0/2 | Planned | - |
 | 12. Metadata Safety and Integration Testing | v1.2 | 0/? | Not started | - |
