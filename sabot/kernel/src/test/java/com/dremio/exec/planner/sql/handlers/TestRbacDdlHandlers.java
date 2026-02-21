@@ -394,6 +394,67 @@ public class TestRbacDdlHandlers {
   }
 
   // -------------------------------------------------------------------------
+  // PDS GRANT and REVOKE tests (PDS-01, PDS-03)
+  // -------------------------------------------------------------------------
+
+  @Test
+  public void testCatalogGrant_selectOnPds_success() throws Exception {
+    // PDS-01: Admin can GRANT SELECT on a physical table to a role.
+    // PDS-03: The grant is stored with objectType "PDS" (distinct from "VDS").
+    SqlGrantOnCatalog node =
+        new SqlGrantOnCatalog(
+            SqlParserPos.ZERO,
+            privList(SqlGrant.Privilege.SELECT),
+            SqlLiteral.createSymbol(SqlGrant.GrantType.PDS, SqlParserPos.ZERO),
+            compoundId("mysource", "myschema", "mytable"),
+            SqlLiteral.createSymbol(SqlGrant.GranteeType.ROLE, SqlParserPos.ZERO),
+            id("analyst"),
+            null,
+            null);
+    List<SimpleCommandResult> results =
+        new CatalogGrantHandler(queryContext)
+            .toResult("GRANT SELECT ON PDS mysource.myschema.mytable TO ROLE analyst", node);
+
+    verify(rbacService)
+        .grantPrivilege("analyst", "PDS", "mysource.myschema.mytable", "SELECT", "admin_user");
+    assertThat(results).hasSize(1);
+    assertThat(results.get(0).ok).isTrue();
+    assertThat(results.get(0).summary)
+        .contains("PDS")
+        .contains("mysource.myschema.mytable")
+        .contains("analyst");
+  }
+
+  @Test
+  public void testCatalogRevoke_selectOnPds_success() throws Exception {
+    // PDS-01: Admin can REVOKE SELECT on a physical table from a role.
+    // PDS-03: The revoke targets objectType "PDS" (distinct from "VDS").
+    SqlRevokeOnCatalog node =
+        new SqlRevokeOnCatalog(
+            SqlParserPos.ZERO,
+            privList(SqlGrant.Privilege.SELECT),
+            SqlLiteral.createSymbol(SqlGrant.GrantType.PDS, SqlParserPos.ZERO),
+            compoundId("mysource", "myschema", "mytable"),
+            SqlLiteral.createSymbol(SqlGrant.GranteeType.ROLE, SqlParserPos.ZERO),
+            id("analyst"),
+            null,
+            null);
+    List<SimpleCommandResult> results =
+        new CatalogRevokeHandler(queryContext)
+            .toResult(
+                "REVOKE SELECT ON PDS mysource.myschema.mytable FROM ROLE analyst", node);
+
+    verify(rbacService)
+        .revokePrivilege("analyst", "PDS", "mysource.myschema.mytable", "SELECT");
+    assertThat(results).hasSize(1);
+    assertThat(results.get(0).ok).isTrue();
+    assertThat(results.get(0).summary)
+        .contains("PDS")
+        .contains("mysource.myschema.mytable")
+        .contains("analyst");
+  }
+
+  // -------------------------------------------------------------------------
   // System table wiring verification
   // -------------------------------------------------------------------------
 
