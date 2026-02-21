@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Users can only access views, tables, and UDFs they've been explicitly granted access to, with deny-by-default policy, privilege context switching (definer rights for VDS and UDF), and admin bypass.
-**Current focus:** v1.2 Privilege Context & Enforcement — Phase 9 Plan 01 complete, Phase 9 Plan 02 next
+**Current focus:** v1.2 Privilege Context & Enforcement — Phase 9 complete (both plans), Phase 10 next
 
 ## Current Position
 
 Phase: 9 of 12 (UDF Rights Verification and Owner Resolution)
-Plan: 01 of N
-Status: Plan 01 Complete
-Last activity: 2026-02-21 — Phase 9 Plan 01 complete: added owner field (field 9) to FunctionConfig proto; UserDefinedFunctionCatalogImpl stamps creator on CREATE and preserves owner on UPDATE; CatalogEntityOwnershipImpl FUNCTION branch now returns CatalogUser with real UDF creator identity (UDF-01 and UDF-02 complete)
+Plan: 02 of 02
+Status: Plan 02 Complete — Phase 9 Complete
+Last activity: 2026-02-21 — Phase 9 Plan 02 complete: 7 unit tests added to TestCatalogImpl.java covering UDF-01 (definer prerequisite), UDF-02 (FUNCTION ownership resolution: non-null/null/empty), UDF-03 (getFunctions() EXECUTE enforcement: deny/allow/rbac-disabled/system-user)
 
-Progress: [███░░░░░░░] 15% (v1.2)
+Progress: [████░░░░░░] 20% (v1.2)
 
 ## Performance Metrics
 
@@ -45,6 +45,7 @@ Progress: [███░░░░░░░] 15% (v1.2)
 | Phase 08 P01 | 15 | 2 | 4 |
 | Phase 08 P02 | 4 | 2 | 3 |
 | Phase 09 P01 | 2 | 2 | 3 |
+| Phase 09 P02 | 2 | 2 | 1 |
 
 ## Accumulated Context
 
@@ -73,6 +74,8 @@ Recent decisions affecting v1.2 work:
 - [Phase 09 P01]: FunctionConfig.owner (field 9) stamped directly on FunctionConfig by UserDefinedFunctionCatalogImpl — NOT piped through UserDefinedFunctionSerde.toProto()/fromProto() (UserDefinedFunction Java class has no owner field)
 - [Phase 09 P01]: FUNCTION case in CatalogEntityOwnershipImpl uses fully-qualified FunctionConfig class name to avoid ambiguity; mirrors DATASET case pattern exactly
 - [Phase 09 P01]: Legacy UDFs with null owner fall back to Optional.empty() (query user identity) — consistent with DATASET pattern
+- [Phase 09 P02]: Added 4 UDF-03 tests instead of plan's 2 — rbacDisabled and systemUser paths cover the two early-return paths in isRbacDeniedForFunction() missed by the core deny/allow tests
+- [Phase 09 P02]: Used var for getFunctions() return type — avoids importing Collection/Function; consistent with existing test at line 1114
 
 ### Pending Todos
 
@@ -89,5 +92,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-21
-Stopped at: Completed 09-01-PLAN.md. Phase 9 Plan 01 complete. UDF-01 (definer-rights identity) and UDF-02 (FUNCTION owner resolution) requirements complete. Ready to execute Phase 9 Plan 02.
-Resume file: .planning/phases/09-udf-rights-verification-and-owner-resolution/
+Stopped at: Completed 09-02-PLAN.md. Phase 9 complete. All UDF requirements (UDF-01, UDF-02, UDF-03) implemented and verified with 7 unit tests. Ready to plan and execute Phase 10 (PDS SELECT enforcement).
+Resume file: .planning/phases/
