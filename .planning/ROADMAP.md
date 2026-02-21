@@ -86,7 +86,7 @@ Plans:
   2. Once at least one PDS grant exists for a table, users without a matching grant receive a permission denied error when querying that table directly
   3. Physical tables with no grants configured remain accessible to all users (opt-in enforcement: no grants = universally accessible, backward compatible)
   4. A user with SELECT on a VDS wrapping a PDS can query the view successfully because definer rights are used during expansion — even if the user has no direct PDS SELECT grant
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 10-01-PLAN.md — Config flag (RBAC_PDS_ENABLED), RbacService.hasAnyPdsGrant() helper, CatalogImpl.isRbacDeniedForPds() method + 6 call site wiring
 - [ ] 10-02-PLAN.md — Unit tests: 6 PDS enforcement tests in TestCatalogImpl + 2 PDS GRANT/REVOKE tests in TestRbacDdlHandlers
@@ -125,6 +125,6 @@ Plans:
 | 7. VDS Lifecycle Privilege Enforcement | v1.2 | 2/2 | Complete | 2026-02-21 |
 | 8. VDS Definer Rights Safety Cluster | v1.2 | 2/2 | Complete | 2026-02-21 |
 | 9. UDF Rights Verification and Owner Resolution | v1.2 | 2/2 | Complete | 2026-02-21 |
-| 10. PDS SELECT Enforcement (Opt-in) | v1.2 | 2/2 | Complete | 2026-02-21 |
+| 10. PDS SELECT Enforcement (Opt-in) | v1.2 | Complete    | 2026-02-21 | 2026-02-21 |
 | 11. Container Visibility Filtering | v1.2 | 0/? | Not started | - |
 | 12. Metadata Safety and Integration Testing | v1.2 | 0/? | Not started | - |
