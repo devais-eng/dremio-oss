@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Users can only access views, tables, and UDFs they've been explicitly granted access to, with deny-by-default policy, privilege context switching (definer rights for VDS and UDF), and admin bypass.
-**Current focus:** v1.2 Privilege Context & Enforcement — Phase 10 complete
+**Current focus:** v1.2 Privilege Context & Enforcement — Phase 11 Plan 01 complete
 
 ## Current Position
 
-Phase: 10 of 12 (PDS SELECT Enforcement Opt-In)
-Plan: 02 of 02
-Status: Phase 10 Complete
-Last activity: 2026-02-21 — Phase 10 Plan 02 complete: 8 PDS unit tests across 2 files (6 enforcement tests in TestCatalogImpl, 2 DDL handler tests in TestRbacDdlHandlers)
+Phase: 11 of 12 (Container Visibility Filtering)
+Plan: 01 of 02
+Status: Plan 01 Complete
+Last activity: 2026-02-21 — Phase 11 Plan 01 complete: container visibility core algorithm in RbacService + CatalogServiceHelper wiring for top-level and folder filtering
 
-Progress: [█████░░░░░] 25% (v1.2)
+Progress: [██████░░░░] 30% (v1.2)
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ Progress: [█████░░░░░] 25% (v1.2)
 | Phase 09 P02 | 2 | 2 | 1 |
 | Phase 10 P01 | 10 | 2 | 3 |
 | Phase 10 P02 | 2 | 2 | 2 |
+| Phase 11 P01 | 3 | 2 | 2 |
 
 ## Accumulated Context
 
@@ -83,6 +84,10 @@ Recent decisions affecting v1.2 work:
 - [Phase 10 P01]: isRbacDeniedForPds() placed immediately after isRbacDeniedForVds() with symmetric 6-step guard chain; TODO comment at getTable(String datasetId) documents out-of-scope path
 - [Phase 10]: PDS enforcement tests cannot directly exercise isRbacDeniedForPds() via getTable — DatasetManager is internal, tests document RbacService call contract via never() and mock verifications
 - [Phase 10]: DDL PDS tests mirror VDS pattern exactly: GrantType.PDS replaces GrantType.VDS, objectType 'PDS' used in all grantPrivilege/revokePrivilege verify() calls
+- [Phase 11 P01]: Two container visibility methods: getAccessibleObjectPaths() (batch, one grant scan for all containers) and hasAccessibleChildUnderPath() (single container, admin short-circuit) -- per Research Pitfall 5
+- [Phase 11 P01]: Sources filtered same as spaces in getTopLevelCatalogItems() -- deny-by-default PDS means grant prefix scan correctly identifies sources with no accessible children
+- [Phase 11 P01]: getUserAccessibleObjectPaths() returns null for RBAC-disabled/admin as "show all" signal -- callers check accessiblePaths == null to skip filtering
+- [Phase 11 P01]: Folder filtering in isVisibleToUser() uses per-folder hasAccessibleChildUnderPath() -- child folder listings are smaller cardinality than top-level
 
 ### Pending Todos
 
@@ -99,5 +104,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-21
-Stopped at: Completed 10-02-PLAN.md. Phase 10 complete. 8 PDS unit tests: 6 enforcement tests in TestCatalogImpl (opt-in/deny/allow/flag-off/rbac-disabled/system-user), 2 DDL handler tests in TestRbacDdlHandlers (GRANT/REVOKE SELECT ON PDS with objectType "PDS"). Ready for Phase 11.
-Resume file: .planning/phases/10-pds-select-enforcement-opt-in/
+Stopped at: Completed 11-01-PLAN.md. Container visibility core: getAccessibleObjectPaths() and hasAccessibleChildUnderPath() in RbacService, top-level space/source filtering and folder filtering in CatalogServiceHelper. Ready for Phase 11 Plan 02 (remaining call sites).
+Resume file: .planning/phases/11-container-visibility-filtering/
