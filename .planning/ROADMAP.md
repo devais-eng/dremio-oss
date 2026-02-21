@@ -25,10 +25,10 @@ See `milestones/v1.0-ROADMAP.md` for full phase details.
 
 **Milestone Goal:** Add privilege context switching (definer rights for VDS and UDF), SELECT grants on physical tables, container visibility filtering, complete VDS lifecycle privilege enforcement, and metadata safety checks. Every access path — views, tables, UDFs, containers, describe, explain — is governed by explicit grants with deny-by-default policy.
 
-- [ ] **Phase 7: VDS Lifecycle Privilege Enforcement** — Wire ALTER, DROP, and CREATE_VIEW enforcement into the three missing call sites; close the v1.0 enforcement gap
-- [ ] **Phase 8: VDS Definer Rights Safety Cluster** — Implement view expansion under the last modifier's identity, shipping all eight interdependent pitfall guards as a single atomic unit
-- [ ] **Phase 9: UDF Rights Verification and Owner Resolution** — Confirm and harden UDF definer semantics; fix CatalogEntityOwnershipImpl for FUNCTION type; add integration test coverage
-- [ ] **Phase 10: PDS SELECT Enforcement (Opt-in)** — Grant SELECT on physical tables to roles; enforce access on tables that have explicit grants; tables without grants remain universally accessible
+- [x] **Phase 7: VDS Lifecycle Privilege Enforcement** — Wire ALTER, DROP, and CREATE_VIEW enforcement into the three missing call sites; close the v1.0 enforcement gap
+- [x] **Phase 8: VDS Definer Rights Safety Cluster** — Implement view expansion under the last modifier's identity, shipping all eight interdependent pitfall guards as a single atomic unit
+- [x] **Phase 9: UDF Rights Verification and Owner Resolution** — Confirm and harden UDF definer semantics; fix CatalogEntityOwnershipImpl for FUNCTION type; add integration test coverage
+- [x] **Phase 10: PDS SELECT Enforcement (Opt-in)** — Grant SELECT on physical tables to roles; enforce access on tables that have explicit grants; tables without grants remain universally accessible
 - [ ] **Phase 11: Container Visibility Filtering** — Sources, spaces, and folders are hidden from non-admin users unless they have access to at least one child object; full ancestor path is shown
 - [ ] **Phase 12: Metadata Safety and Integration Testing** — Restrict sys.privileges to ADMIN; gate DESCRIBE and EXPLAIN on existing privilege model; end-to-end integration tests across all v1.2 features
 
@@ -122,9 +122,9 @@ Plans:
 | 4. Catalog Enforcement and DI Wiring | v1.0 | 3/3 | Complete | 2026-02-18 |
 | 5. DDL Handlers and System Tables | v1.0 | 3/3 | Complete | 2026-02-18 |
 | 6. REST API and Access Path Hardening | v1.0 | 3/3 | Complete | 2026-02-18 |
-| 7. VDS Lifecycle Privilege Enforcement | v1.2 | 0/2 | Planned | - |
-| 8. VDS Definer Rights Safety Cluster | v1.2 | 0/2 | Planned | - |
-| 9. UDF Rights Verification and Owner Resolution | v1.2 | 0/2 | Planned | - |
-| 10. PDS SELECT Enforcement (Opt-in) | v1.2 | 0/2 | Planned | - |
+| 7. VDS Lifecycle Privilege Enforcement | v1.2 | 2/2 | Complete | 2026-02-21 |
+| 8. VDS Definer Rights Safety Cluster | v1.2 | 2/2 | Complete | 2026-02-21 |
+| 9. UDF Rights Verification and Owner Resolution | v1.2 | 2/2 | Complete | 2026-02-21 |
+| 10. PDS SELECT Enforcement (Opt-in) | v1.2 | 2/2 | Complete | 2026-02-21 |
 | 11. Container Visibility Filtering | v1.2 | 0/? | Not started | - |
 | 12. Metadata Safety and Integration Testing | v1.2 | 0/? | Not started | - |
