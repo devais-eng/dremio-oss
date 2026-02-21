@@ -15,12 +15,17 @@
  */
 package com.dremio.exec.planner.sql.handlers.direct;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dremio.BaseTestQuery;
 import com.dremio.catalog.model.CatalogEntityKey;
+import com.dremio.common.exceptions.UserException;
 import com.dremio.catalog.model.VersionContext;
 import com.dremio.catalog.model.dataset.TableVersionContext;
 import com.dremio.catalog.model.dataset.TableVersionType;
@@ -30,6 +35,7 @@ import com.dremio.exec.catalog.Catalog;
 import com.dremio.exec.catalog.DremioTable;
 import com.dremio.exec.ops.QueryContext;
 import com.dremio.exec.planner.sql.parser.SqlDescribeDremioTable;
+import com.dremio.exec.planner.sql.parser.SqlGrant;
 import com.dremio.exec.planner.sql.parser.SqlTableVersionSpec;
 import com.dremio.exec.store.ColumnExtendedProperty;
 import com.dremio.options.OptionManager;
@@ -189,5 +195,60 @@ public class TestDescribeTableHandler extends BaseTestQuery {
     assertEquals(expected.NUMERIC_SCALE, actual.NUMERIC_SCALE);
     assertEquals(expected.EXTENDED_PROPERTIES, actual.EXTENDED_PROPERTIES);
     assertEquals(expected.SORT_ORDER_PRIORITY, actual.SORT_ORDER_PRIORITY);
+  }
+
+  @Test
+  public void testToResult_rbacDenied_throwsPermissionDenied() throws Exception {
+    // META-02: DESCRIBE on a VDS the user lacks SELECT on must throw "Permission denied"
+    // Setup: catalog.validatePrivilege() throws UserException for this path
+    List<String> viewPath = List.of("myspace", "myview");
+    when(catalog.resolveSingle(new NamespaceKey(viewPath))).thenReturn(new NamespaceKey(viewPath));
+    doThrow(
+            UserException.validationError()
+                .message("Permission denied: SELECT privilege required on 'myspace.myview'")
+                .buildSilently())
+        .when(catalog)
+        .validatePrivilege(new NamespaceKey(viewPath), SqlGrant.Privilege.SELECT);
+
+    SqlDescribeDremioTable describeTable =
+        new SqlDescribeDremioTable(
+            SqlParserPos.ZERO,
+            new SqlIdentifier(viewPath, SqlParserPos.ZERO),
+            SqlTableVersionSpec.NOT_SPECIFIED,
+            null);
+
+    assertThatThrownBy(
+            () -> describeTableHandler.toResult("DESCRIBE myspace.myview", describeTable))
+        .isInstanceOf(UserException.class)
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("SELECT");
+  }
+
+  @Test
+  public void testToResult_sysTable_skipsPrivilegeCheck() throws Exception {
+    // META-02: DESCRIBE on sys.* tables should NOT trigger validatePrivilege().
+    // The sys.privileges guard is handled separately in CatalogImpl.getTable().
+    List<String> sysPath = List.of("sys", "privileges");
+    when(catalog.resolveSingle(new NamespaceKey(sysPath))).thenReturn(new NamespaceKey(sysPath));
+    when(session.getSessionVersionForSource("sys")).thenReturn(VersionContext.NOT_SPECIFIED);
+    // getTable returns null for sys table in mock setup (no system table configured)
+    when(catalog.getTable(any(CatalogEntityKey.class))).thenReturn(null);
+
+    SqlDescribeDremioTable describeTable =
+        new SqlDescribeDremioTable(
+            SqlParserPos.ZERO,
+            new SqlIdentifier(sysPath, SqlParserPos.ZERO),
+            SqlTableVersionSpec.NOT_SPECIFIED,
+            null);
+
+    // Should throw "Unknown table" (not "Permission denied") because sys tables
+    // skip the validatePrivilege check -- the table just doesn't exist in mock.
+    assertThatThrownBy(
+            () -> describeTableHandler.toResult("DESCRIBE sys.privileges", describeTable))
+        .isInstanceOf(UserException.class)
+        .hasMessageContaining("Unknown table");
+
+    // Verify validatePrivilege was NOT called for sys path
+    verify(catalog, never()).validatePrivilege(any(NamespaceKey.class), any(SqlGrant.Privilege.class));
   }
 }
