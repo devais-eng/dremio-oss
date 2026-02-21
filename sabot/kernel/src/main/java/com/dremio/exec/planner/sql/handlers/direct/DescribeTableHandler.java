@@ -24,6 +24,7 @@ import com.dremio.exec.catalog.Catalog;
 import com.dremio.exec.catalog.DremioTable;
 import com.dremio.exec.ops.QueryContext;
 import com.dremio.exec.planner.sql.parser.SqlDescribeDremioTable;
+import com.dremio.exec.planner.sql.parser.SqlGrant;
 import com.dremio.exec.planner.sql.parser.TableVersionSpec;
 import com.dremio.exec.planner.types.JavaTypeFactoryImpl;
 import com.dremio.exec.store.ColumnExtendedProperty;
@@ -87,6 +88,20 @@ public class DescribeTableHandler implements SqlDirectHandler<DescribeTableHandl
     NamespaceKey path = getPath(sqlDescribeTable);
     String sourceName = path.getRoot();
     try {
+      // META-02: Enforce SELECT privilege before table lookup.
+      // Uses soft-deny: validatePrivilege checks VDS grants only. For PDS paths with
+      // PDS SELECT grants, getTable() will succeed via isRbacDeniedForPds. We save
+      // the exception and re-throw only if getTable() also fails.
+      // Skip for sys/INFORMATION_SCHEMA (system schemas use separate access control).
+      UserException savedPermissionDenied = null;
+      if (!"sys".equalsIgnoreCase(path.getRoot())
+          && !"INFORMATION_SCHEMA".equalsIgnoreCase(path.getRoot())) {
+        try {
+          catalog.validatePrivilege(path, SqlGrant.Privilege.SELECT);
+        } catch (UserException ue) {
+          savedPermissionDenied = ue;
+        }
+      }
       TableVersionContext sourceVersion = getVersion(sqlDescribeTable, sourceName);
       CatalogEntityKey catalogEntityKey =
           CatalogEntityKey.newBuilder()
@@ -96,7 +111,12 @@ public class DescribeTableHandler implements SqlDirectHandler<DescribeTableHandl
       final DremioTable table = catalog.getTable(catalogEntityKey);
       final RelDataType type;
       if (table == null) {
-        throw UserException.validationError().message("Unknown table [%s]", path).build(logger);
+        if (savedPermissionDenied != null) {
+          throw savedPermissionDenied; // Permission denied takes priority over "Unknown table"
+        }
+        throw UserException.validationError()
+            .message("Unknown table [%s]", path)
+            .buildSilently();
       } else {
         type = table.getRowType(JavaTypeFactoryImpl.INSTANCE);
       }
@@ -152,6 +172,8 @@ public class DescribeTableHandler implements SqlDirectHandler<DescribeTableHandl
       throw UserException.permissionError(e)
           .message("Not authorized to describe table.")
           .build(logger);
+    } catch (UserException ue) {
+      throw ue; // preserve RBAC permission denied messages (META-02)
     } catch (Exception ex) {
       throw UserException.planError(ex)
           .message("Error while rewriting DESCRIBE query: %s", ex.getMessage())
