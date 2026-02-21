@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Users can only access views, tables, and UDFs they've been explicitly granted access to, with deny-by-default policy, privilege context switching (definer rights for VDS and UDF), and admin bypass.
-**Current focus:** v1.2 Privilege Context & Enforcement — Phase 7 Plan 01 complete, Plan 02 next
+**Current focus:** v1.2 Privilege Context & Enforcement — Phase 7 complete, Phase 8 next
 
 ## Current Position
 
 Phase: 7 of 12 (VDS Lifecycle Privilege Enforcement)
 Plan: 02 of 02
-Status: In progress
-Last activity: 2026-02-20 — Phase 7 Plan 01 complete: enforcement infrastructure (validatePrivilege error format, DROP mapping, validateCreateViewPrivilege)
+Status: Complete
+Last activity: 2026-02-20 — Phase 7 Plan 02 complete: wired ALTER, DROP, CREATE_VIEW enforcement into all SQL DDL and REST API VDS lifecycle call sites
 
 Progress: [█░░░░░░░░░] 5% (v1.2)
 
@@ -41,6 +41,7 @@ Progress: [█░░░░░░░░░] 5% (v1.2)
 | Phase-Plan | Duration (min) | Tasks | Files |
 |------------|---------------|-------|-------|
 | Phase 07 P01 | 5 | 2 | 5 |
+| Phase 07 P02 | 8 | 2 | 3 |
 
 ## Accumulated Context
 
@@ -57,6 +58,9 @@ Recent decisions affecting v1.2 work:
 - [Phase 07]: validatePrivilege() error format is 'Permission denied: {PRIVILEGE} privilege required on {path}' — no GRANT hint per locked decision
 - [Phase 07]: validateCreateViewPrivilege() checks parent container path (viewKey.getParent().getSchemaPath()), not the view path itself
 - [Phase 07]: DROP privilege maps to VDS object type in resolveRbacObjectType() (same group as ALTER, SELECT)
+- [Phase 07 P02]: ALTER checks in createVersionedView()/createView() placed after isUpdate &= exists — check only fires when view truly exists and will be updated
+- [Phase 07 P02]: DropViewHandler bug was ALTER->DROP, single-char fix closes LIFE-02 SQL DDL path
+- [Phase 07 P02]: All 8 enforcement call sites wired: 4 in SQL DDL handlers, 4 in REST API paths
 
 ### Pending Todos
 
@@ -72,5 +76,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Completed 07-01-PLAN.md. Ready to execute 07-02-PLAN.md.
-Resume file: .planning/phases/07-vds-lifecycle-privilege-enforcement/07-02-PLAN.md
+Stopped at: Completed 07-02-PLAN.md. Phase 7 complete. Ready to plan/execute Phase 8 (definer rights).
+Resume file: .planning/phases/
