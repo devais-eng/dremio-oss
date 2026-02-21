@@ -2,17 +2,16 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-20)
+See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.2 GitHub Actions Docker Distribution
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 11 — ECR Authentication and Push
-Plan: 01 complete
-Status: Phase 11 complete (1/1 plans complete)
-Last activity: 2026-02-20 — 11-01 complete: ECR authentication and Docker build-push steps added to workflow
+Milestone: v1.2 GitHub Actions Docker Distribution — SHIPPED 2026-02-21
+Status: All milestones complete (v1.0, v1.1, v1.2). No active milestone.
+Last activity: 2026-02-21 — v1.2 milestone archived
 
 ## Performance Metrics
 
@@ -36,13 +35,7 @@ Last activity: 2026-02-20 — 11-01 complete: ECR authentication and Docker buil
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
-- [Phase 09-maven-build-in-ci]: Added !.github/ exception to .gitignore to allow CI workflow files to be tracked in git
-- [Phase 09-maven-build-in-ci]: Use actions/setup-java@v5 with cache: maven for automatic ~/.m2/repository caching keyed on pom.xml hashes
-- [Phase 10-dockerfile-adaptation]: Use busybox as extractor stage base for multi-stage Dockerfile — minimal, discarded after build
-- [Phase 10-dockerfile-adaptation]: Upgrade Dockerfile runtime base from eclipse-temurin:11-jdk to eclipse-temurin:17-jre-jammy for JRE17 production runtime
-- [Phase 11-ecr-authentication-and-push]: Use docker-context staging directory to isolate Docker build context from repo root
-- [Phase 11-ecr-authentication-and-push]: Dynamic ECR registry URL from steps.login-ecr.outputs.registry instead of hardcoded values
-- [Phase 11-ecr-authentication-and-push]: Dual tagging: versioned + latest applied to each push
+v1.2 decisions archived to milestones/v1.2-ROADMAP.md.
 
 ### Pending Todos
 
@@ -51,11 +44,10 @@ None.
 ### Blockers/Concerns
 
 - [Build]: Maven build requires Java 21 (enforcer [21,22) range); only Java 11/17 available locally. CI uses setup-java to install Java 21.
-- [AWS]: ECR repository and IAM user with access keys must be created in AWS before Phase 11 can be validated.
-- [Secrets]: GitHub Secrets (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, ECR_REPOSITORY) must be configured before Phase 11.
+- [AWS]: ECR repository, IAM user, and GitHub Secrets must be configured before first workflow run.
 
 ## Session Continuity
 
-Last session: 2026-02-20
-Stopped at: Completed 11-01-PLAN.md — ECR authentication and Docker build-push steps added to workflow
+Last session: 2026-02-21
+Stopped at: v1.2 milestone completed and archived
 Resume file: None

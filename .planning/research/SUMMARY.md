@@ -1,17 +1,17 @@
 # Project Research Summary
 
-**Project:** Dremio OSS Enhancements — Enable Iceberg REST Catalog
-**Domain:** Storage plugin wiring — connecting an existing Iceberg REST Catalog plugin to Dremio's source discovery and UI registration system
+**Project:** Dremio OSS Fork — v1.2 CI/CD: Docker build on tag push, push to AWS ECR
+**Domain:** GitHub Actions CI/CD pipeline for Maven-built Java application
 **Researched:** 2026-02-20
-**Confidence:** HIGH (stack, architecture, pitfalls — all codebase-verified) / MEDIUM (Lakekeeper specifics)
+**Confidence:** HIGH
 
 ## Executive Summary
 
-This milestone is fundamentally a wiring task, not an implementation task. The Iceberg REST Catalog plugin (`plugins/icebergcatalog/`) is fully implemented: the read path, the write path, caching, namespace filtering, view support, and credential vending all exist and are tested. The single gap blocking discoverability is a missing `@SourceType` annotation on `RestIcebergCatalogPluginConfig`. Without this annotation, Dremio's classpath scanner (`ConnectionReaderImpl.makeReader()`) never registers the class, the source type never appears in the UI picker or REST API, and all plugin logic is permanently unreachable. Adding one annotation and one accompanying UI layout JSON file (`restcatalog-layout.json`) constitutes the entire code-change surface for v1.1.
+This milestone adds a single GitHub Actions workflow that builds the Dremio OSS distribution from Maven source and pushes a Docker image to a private AWS ECR repository whenever a `v*` tag is pushed. The pattern is well-understood and all required actions are official, stable, and verified against live APIs. Exactly two files change: `.github/workflows/docker-ecr.yml` (new) and `distribution/docker/Dockerfile` (modified). No application source code changes are required.
 
-The recommended approach is two sequential code changes followed by end-to-end validation against a live Lakekeeper instance. Step 1: add `@SourceType(value = "RESTCATALOG", label = "Iceberg REST Catalog", uiConfig = "restcatalog-layout.json")` to `RestIcebergCatalogPluginConfig`. Step 2: create `plugins/icebergcatalog/src/main/resources/restcatalog-layout.json` with a form exposing endpoint URI, namespace allowlist, catalog properties, and secret credentials. The icon, feature flag gate, classpath scan package declaration, and plugin lifecycle are all already in place and require zero changes.
+The recommended approach is a single-job sequential workflow: checkout, Java 21 setup with built-in Maven cache, Maven package build (`-pl distribution/server -am -DskipTests -Drevision={version}`), Dockerfile adaptation from `wget`-based download to `COPY`-based local artifact, AWS credential configuration, ECR login, and Docker build + push using official actions. The git tag (e.g., `v1.2`) drives both the Maven revision (`-Drevision=1.2`) and the Docker image tag (`1.2`), keeping versions consistent throughout. The Docker image uses `eclipse-temurin:17-jre-jammy` as the runtime base, replacing the existing `eclipse-temurin:11-jdk` with a production-appropriate JRE on a supported Java LTS version.
 
-The primary risk is not the wiring itself but the end-to-end data path: credential vending. When Lakekeeper returns table locations (e.g., `s3://bucket/path/`) and optionally vends short-lived storage credentials, those credentials must propagate correctly through `DremioFileIO` to enable actual Parquet reads. The code replaces `RESTCatalog`'s `ResolvingFileIO` with `DremioFileIO`, which may silently drop credentials. This is the highest-risk integration point and the core validation question for Phase 2. All other pitfalls (namespace separator mismatches, flat namespace depth violations, token expiry on catalog cache refresh) are configuration-level issues, not code bugs.
+The dominant risks are: Maven build time without caching (45-90 minutes cold), the existing Dockerfile's fundamental incompatibility with local CI artifacts (`wget` cannot reach a runner-local file), and ECR authentication misconfiguration. All three are well-documented and straightforward to prevent. The sharpest constraint is the Maven enforcer: it requires Java exactly `[21,22)`, so the workflow must pin `java-version: '21'` — any other value causes an immediate build failure before a single class is compiled.
 
 ---
 
@@ -19,137 +19,153 @@ The primary risk is not the wiring itself but the end-to-end data path: credenti
 
 ### Recommended Stack
 
-The stack for v1.1 requires zero new Maven dependencies and zero new Maven modules. The Iceberg Java SDK (`org.apache.iceberg:iceberg-core` 1.7.0, custom Dremio build), the `@SourceType` annotation infrastructure, and Protostuff serialization for config fields are all already on the classpath. The `plugins/icebergcatalog/` module is already included in `plugins/pom.xml` and declared as a runtime dependency in `dac/daemon/pom.xml`.
-
-For end-to-end validation, Lakekeeper (`quay.io/iceberg-catalog/iceberg-catalog`) is the recommended test catalog server. It is a production-grade, spec-compliant open-source Iceberg REST Catalog and supports anonymous mode for zero-configuration local testing. No Lakekeeper-specific client library is needed — the plugin uses the standard `org.apache.iceberg.rest.RESTCatalog` directly, which speaks the Iceberg REST spec.
+The pipeline uses six established GitHub Actions in sequence, all verified via GitHub API as of 2026-02-20. Maven is provided by the repository's own `./mvnw` wrapper (3.9.9), so no separate Maven install step is needed. The Docker runtime base is `eclipse-temurin:17-jre-jammy` (Ubuntu 22.04 LTS, confirmed active on Docker Hub 2026-02-17), replacing the existing `eclipse-temurin:11-jdk` with a smaller, more secure JRE.
 
 **Core technologies:**
-- `@SourceType` annotation (`com.dremio.exec.catalog.conf.SourceType`): the single hook that makes the plugin discoverable — already imported in S3, GCS, Nessie, and Elasticsearch plugins; one annotation, zero new imports required
-- `restcatalog-layout.json`: JSON resource file consumed by `SourceTypeTemplate.fromSourceClass()` to render the UI configuration form; follows the `nessie-layout.json` structural pattern
-- Lakekeeper Docker image (`quay.io/iceberg-catalog/iceberg-catalog`): end-to-end validation target; endpoint `http://localhost:8181/catalog` in anonymous mode
-- Existing `IcebergRestCatalogAccessor` + `ExpiringCatalogCache` + `AbstractRestCatalogAccessor`: the full catalog integration layer, already implemented and unit-tested
+- `actions/checkout@v6` (v6.0.2) — source checkout — latest stable
+- `actions/setup-java@v5` (v5.2.0) — Java 21 temurin with built-in Maven cache — eliminates need for a separate `actions/cache` step
+- `aws-actions/configure-aws-credentials@v4` — injects IAM key env vars into runner — official AWS action, scoped credential injection
+- `aws-actions/amazon-ecr-login@v2` (v2.0.1) — authenticates Docker to ECR and outputs the registry URL — avoids hardcoding account IDs in workflow
+- `docker/setup-buildx-action@v3` (v3.12.0) — required by `build-push-action`; enables BuildKit
+- `docker/build-push-action@v6` (v6.19.2) — builds image and pushes to ECR — `push: true`, `tags:`, `build-args:` inputs
+- `eclipse-temurin:17-jre-jammy` — Docker runtime base — LTS JRE (~300MB vs ~600MB JDK), Ubuntu 22.04 pinned for reproducibility
 
-**What NOT to add:**
-- No Lakekeeper client library (plugin uses standard Iceberg `RESTCatalog`)
-- No WireMock or MockServer (existing Mockito-based unit tests cover the code changes adequately)
-- No Testcontainers for v1.1 (manual Docker validation is sufficient; an IT test is a nice-to-have, not required)
+**Decision: skip `docker/metadata-action`.** Tag derivation is simple enough to handle with `${GITHUB_REF_NAME#v}` in a one-line shell step. The metadata action adds overhead not justified for a single-trigger pipeline.
 
-See `.planning/research/STACK.md` for full detail including tag number reservation and Docker setup scripts.
+**Decision: skip ECR layer cache for v1.2.** Docker build time is dominated by the 864MB tarball COPY layer, not by Dockerfile instructions. ECR registry cache adds storage cost and IAM permission complexity without meaningful build time improvement. Add in a follow-on milestone after baseline pipeline is proven.
 
 ### Expected Features
 
-The feature scope for v1.1 is intentionally narrow. The implementation is already complete; the milestone delivers discoverability plus validation evidence.
+**Must have (table stakes — P1, required for pipeline to function):**
+- Tag-triggered workflow (`on: push: tags: ['v*']`) — the only valid trigger; prevents ECR pollution from branch builds
+- Java 21 setup via `actions/setup-java@v5` — enforcer mandates `[21,22)`, fails immediately on any other version
+- Maven dependency cache via `setup-java cache: 'maven'` — without this, every run is 45-90 minutes cold; CI is unusable
+- Maven build: `./mvnw package -DskipTests -Pdremio.no-lint -pl distribution/server -am -Drevision={version}` — produces the tarball
+- Dockerfile adapted to `COPY` instead of `wget DOWNLOAD_URL` — existing Dockerfile cannot reach a runner-local artifact
+- Docker runtime base changed to `eclipse-temurin:17-jre-jammy` — replaces existing `eclipse-temurin:11-jdk`
+- `docker/setup-buildx-action@v3` — required by `build-push-action`
+- AWS credentials + ECR login (two-step `aws-actions` chain) — authentication prerequisite for push
+- Tag version extraction stripping `v` prefix — image tag must be `1.2`, not `v1.2`
+- Docker push to ECR with versioned tag + `latest` alias
 
-**Must have (table stakes — v1.1 launch):**
-- `@SourceType` annotation on `RestIcebergCatalogPluginConfig` — without it the source is completely invisible; the sole blocker for all other features
-- UI layout JSON (`restcatalog-layout.json`) — exposes endpoint URI, namespace allowlist, catalog properties, and secret credentials in the configuration form
-- Namespace browsing validation (already implemented) — confirmed against Lakekeeper `GET /v1/namespaces`
-- Table listing per namespace validation (already implemented) — confirmed against Lakekeeper `GET /v1/namespaces/{ns}/tables`
-- SELECT query execution validation (already implemented) — depends on credential vending propagating correctly through `DremioFileIO`
-- Connection health check validation (already implemented) — `getState()` returns GOOD against live Lakekeeper
+**Should have (differentiators — P2, add after first successful push):**
+- Docker layer cache via `cache-from: type=gha` — cuts Docker build time on repeat runs
+- Workflow step summary output (`GITHUB_STEP_SUMMARY`) — logs pushed image URI for traceability
+- ECR image scanning enabled on the ECR repository (AWS console setting, not a workflow change)
+- Tag format validation step that exits non-zero if tag does not match `vX.Y.Z`
 
-**Should have (differentiators — already implemented, expose and validate):**
-- Namespace allowlist filtering — UI-exposed via layout JSON; limits visible namespaces in large catalogs
-- View support — behind `RESTCATALOG_VIEWS_SUPPORTED` flag (default `true`); Lakekeeper supports views as of v0.8+
-- Metadata caching — Caffeine table cache (3s–120s TTL) plus 30-minute `RESTCatalog` instance cache; tunable via system options
-- Credential vending compatibility — if Lakekeeper vends storage credentials, `DremioFileIO` must use them correctly
-
-**Defer (v1.2+):**
-- Write operation validation (CREATE TABLE, INSERT, DROP TABLE) — full implementation exists behind `RESTCATALOG_PLUGIN_MUTABLE_ENABLED`; out of scope for read-only v1.1
-- Namespace mutation validation (create/update/delete) — behind `RESTCATALOG_FOLDERS_SUPPORTED`; defer until write path is validated
-- Structured auth type selector in UI — generic `propertyList`/`secretPropertyList` mechanism is correct for v1.1; a structured selector requires tracking which auth methods each server supports
-- Planner-level optimizations for REST catalog specifics — future performance optimization, not a correctness requirement
-
-See `.planning/research/FEATURES.md` for the full feature dependency map and prioritization matrix.
+**Defer (v2+):**
+- ARM64 multi-platform build — 5-10x slower via QEMU emulation; no stated deployment requirement
+- Automated smoke test (pull image + `docker run` health check) after push
+- SBOM / supply chain attestations
+- Separate test workflow (`ci.yml`) triggered on PRs vs release workflow on tags
 
 ### Architecture Approach
 
-Dremio's plugin architecture traverses five discrete layers from registration to query execution: source registration (classpath scanning via `@SourceType`), source visibility (feature flag gating in `DeprecatedSourceResource`), plugin lifecycle (`newPlugin()` factory wrapped by `ManagedStoragePlugin`), dataset resolution (`getDatasetHandle`, `listDatasetHandles`, `getDatasetMetadata`), and query execution (`FileSystemRulesFactory`, `ParquetScanTableFunction`). All five layers are fully wired for the REST catalog — only Layer 1 is blocked by the missing annotation.
+The pipeline is a single-job, sequential-step workflow. The Maven build hands off to Docker via the runner filesystem: the tarball at `distribution/server/target/dremio-community-{version}.tar.gz` is staged into a `docker-context/` directory and consumed by a `COPY` instruction in the Dockerfile. The Docker build context is that staging directory (not the full repository root), keeping context size small and avoiding the need for a `.dockerignore` file.
 
 **Major components:**
-1. `RestIcebergCatalogPluginConfig` — user-facing config; gap: missing `@SourceType`; holds endpoint URI, namespace allowlist, and properties/secrets; `newPlugin()` factory already implemented
-2. `RestIcebergCatalogPlugin` — concrete plugin; creates accessor, implements full DML path guarded by `MUTABLE_ENABLED`; no changes needed for v1.1
-3. `IcebergRestCatalogAccessor` / `AbstractRestCatalogAccessor` — adapts `RESTCatalog` (Iceberg SDK) into Dremio's `CatalogAccessor` interface; handles namespace filtering, Caffeine caching, and path depth enforcement
-4. `ExpiringCatalogCache` — caches the `RESTCatalog` instance for 30 minutes (configurable); hardcodes `instanceof RESTCatalog` check — no custom catalog subclasses permitted
-5. `ConnectionReaderImpl` — classpath scanner that discovers `@SourceType` classes; `DeprecatedSourceResource` already handles the `"RESTCATALOG"` visibility gate at lines 231-232
+1. **Maven build stage** — `./mvnw package -pl distribution/server -am -DskipTests -Pdremio.no-lint -Drevision={version}` — produces `dremio-community-{version}.tar.gz`; Java 21 JDK on runner; `[21,22)` enforcer must pass
+2. **Dockerfile adaptation** — replace `ARG DOWNLOAD_URL` + `RUN wget` with `ARG TARBALL_PATH` + `COPY`; change base image from `eclipse-temurin:11-jdk` to `eclipse-temurin:17-jre-jammy`; use multi-stage build to prevent tarball layer from persisting in final image
+3. **AWS auth chain** — `configure-aws-credentials` (sets env vars) then `amazon-ecr-login` (writes Docker credentials, outputs registry URL); both must be in the same job as the push step
+4. **Docker build + push** — `build-push-action@v6` with `context: docker-context`, `file: distribution/docker/Dockerfile`, `push: true`, versioned tag + `latest`
 
-**Key architectural constraint — two placement rules:** The `@SourceType` annotation must go on the concrete config class (`RestIcebergCatalogPluginConfig`), not the abstract base (`IcebergCatalogPluginConfig`), because the scanner explicitly skips abstract classes. The layout JSON must be placed in the plugin's own `src/main/resources/` directory because `SourceTypeTemplate.fromSourceClass()` uses the source class's own classloader to load it.
+**Version alignment:** Git tag `v1.2` drives everything. Shell strips `v` to produce `1.2`. Maven receives `-Drevision=1.2`, producing `dremio-community-1.2.tar.gz`. Docker image is tagged `:1.2`. No ambiguity between Maven version and Docker tag.
 
-See `.planning/research/ARCHITECTURE.md` for the full 5-layer flow diagram, data flow diagrams, and build order.
+**Build context strategy:** Stage the tarball into a `docker-context/` directory (`mkdir docker-context && cp distribution/server/target/dremio-community-*.tar.gz docker-context/dremio.tar.gz`) and pass `context: docker-context` to `build-push-action`. This avoids sending the full repository (including Maven cache) to the Docker daemon and eliminates `.dockerignore` maintenance. Pass `TARBALL_PATH=dremio.tar.gz` as a build arg.
 
 ### Critical Pitfalls
 
-1. **Missing `@SourceType` causes silent non-discovery** — the source type does not appear anywhere; no error, no warning, no log entry. Prevention: add the annotation to `RestIcebergCatalogPluginConfig` (concrete class only). Verification: `GET /api/v3/catalog/source/type/RESTCATALOG` returns HTTP 200.
+1. **Maven enforcer rejects Java 22+ immediately** — pin `java-version: '21'` in `setup-java`; never use `'latest'`, `'22'`, or any unversioned string. The enforcer runs at the `validate` phase before any code compiles. Recovery is a one-line YAML fix but wastes a 5-minute runner startup on every failed attempt. Phase 1.
 
-2. **`restcatalog-layout.json` absent from plugin classpath causes silent blank UI form** — `SourceTypeTemplate` logs a `WARN` and returns `null` for `uiConfig`; the UI form renders empty with no fields. Prevention: create the file in `plugins/icebergcatalog/src/main/resources/`. Verification: `GET /api/v3/catalog/source/type/RESTCATALOG` returns non-null `uiConfig` JSON.
+2. **Dockerfile `wget DOWNLOAD_URL` is incompatible with CI local builds** — the existing Dockerfile is designed to download from `download.dremio.com`; there is no remote URL for a runner-local artifact. Replace `ARG DOWNLOAD_URL` + `RUN wget` with `ARG TARBALL_PATH` + `COPY`. This is the most important Dockerfile change and must precede any Docker step in the workflow. Phase 2.
 
-3. **Credential vending gap — `DremioFileIO` may drop credentials from `loadTable()` response** — the code replaces `RESTCatalog`'s `ResolvingFileIO` with `DremioFileIO` in `getTableHandleInternal()`. If Lakekeeper vends short-lived S3/Azure/GCS credentials in the `loadTable()` response, those credentials must reach `DremioFileIO`. If dropped, SELECT queries against credential-vended storage produce permission errors. Prevention: trace the credential propagation path during Phase 2 validation; fix if needed.
+3. **Maven cold builds are 45-90 minutes without cache** — configure `actions/setup-java@v5` with `cache: 'maven'`; it keys automatically on `**/pom.xml`. Also pass `-Drevision` explicitly so Maven-installed `com.dremio:*` artifacts in `~/.m2` don't accumulate different version strings and inflate the cache. Phase 1.
 
-4. **Namespace separator mismatch silently filters out all namespaces** — `allowedNamespaces` entries are split by `RESTCATALOG_ALLOWED_NS_SEPARATOR` (default regex `"\."`). A namespace named `"my.db"` (dot in name) gets split into a two-level namespace `["my", "db"]` — not the intended single-level namespace. Prevention: use namespace names without dots, or change the separator option to a character that doesn't appear in namespace names.
+4. **ECR auth chain must stay in one job** — `configure-aws-credentials` + `ecr-login` + `build-push-action` must all be in the same job; the ECR token written to `~/.docker/config.json` does not cross job boundaries. Use `@v2` of `amazon-ecr-login` and reference `${{ steps.login-ecr.outputs.registry }}` (never a hardcoded ECR URI). Phase 3.
 
-5. **OAuth2 token expiry causes plugin to flip to BAD state every 30 minutes** — `ExpiringCatalogCache` re-creates the `RESTCatalog` instance after 30 minutes using the same static properties; if a static bearer token has expired, re-creation receives a 401 and the plugin enters BAD state. Prevention: use OAuth2 client credentials flow (`rest.auth.type = oauth2`) so `RESTCatalog` handles token refresh internally, or use long-lived tokens for validation testing.
+5. **Docker image bloat from two-layer COPY + tar pattern** — naive `COPY tarball` then `RUN tar` produces two large layers; the tarball layer (~864MB) persists in image history after extraction, inflating the final image to 2.5-3GB. Use multi-stage build (extractor stage + runtime stage with `COPY --from=extractor`) to produce a final image under 1.5GB. Design multi-stage from the start — retrofitting is painful. Phase 2.
 
-See `.planning/research/PITFALLS.md` for 9 pitfalls total, each with recovery steps, warning signs, and a pitfall-to-phase mapping table.
+6. **Missing GitHub Secrets cause silent empty-string failures** — `${{ secrets.MISSING }}` evaluates to `""` without error. Create all secrets (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `ECR_REPOSITORY`) before pushing the workflow. Test IAM permissions locally with `aws ecr describe-repositories` before adding keys to GitHub. Phase 3.
 
 ---
 
 ## Implications for Roadmap
 
-Research strongly supports a two-phase structure. Phase 1 is minimal code changes (2 artifacts, approximately 50–80 lines of JSON, one annotation line). Phase 2 is pure validation effort — no new code expected unless credential vending is broken.
+The natural implementation sequence follows dependency order: validate Maven build in CI first, then validate the Dockerfile change locally, then wire up ECR authentication and the full push. This matches the Architecture research's explicit recommended build order.
 
-### Phase 1: Plugin Wiring (Registration and UI)
+### Phase 1: Maven Build in CI
 
-**Rationale:** The annotation is the prerequisite for everything. No Lakekeeper connection can be attempted until the source type is registered. Both deliverables are pure Dremio-internal changes verified with high confidence from codebase analysis — no external system required to complete or test this phase.
+**Rationale:** The Maven build is the longest step (45-90 minutes cold) and most likely to fail for project-specific reasons unrelated to Docker or AWS. Validating it first in isolation means Phases 2 and 3 start from a known-good foundation. The Java 21 enforcer and Maven revision handling must be correct before anything else is added.
 
-**Delivers:** A source type visible in the UI picker that renders a configuration form, accepts a REST endpoint URI and credentials, and creates a source that reaches GOOD state on a successful Lakekeeper connection. Feature flag gating confirmed working. Integration test verifying "RESTCATALOG" appears in `ConnectionReaderImpl.getAllConnectionConfs()`.
+**Delivers:** A working GitHub Actions workflow that triggers on `v*` tags, installs Java 21 with Maven cache, and produces `distribution/server/target/dremio-community-{version}.tar.gz`. The workflow exits after Maven (no Docker or ECR steps). A post-Maven step lists the target directory to confirm the tarball exists at the expected path.
 
-**Addresses:** Table stakes 1.1 (annotation) and 1.2 (layout JSON) from FEATURES.md; Patterns 1 and 2 from ARCHITECTURE.md.
-
-**Avoids:**
-- Pitfall 1 (missing `@SourceType`) — resolved by the annotation
-- Pitfall 2 (missing layout JSON) — resolved by creating the file
-- Pitfall 5 (ExpiringCatalogCache `instanceof RESTCatalog` check) — confirmed by source reaching GOOD state on first connection
-- Anti-pattern: annotation on abstract base class — annotation goes on `RestIcebergCatalogPluginConfig` only
-- Anti-pattern: layout JSON in wrong module — file goes in `plugins/icebergcatalog/src/main/resources/`
-
-**Code changes:** 2 files, no new dependencies, no new Maven modules.
-
-### Phase 2: End-to-End Validation (Lakekeeper)
-
-**Rationale:** The plugin reads and writes data; wiring without validation provides no confidence that the data path actually works. Credential vending is the highest-risk integration point and cannot be assessed without a live Lakekeeper instance. This phase is inherently sequential after Phase 1.
-
-**Delivers:** Validated evidence that namespace browsing, table listing, and SELECT queries work against a real Iceberg REST catalog. Documented behavior for credential vending, feature flag defaults, mutable operation gating, and cache TTL configuration. A "looks done but isn't" checklist verified against all 8 items in PITFALLS.md.
-
-**Validates (existing code — no new changes expected unless credential vending is broken):**
-- Table stakes 1.3–1.7 from FEATURES.md: namespace browsing, table listing, table metadata loading, SELECT execution, health check
-- Credential vending (2.4 from FEATURES.md): may require a targeted fix to `DremioFileIO` credential propagation in `getTableHandleInternal()` if SELECT queries fail with permission errors
-
-**Security caveat:** `hasAccessPermission()` is a `// TODO: implement RBAC` no-op in `IcebergCatalogPlugin` — all Dremio users can see all tables in any Iceberg REST Catalog source regardless of Dremio RBAC grants. Document as a known v1.1 limitation; enforce access at the Lakekeeper level using Lakekeeper's native authorization for now.
+**Addresses (P1 features):** Tag-triggered workflow, Java 21 setup, Maven dependency cache, Maven build producing tarball.
 
 **Avoids:**
-- Pitfall 4 (namespace separator): test with non-dotted namespace names
-- Pitfall 6 (Lakekeeper auth via catalog properties): always use `secretPropertyList` for credentials; never `propertyList`
-- Pitfall 7 (dataset depth constraint): create all test tables in at least one namespace, never at root
-- Pitfall 8 (table cache TTL): set `plugins.restcatalog.table_cache.expire_after_write_seconds = 3` before starting validation tests
-- Pitfall 9 (OAuth2 token expiry): verify source state is still GOOD more than 30 minutes after creation
+- Pitfall 1 (Java enforcer) — pin `java-version: '21'`
+- Pitfall 2 (Maven cold build) — `cache: 'maven'` in `setup-java`
+- Pitfall 10 (Maven `revision` cache pollution) — pass explicit `-Drevision=${{ steps.tag.outputs.VERSION }}`
+
+**Key implementation decisions:**
+- Use `./mvnw` not `mvn` to pick up the project's pinned Maven 3.9.9
+- Derive version: `echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT`
+- Pass `-Drevision=${{ steps.tag.outputs.VERSION }}` to Maven
+- Verify that `-pl distribution/server -am` includes the RBAC and Iceberg REST Catalog modules added in v1.0 and v1.1 (run `./mvnw dependency:tree -pl distribution/server` before committing)
+
+### Phase 2: Dockerfile Adaptation
+
+**Rationale:** The Dockerfile change is a prerequisite for any Docker build step in the workflow. It is faster to validate locally (`docker build` on a developer machine) than to iterate in CI, where each attempt requires a full 30-45 minute Maven build before the Docker step is reached. Keeping this as a separate phase from Phase 3 means ECR credentials are not needed to test image correctness.
+
+**Delivers:** A modified `distribution/docker/Dockerfile` using multi-stage build: `COPY` + extract in a build stage, final image from a clean `eclipse-temurin:17-jre-jammy` base. A locally buildable Docker image that starts Dremio correctly (`docker run -p 9047:9047 {image}` shows `Server is up` in logs). Image size under 1.5GB.
+
+**Addresses (P1 features):** Dockerfile COPY adaptation, Docker runtime base update (Java 11 JDK -> Java 17 JRE), image size optimization.
+
+**Avoids:**
+- Pitfall 3 (wget incompatibility) — `COPY` replaces `wget`
+- Pitfall 4 (Java version mismatch) — base image `eclipse-temurin:17-jre-jammy`; runtime JRE not JDK
+- Pitfall 7 (Docker image size bloat) — multi-stage build eliminates tarball layer from final image
+
+**Key implementation decisions:**
+- Multi-stage Dockerfile: Stage 1 extracts tarball; Stage 2 is the final runtime image with `COPY --from=stage1`
+- Use `ARG JAVA_IMAGE="eclipse-temurin:17-jre-jammy"` for future flexibility
+- Docker build command for local testing: `mkdir docker-context && cp distribution/server/target/dremio-community-*.tar.gz docker-context/dremio.tar.gz && docker build --build-arg TARBALL_PATH=dremio.tar.gz -f distribution/docker/Dockerfile docker-context`
+
+### Phase 3: ECR Authentication and Push
+
+**Rationale:** Requires AWS infrastructure (IAM user, ECR repository) and GitHub Secrets to exist. Depends on Phases 1 and 2 being proven working. This phase is the lowest-risk once prior phases are validated — the `aws-actions` auth chain is a well-documented, official pattern.
+
+**Delivers:** The complete end-to-end workflow. Tag push triggers Maven build, Docker image build, and ECR push. Image appears in ECR with tags `{version}` and `latest`. A full log audit confirms no secrets appear in workflow output.
+
+**Addresses (P1 features):** AWS credentials configuration, ECR login, image tag extraction, Docker push to ECR, versioned + latest tags.
+
+**Avoids:**
+- Pitfall 5 (ECR auth token version mismatch) — use `amazon-ecr-login@v2`; reference registry as `${{ steps.login-ecr.outputs.registry }}`
+- Pitfall 6 (missing/misconfigured IAM secrets) — create all secrets and test IAM locally before first workflow run
+- Pitfall 8 (tag parsing edge cases) — add validation step: regex check `^v[0-9]+\.[0-9]+\.[0-9]+$` before version is used downstream
+- Pitfall 9 (secrets leaked in logs) — never pass `AWS_*` keys as Docker `--build-arg`; add `::add-mask::` for ECR registry URI
+
+**Key implementation decisions:**
+- IAM policy: use `AmazonEC2ContainerRegistryPowerUser` managed policy for the CI user; scope `ecr:*` image actions to the specific repository ARN; `ecr:GetAuthorizationToken` must be `Resource: "*"`
+- Create the ECR repository in AWS before the first pipeline run (it does not auto-create on push)
+- Tag the image with both `{version}` and `latest`; decide before Phase 3 whether pre-release tags (e.g., `v1.2-rc1`) should move `latest`
+- Add `echo "Pushed: $IMAGE_URI" >> $GITHUB_STEP_SUMMARY` for traceability
 
 ### Phase Ordering Rationale
 
-- Phase 1 must come first: the annotation is the prerequisite for all source creation; without it no Lakekeeper connection can be attempted from the UI or API.
-- Phase 2 must follow Phase 1: validation requires a working source type registration.
-- No Phase 3 for v1.1: write operations (CREATE TABLE, INSERT, DROP TABLE) and namespace mutations are explicitly out of scope. The existing code must not be deleted, but these paths are not validated in this milestone.
+- Phase 1 before Phase 2: Maven must succeed before Docker can proceed; Maven failure modes (enforcer, module graph, caching) are independent of Dockerfile changes and faster to debug without Docker complexity in the loop.
+- Phase 2 before Phase 3: Dockerfile changes are faster to iterate locally than in CI; a broken Docker build in CI requires a full 30-45 minute Maven build before the failure is discovered.
+- All three phases are sequentially dependent: each phase's output is a hard prerequisite for the next.
 
 ### Research Flags
 
-**Phases likely needing deeper investigation during execution:**
+Phases with standard, well-documented patterns (no deeper research needed):
+- **Phase 1 (Maven build):** All patterns verified. Java 21 enforcer constraint, Maven wrapper usage, `setup-java` cache configuration — no unknowns.
+- **Phase 2 (Dockerfile):** Multi-stage Dockerfile pattern is standard Docker. The wget-to-COPY substitution is mechanical. No unknowns once the build context strategy is decided.
+- **Phase 3 (ECR push):** The `aws-actions` auth chain is official and stable. No unknowns beyond AWS account setup (out-of-code scope).
 
-- **Phase 2 — credential vending path:** The exact code path from `loadTable()` response through `IcebergCatalogTableProvider.getFileConfig()` to `DatasetFileSystemCache` initialization was not fully traced during research. If SELECT queries against credential-vended Lakekeeper storage fail with permission errors, the investigation starting point is `AbstractRestCatalogAccessor.getTableHandleInternal()` where `ResolvingFileIO` is replaced with `DremioFileIO`. This may require a targeted code fix — estimated MEDIUM complexity.
-
-- **Phase 2 — Lakekeeper Docker setup:** The exact Docker image tag and environment variable names for anonymous mode are MEDIUM confidence (WebFetch was unavailable during research). Verify the current release at `https://quay.io/repository/iceberg-catalog/iceberg-catalog` before writing the Phase 2 test plan.
-
-**Phases with standard patterns (no additional research needed):**
-
-- **Phase 1 (wiring):** All mechanisms verified directly from codebase with HIGH confidence. Reference implementations are Nessie (`nessie-layout.json`, `NessiePluginConfig`), S3, and Elasticsearch plugins. The pattern is copy-and-adapt.
+**One open decision to resolve before implementation begins:**
+- `configure-aws-credentials` version pin: STACK.md notes `v6.0.0` is the latest release tag but recommends `@v4`. Verify against the action's README before Phase 3 to confirm whether `@v4` or `@v6` is the correct pin for the `aws-access-key-id` + `aws-secret-access-key` input format.
 
 ---
 
@@ -157,47 +173,47 @@ Research strongly supports a two-phase structure. Phase 1 is minimal code change
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All technologies verified from codebase; zero new dependencies confirmed from `pom.xml` and import analysis |
-| Features | HIGH (code) / MEDIUM (Lakekeeper) | All read path features verified from source files; Lakekeeper spec compliance derived from training knowledge (WebFetch unavailable during research) |
-| Architecture | HIGH | All 5 layers verified directly from source files; `ConnectionReaderImpl`, `DeprecatedSourceResource`, `SourceTypeTemplate`, and `ExpiringCatalogCache` all examined |
-| Pitfalls | HIGH | All 9 pitfalls derived from codebase — Preconditions checks, instanceof assertions, cache TTL defaults, property merging logic, and path depth constraint all read from source code |
+| Stack | HIGH | All action versions verified via GitHub API; Docker Hub tag confirmed; project `pom.xml`, `.mvn/wrapper/`, and `distribution/docker/Dockerfile` inspected directly |
+| Features | HIGH | P1/P2/P3 feature set is unambiguous for this scope; all features are standard GitHub Actions / ECR patterns with no novel integration points |
+| Architecture | HIGH | Two-file change scope confirmed; all component boundaries and data flows based on direct codebase inspection and verified artifact paths |
+| Pitfalls | HIGH | Most pitfalls derived from direct codebase measurement (tarball 864MB, Maven repo 3.3GB, enforcer range `[21,22)`, existing Dockerfile `wget` pattern) |
 
-**Overall confidence:** HIGH for Phase 1 (pure Dremio internals, fully verified). MEDIUM for Phase 2 (depends on Lakekeeper runtime behavior and credential vending path not exhaustively traced through `DremioFileIO`).
+**Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Credential vending path trace:** Whether `IcebergCatalogTableProvider.getFileConfig()` propagates credentials from the Iceberg `LoadTableResponse` into the Hadoop `Configuration` used by `DatasetFileSystemCache` was not confirmed during research. Must be verified during Phase 2 execution. If SELECT queries fail with permission errors on credential-vended storage, this is the first place to look.
+- **`-pl distribution/server -am` module graph verification:** Confirm the RBAC and Iceberg REST Catalog modules added in v1.0 and v1.1 are in the transitive dependency graph of `distribution/server` before committing to the partial build flag. Run `./mvnw dependency:tree -pl distribution/server` locally. If they are missing, the tarball will silently lack custom features. A 5-minute verification that prevents a correctness bug.
 
-- **Lakekeeper Docker image tag:** The exact current release tag needs verification at `quay.io/repository/iceberg-catalog/iceberg-catalog` before the Phase 2 test plan is written. Research used `latest` as a placeholder.
+- **`configure-aws-credentials` major version pin:** STACK.md notes MEDIUM confidence on whether to pin `@v4` or `@v6`. Check the action README before Phase 3 implementation. If the `aws-access-key-id` / `aws-secret-access-key` input format is unchanged in v6, `@v6` is preferred. If there are breaking changes, use `@v4`.
 
-- **`IcebergRestCatalogAccessor` deprecation path:** The class is marked `@Deprecated` internally but is the active implementation. The planned replacement class was not identified during research. Acceptable for v1.1; track as a future cleanup item.
-
-- **`hasAccessPermission()` TODO:** The no-op RBAC implementation means all Dremio users have full read access to all Iceberg REST Catalog tables. Documented limitation for v1.1; must be tracked for a future milestone.
+- **`latest` tag behavior on pre-release tags:** The workflow trigger `tags: ['v*']` matches `v1.2-rc1`. Decide before Phase 3 whether all `v*` tags move `latest`, or whether a semver condition should gate `latest` to production releases only (e.g., only tags matching `vX.Y.Z` without pre-release suffix). This is a policy decision, not a technical one.
 
 ---
 
 ## Sources
 
-### Primary (HIGH confidence — direct codebase analysis)
+### Primary (HIGH confidence — live API verification + direct codebase inspection)
+- GitHub API: `actions/checkout@v6` (v6.0.2), `actions/setup-java@v5` (v5.2.0), `aws-actions/amazon-ecr-login@v2` (v2.0.1), `aws-actions/configure-aws-credentials` (v6.0.0 latest release), `docker/setup-buildx-action@v3` (v3.12.0), `docker/build-push-action@v6` (v6.19.2) — all verified Feb 2026
+- Docker Hub API: `eclipse-temurin:17-jre-jammy` — confirmed active, updated 2026-02-17
+- Repository `pom.xml` — Java 21 enforcer `[21,22)`, `maven.compiler.release=11`, 158 Maven modules
+- Repository `.mvn/wrapper/maven-wrapper.properties` — Maven 3.9.9
+- Repository `.mvn/maven.config` — `revision` property baseline value
+- Repository `distribution/server/target/dremio-community-26.0.5-*.tar.gz` — 864MB measured; naming pattern confirmed
+- Repository `distribution/docker/Dockerfile` — `ARG DOWNLOAD_URL` + `wget` pattern confirmed; `eclipse-temurin:11-jdk` base confirmed
+- Local `~/.m2/repository` — 3.3GB measured; Maven cache size baseline
+- GitHub runner-images README — `ubuntu-latest` = `ubuntu-24.04` as of Feb 2026; ~73GB disk available
 
-- `plugins/icebergcatalog/src/main/java/com/dremio/plugins/icebergcatalog/store/RestIcebergCatalogPluginConfig.java` — confirms `@SourceType` is absent; full field and tag inventory
-- `plugins/icebergcatalog/src/main/java/com/dremio/plugins/icebergcatalog/store/RestIcebergCatalogPlugin.java` — full DML implementation, auth property merging, catalog creation
-- `plugins/icebergcatalog/src/main/java/com/dremio/plugins/icebergcatalog/IcebergCatalogPlugin.java` — lifecycle, `validateOnStart`, `hasAccessPermission` TODO, scan table function wiring
-- `plugins/icebergcatalog/src/main/java/com/dremio/plugins/icebergcatalog/AbstractRestCatalogAccessor.java` — namespace filtering, table cache, path depth constraint
-- `plugins/icebergcatalog/src/main/java/com/dremio/plugins/icebergcatalog/ExpiringCatalogCache.java` — `RESTCatalog instanceof` check, catalog expiry behavior
-- `sabot/kernel/src/main/java/com/dremio/exec/catalog/ConnectionReaderImpl.java` — classpath scanning mechanism, abstract class exclusion
-- `sabot/kernel/src/main/java/com/dremio/exec/store/IcebergCatalogPluginOptions.java` — all feature flag defaults (all `true`)
-- `dac/backend/src/main/java/com/dremio/dac/api/DeprecatedSourceResource.java` — `"RESTCATALOG"` visibility gate confirmed at lines 231-232
-- `dac/backend/src/main/java/com/dremio/dac/api/SourceTypeTemplate.java` — icon and layout JSON loading mechanism via source class classloader
-- `dac/ui-lib/icons/dremio/sources/RESTCATALOG.svg` — icon already exists in both light and dark variants
-- `plugins/icebergcatalog/src/main/resources/sabot-module.conf` — `com.dremio.plugins.icebergcatalog` package already registered for scanning
-- `plugins/dataplane/src/main/resources/nessie-layout.json` — reference UI layout structure
+### Secondary (HIGH confidence — official documentation, stable patterns)
+- `actions/setup-java` README — `cache: 'maven'`, `distribution: 'temurin'` inputs confirmed
+- `aws-actions/configure-aws-credentials` README — `aws-access-key-id` / `aws-secret-access-key` inputs confirmed
+- `aws-actions/amazon-ecr-login` README — `registry` step output confirmed
+- `docker/build-push-action` README — `setup-buildx-action` dependency confirmed
+- AWS ECR documentation — 12-hour authorization token lifetime; `ecr:GetAuthorizationToken` requires `Resource: "*"` (control-plane operation)
+- GitHub Actions documentation — `on.push.tags` syntax, `GITHUB_REF_NAME` env var, `GITHUB_OUTPUT` mechanism, secrets interpolation (`${{ secrets.MISSING }}` = `""` silently)
+- Docker documentation — multi-stage build layer isolation; `COPY` + separate `RUN tar` creates two immutable layers
 
-### Secondary (MEDIUM confidence — training knowledge and spec inference)
-
-- Apache Iceberg REST Catalog specification — credential vending behavior, namespace operations, `loadTable()` response shape
-- Lakekeeper project reputation as spec-compliant REST catalog — namespace, table, and view support claims
-- `quay.io/repository/iceberg-catalog/iceberg-catalog` — Docker image (exact current tag needs runtime verification)
+### Gaps (MEDIUM confidence — needs verification before Phase 3)
+- `aws-actions/configure-aws-credentials` major version pin (`@v4` vs `@v6`) — verify against action README before Phase 3 implementation
 
 ---
 
