@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Users can only access views, tables, and UDFs they've been explicitly granted access to, with deny-by-default policy, privilege context switching (definer rights for VDS and UDF), and admin bypass.
-**Current focus:** v1.2 Privilege Context & Enforcement — Phase 8 Plan 02 complete, Phase 8 Plan 03 next (or Phase 8 complete if no Plan 03)
+**Current focus:** v1.2 Privilege Context & Enforcement — Phase 9 Plan 01 complete, Phase 9 Plan 02 next
 
 ## Current Position
 
-Phase: 8 of 12 (VDS Definer Rights Safety Cluster)
-Plan: 02 of 03
-Status: Plan 02 Complete
-Last activity: 2026-02-21 — Phase 8 Plan 02 complete: added plan cache bypass for definer-rights queries (DEFN-04) via containsDefinerRightsExpansion() in PlanCacheUtils; added 12 comprehensive unit tests covering DEFN-01 through DEFN-06 including chained 3-owner VDS scenario
+Phase: 9 of 12 (UDF Rights Verification and Owner Resolution)
+Plan: 01 of N
+Status: Plan 01 Complete
+Last activity: 2026-02-21 — Phase 9 Plan 01 complete: added owner field (field 9) to FunctionConfig proto; UserDefinedFunctionCatalogImpl stamps creator on CREATE and preserves owner on UPDATE; CatalogEntityOwnershipImpl FUNCTION branch now returns CatalogUser with real UDF creator identity (UDF-01 and UDF-02 complete)
 
-Progress: [██░░░░░░░░] 10% (v1.2)
+Progress: [███░░░░░░░] 15% (v1.2)
 
 ## Performance Metrics
 
@@ -44,6 +44,7 @@ Progress: [██░░░░░░░░] 10% (v1.2)
 | Phase 07 P02 | 8 | 2 | 3 |
 | Phase 08 P01 | 15 | 2 | 4 |
 | Phase 08 P02 | 4 | 2 | 3 |
+| Phase 09 P01 | 2 | 2 | 3 |
 
 ## Accumulated Context
 
@@ -69,6 +70,9 @@ Recent decisions affecting v1.2 work:
 - [Phase 08 P01]: rbacEnabled wired as boolean constructor parameter to ViewExpander; SqlConverter reads context.getDremioConfig() with null guard (same pattern as CatalogImpl.validatePrivilege())
 - [Phase 08]: containsDefinerRightsExpansion placed after versioned-table check in PlanCacheUtils.supportPlanCache() — conservative ordering; null guards for both viewTable and viewOwner ensure legacy VDS and non-view ExpansionNodes remain cacheable
 - [Phase 08]: 12 unit tests added instead of 6 minimum: chained 3-owner scenario (User A owns V1, User B creates V2 from V1, User C queries V2) directly tested in testViewExpansion_chainedDefinerRights_noCycle
+- [Phase 09 P01]: FunctionConfig.owner (field 9) stamped directly on FunctionConfig by UserDefinedFunctionCatalogImpl — NOT piped through UserDefinedFunctionSerde.toProto()/fromProto() (UserDefinedFunction Java class has no owner field)
+- [Phase 09 P01]: FUNCTION case in CatalogEntityOwnershipImpl uses fully-qualified FunctionConfig class name to avoid ambiguity; mirrors DATASET case pattern exactly
+- [Phase 09 P01]: Legacy UDFs with null owner fall back to Optional.empty() (query user identity) — consistent with DATASET pattern
 
 ### Pending Todos
 
@@ -85,5 +89,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-21
-Stopped at: Completed 08-02-PLAN.md. Phase 8 Plan 02 complete. All DEFN-01 through DEFN-06 requirements done. Ready to execute Phase 8 Plan 03 if it exists, or declare Phase 8 complete.
-Resume file: .planning/phases/08-vds-definer-rights-safety-cluster/
+Stopped at: Completed 09-01-PLAN.md. Phase 9 Plan 01 complete. UDF-01 (definer-rights identity) and UDF-02 (FUNCTION owner resolution) requirements complete. Ready to execute Phase 9 Plan 02.
+Resume file: .planning/phases/09-udf-rights-verification-and-owner-resolution/
