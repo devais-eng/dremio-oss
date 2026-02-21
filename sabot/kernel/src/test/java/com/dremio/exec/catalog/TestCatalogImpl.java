@@ -96,6 +96,7 @@ import com.dremio.service.namespace.NamespaceService;
 import com.dremio.service.namespace.catalogstatusevents.CatalogStatusEvents;
 import com.dremio.service.namespace.dataset.proto.DatasetConfig;
 import com.dremio.service.namespace.dataset.proto.DatasetType;
+import com.dremio.service.namespace.function.proto.FunctionConfig;
 import com.dremio.service.namespace.proto.EntityId;
 import com.dremio.service.namespace.proto.NameSpaceContainer;
 import com.dremio.service.namespace.space.proto.FolderConfig;
@@ -1983,6 +1984,81 @@ public class TestCatalogImpl {
     assertThat(owner).isPresent();
     assertNotNull(owner.get().getName());
     assertFalse(owner.get().getName().isEmpty());
+  }
+
+  // ====== UDF rights verification tests (UDF-01, UDF-02, UDF-03) ======
+
+  /**
+   * UDF-02: CatalogEntityOwnershipImpl returns the correct owner for a FUNCTION entity when the
+   * FunctionConfig has a non-null, non-empty owner. This is the prerequisite for UDF-01 (definer
+   * semantics): UserDefinedFunctionExpanderImpl.parseAndValidate() calls .withUser(owner), and this
+   * test proves the owner will be the UDF creator.
+   */
+  @Test
+  public void testUdfOwner_functionOwnerReturned() throws Exception {
+    FunctionConfig functionConfig = new FunctionConfig();
+    functionConfig.setOwner("alice");
+
+    NameSpaceContainer container = new NameSpaceContainer();
+    container.setType(NameSpaceContainer.Type.FUNCTION);
+    container.setFunction(functionConfig);
+
+    NamespaceKey udfKey = new NamespaceKey(Arrays.asList("myspace", "myfunc"));
+    when(systemNamespaceService.getEntityByPath(udfKey)).thenReturn(container);
+
+    CatalogEntityOwnershipImpl ownership = new CatalogEntityOwnershipImpl(systemNamespaceService);
+    Optional<CatalogIdentity> owner =
+        ownership.getCatalogEntityOwner(CatalogEntityKey.fromNamespaceKey(udfKey));
+
+    assertThat(owner).isPresent();
+    assertEquals("alice", owner.get().getName());
+  }
+
+  /**
+   * UDF-02: Legacy UDFs without an owner field (null owner) must return Optional.empty() so the
+   * system falls back to query-user identity. This preserves backward compatibility for UDFs
+   * created before the owner field was added to FunctionConfig.
+   */
+  @Test
+  public void testUdfOwner_functionNullOwner_returnsEmpty() throws Exception {
+    FunctionConfig functionConfig = new FunctionConfig();
+    // owner is null by default on a fresh FunctionConfig (simulates legacy UDF)
+
+    NameSpaceContainer container = new NameSpaceContainer();
+    container.setType(NameSpaceContainer.Type.FUNCTION);
+    container.setFunction(functionConfig);
+
+    NamespaceKey udfKey = new NamespaceKey(Arrays.asList("myspace", "legacy_func"));
+    when(systemNamespaceService.getEntityByPath(udfKey)).thenReturn(container);
+
+    CatalogEntityOwnershipImpl ownership = new CatalogEntityOwnershipImpl(systemNamespaceService);
+    Optional<CatalogIdentity> owner =
+        ownership.getCatalogEntityOwner(CatalogEntityKey.fromNamespaceKey(udfKey));
+
+    assertThat(owner).isEmpty();
+  }
+
+  /**
+   * UDF-02: FunctionConfig with empty-string owner must also return Optional.empty(). An empty
+   * string is not a valid identity — same treatment as null.
+   */
+  @Test
+  public void testUdfOwner_functionEmptyOwner_returnsEmpty() throws Exception {
+    FunctionConfig functionConfig = new FunctionConfig();
+    functionConfig.setOwner("");
+
+    NameSpaceContainer container = new NameSpaceContainer();
+    container.setType(NameSpaceContainer.Type.FUNCTION);
+    container.setFunction(functionConfig);
+
+    NamespaceKey udfKey = new NamespaceKey(Arrays.asList("myspace", "empty_owner_func"));
+    when(systemNamespaceService.getEntityByPath(udfKey)).thenReturn(container);
+
+    CatalogEntityOwnershipImpl ownership = new CatalogEntityOwnershipImpl(systemNamespaceService);
+    Optional<CatalogIdentity> owner =
+        ownership.getCatalogEntityOwner(CatalogEntityKey.fromNamespaceKey(udfKey));
+
+    assertThat(owner).isEmpty();
   }
 
   private interface FakeVersionedPlugin extends VersionedPlugin, StoragePlugin {}
