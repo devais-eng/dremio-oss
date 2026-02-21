@@ -209,7 +209,11 @@ public class SpaceFolderResource {
                 String objectPath = String.join(".", c.getFullPathList());
                 return rbacService.hasPrivilege(userName, "EXECUTE", "FUNCTION", objectPath);
               }
-              return true; // folders always visible
+              if (c.getType() == NameSpaceContainer.Type.FOLDER) {
+                String folderPath = String.join(".", c.getFullPathList());
+                return rbacService.hasAccessibleChildUnderPath(userName, folderPath);
+              }
+              return true; // other containers at child level
             })
         .collect(Collectors.toList());
   }
