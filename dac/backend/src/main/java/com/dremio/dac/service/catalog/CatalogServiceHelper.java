@@ -363,12 +363,19 @@ public class CatalogServiceHelper {
           "Failed to find home space for user [{}]", securityContext.getUserPrincipal().getName());
     }
 
+    String userName = securityContext.getUserPrincipal().getName();
+    Set<String> accessiblePaths = getUserAccessibleObjectPaths(userName);
+
     for (SpaceConfig spaceConfig : namespaceService.getSpaces()) {
-      topLevelItems.add(CatalogItem.fromSpaceConfig(spaceConfig));
+      if (accessiblePaths == null || hasChildUnder(accessiblePaths, spaceConfig.getName())) {
+        topLevelItems.add(CatalogItem.fromSpaceConfig(spaceConfig));
+      }
     }
 
     for (SourceConfig sourceConfig : sourceService.getSources()) {
-      topLevelItems.add(CatalogItem.fromSourceConfig(sourceConfig));
+      if (accessiblePaths == null || hasChildUnder(accessiblePaths, sourceConfig.getName())) {
+        topLevelItems.add(CatalogItem.fromSourceConfig(sourceConfig));
+      }
     }
 
     for (FunctionConfig functionConfig : namespaceService.getTopLevelFunctions()) {
@@ -3120,6 +3127,32 @@ public class CatalogServiceHelper {
   }
 
   /**
+   * Returns the set of object paths accessible to the given user (from any of their role grants).
+   * Used for container visibility filtering in top-level listings. Returns null if RBAC is disabled
+   * or user is admin (caller should treat null as "show all").
+   */
+  @Nullable
+  private Set<String> getUserAccessibleObjectPaths(String userName) {
+    if (rbacService == null
+        || dremioConfig == null
+        || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return null; // RBAC disabled -- show everything
+    }
+    if (rbacService.isAdminMember(userName)) {
+      return null; // admin -- show everything
+    }
+    return rbacService.getAccessibleObjectPaths(userName);
+  }
+
+  /**
+   * Returns true if any path in the accessible set starts with the container name followed by a dot
+   * separator. Used for in-memory prefix matching after a single batch grant scan.
+   */
+  private static boolean hasChildUnder(Set<String> accessiblePaths, String containerName) {
+    return accessiblePaths.stream().anyMatch(p -> p.startsWith(containerName + "."));
+  }
+
+  /**
    * Filters namespace children by visibility based on RBAC grants. Admin users and RBAC-disabled
    * mode see everything. Non-admin users see only VDS/FUNCTION items they have grants on.
    * Containers (FOLDER, SPACE, SOURCE, HOME) and physical datasets are always visible.
@@ -3151,7 +3184,11 @@ public class CatalogServiceHelper {
       String objectPath = String.join(".", container.getFullPathList());
       return rbacService.hasPrivilege(userName, "EXECUTE", "FUNCTION", objectPath);
     }
-    // FOLDER, SPACE, SOURCE, HOME are always visible (containers).
+    if (container.getType() == NameSpaceContainer.Type.FOLDER) {
+      String folderPath = String.join(".", container.getFullPathList());
+      return rbacService.hasAccessibleChildUnderPath(userName, folderPath);
+    }
+    // SPACE, SOURCE, HOME at child level -- keep visible (top-level filtering handles spaces)
     return true;
   }
 
