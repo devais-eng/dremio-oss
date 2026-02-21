@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Users can only access views, tables, and UDFs they've been explicitly granted access to, with deny-by-default policy, privilege context switching (definer rights for VDS and UDF), and admin bypass.
-**Current focus:** v1.2 Privilege Context & Enforcement — Phase 7 complete, Phase 8 next
+**Current focus:** v1.2 Privilege Context & Enforcement — Phase 8 Plan 01 complete, Phase 8 Plan 02 next
 
 ## Current Position
 
-Phase: 7 of 12 (VDS Lifecycle Privilege Enforcement)
-Plan: 02 of 02
-Status: Complete
-Last activity: 2026-02-20 — Phase 7 Plan 02 complete: wired ALTER, DROP, CREATE_VIEW enforcement into all SQL DDL and REST API VDS lifecycle call sites
+Phase: 8 of 12 (VDS Definer Rights Safety Cluster)
+Plan: 01 of 03
+Status: Plan 01 Complete
+Last activity: 2026-02-21 — Phase 8 Plan 01 complete: activated VDS definer rights via CatalogEntityOwnershipImpl fix (DEFN-01/02/03), added cycle detection to ViewExpansionContext (DEFN-06), and added deleted-owner explicit error to ViewExpander (DEFN-05)
 
-Progress: [█░░░░░░░░░] 5% (v1.2)
+Progress: [██░░░░░░░░] 10% (v1.2)
 
 ## Performance Metrics
 
@@ -42,6 +42,7 @@ Progress: [█░░░░░░░░░] 5% (v1.2)
 |------------|---------------|-------|-------|
 | Phase 07 P01 | 5 | 2 | 5 |
 | Phase 07 P02 | 8 | 2 | 3 |
+| Phase 08 P01 | 15 | 2 | 4 |
 
 ## Accumulated Context
 
@@ -61,6 +62,10 @@ Recent decisions affecting v1.2 work:
 - [Phase 07 P02]: ALTER checks in createVersionedView()/createView() placed after isUpdate &= exists — check only fires when view truly exists and will be updated
 - [Phase 07 P02]: DropViewHandler bug was ALTER->DROP, single-char fix closes LIFE-02 SQL DDL path
 - [Phase 07 P02]: All 8 enforcement call sites wired: 4 in SQL DDL handlers, 4 in REST API paths
+- [Phase 08 P01]: Removed VIRTUAL_DATASET type check entirely from CatalogEntityOwnershipImpl — both PDS and VDS share null/empty owner guard; activates DEFN-01/02/03 via existing ViewExpander identity-switching chain
+- [Phase 08 P01]: ViewExpansionContext.reserveViewExpansionToken() signature changed to accept NamespaceKey viewPath — enables cycle detection (DEFN-06); only one production caller (ViewExpander)
+- [Phase 08 P01]: DEFN-05 guard: rbacEnabled && viewOwner != null in catch(UserNotFoundException) block — explicit planError only when RBAC active and view had recorded owner; legacy null-owner still falls back
+- [Phase 08 P01]: rbacEnabled wired as boolean constructor parameter to ViewExpander; SqlConverter reads context.getDremioConfig() with null guard (same pattern as CatalogImpl.validatePrivilege())
 
 ### Pending Todos
 
@@ -69,12 +74,13 @@ None.
 ### Blockers/Concerns
 
 - [Build]: Maven build requires Java 21 (enforcer [21,22) range); only Java 11/17 available. Full Maven compile blocked until Java 21 JDK is installed.
-- [Phase 8]: Calcite VolcanoPlanner threading at ViewTable.toRel() is unconfirmed (LOW confidence) — must audit before committing to ViewExpansionContext thread-safety approach (P27 fix).
-- [Phase 8]: DatasetConfig.owner written on VDS create/update path must be confirmed via DACViewCreatorFactory → datasetVersionMutator.save() trace before assuming CatalogEntityOwnershipImpl fix produces non-null results.
+- [Phase 8]: DEFN-04 (plan cache definer chain) remains open — plan cache key does not include definer chain; must be addressed in Phase 08 Plan 02 before Phase 8 is declared complete.
 - [Phase 10]: bulkGetTables() performance with opt-in PDS check (one listGrantsByObject() call per table in batch) must be profiled before shipping.
+- [Phase 08 P01 resolved]: VolcanoPlanner threading concern (P27) confirmed LOW risk — ViewExpansionContext is per-query, not shared; inExpansionPaths Set is single-threaded within planning.
+- [Phase 08 P01 resolved]: DatasetConfig.owner write path confirmed via research (DatasetsUtil.toVirtualDatasetVersion → datasetConfig.setOwner()); owner IS populated on VDS save.
 
 ## Session Continuity
 
-Last session: 2026-02-20
-Stopped at: Completed 07-02-PLAN.md. Phase 7 complete. Ready to plan/execute Phase 8 (definer rights).
-Resume file: .planning/phases/
+Last session: 2026-02-21
+Stopped at: Completed 08-01-PLAN.md. Phase 8 Plan 01 complete. Ready to execute Phase 8 Plan 02 (plan cache definer chain fix, DEFN-04).
+Resume file: .planning/phases/08-vds-definer-rights-safety-cluster/
