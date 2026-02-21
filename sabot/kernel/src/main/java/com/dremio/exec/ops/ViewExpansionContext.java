@@ -17,6 +17,7 @@ package com.dremio.exec.ops;
 
 import com.carrotsearch.hppc.ObjectIntHashMap;
 import com.dremio.catalog.model.dataset.TableVersionContext;
+import com.dremio.common.exceptions.UserException;
 import com.dremio.exec.catalog.CatalogIdentity;
 import com.dremio.exec.planner.acceleration.DremioMaterialization;
 import com.dremio.exec.planner.acceleration.ExpansionNode;
@@ -28,8 +29,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import javax.annotation.Nullable;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.RelOptTable.ToRelContext;
@@ -40,9 +43,9 @@ import org.apache.calcite.rel.RelNode;
  * com.dremio.exec.ops .QueryContext}. Before expanding a view into its definition, as part of the
  * {@link com.dremio.exec.planner.logical.ViewTable#toRel(ToRelContext, RelOptTable)}, first a
  * {@link ViewExpansionToken} is requested from ViewExpansionContext through {@link
- * #reserveViewExpansionToken(CatalogIdentity)}. Once view expansion is complete, a token is
- * released through {@link ViewExpansionToken#release()}. A view definition itself may contain zero
- * or more views for expanding those nested views also a token is obtained.
+ * #reserveViewExpansionToken(CatalogIdentity, NamespaceKey)}. Once view expansion is complete, a
+ * token is released through {@link ViewExpansionToken#release()}. A view definition itself may
+ * contain zero or more views for expanding those nested views also a token is obtained.
  *
  * <p>Ex: Following are the available view tables: { "view_1", "view_2", "view_3", "view_4" }.
  * Corresponding owners are {"view1Owner", "view2Owner", "view3Owner", "view4Owner"}. Definition of
@@ -51,18 +54,20 @@ import org.apache.calcite.rel.RelNode;
  * "SELECT field4, field3, field2, field1 FROM someTable"
  *
  * <p>Query is: "SELECT * FROM view4". Steps: 1. "view4" comes for expanding it into its definition
- * 2. A token "view4Token" is requested through {@link #reserveViewExpansionToken(CatalogIdentity
- * view4Owner)} 3. "view4" is called for expansion. As part of it 3.1 "view3" comes for expansion
- * 3.2 A token "view3Token" is requested through {@link #reserveViewExpansionToken(CatalogIdentity
- * view3Owner)} 3.3 "view3" is called for expansion. As part of it 3.3.1 "view2" comes for expansion
- * 3.3.2 A token "view2Token" is requested through {@link #reserveViewExpansionToken(CatalogIdentity
- * view2Owner)} 3.3.3 "view2" is called for expansion. As part of it 3.3.3.1 "view1" comes for
+ * 2. A token "view4Token" is requested through {@link #reserveViewExpansionToken(CatalogIdentity,
+ * NamespaceKey) reserveViewExpansionToken(view4Owner, view4Path)} 3. "view4" is called for
+ * expansion. As part of it 3.1 "view3" comes for expansion 3.2 A token "view3Token" is requested
+ * through {@link #reserveViewExpansionToken(CatalogIdentity, NamespaceKey)
+ * reserveViewExpansionToken(view3Owner, view3Path)} 3.3 "view3" is called for expansion. As part
+ * of it 3.3.1 "view2" comes for expansion 3.3.2 A token "view2Token" is requested through {@link
+ * #reserveViewExpansionToken(CatalogIdentity, NamespaceKey) reserveViewExpansionToken(view2Owner,
+ * view2Path)} 3.3.3 "view2" is called for expansion. As part of it 3.3.3.1 "view1" comes for
  * expansion 3.3.3.2 A token "view1Token" is requested through {@link
- * #reserveViewExpansionToken(CatalogIdentity view1Owner)} 3.3.3.3 "view1" is called for expansion
- * 3.3.3.4 "view1" expansion is complete 3.3.3.5 Token "view1Token" is released 3.3.4 "view2"
- * expansion is complete 3.3.5 Token "view2Token" is released 3.4 "view3" expansion is complete 3.5
- * Token "view3Token" is released 4. "view4" expansion is complete 5. Token "view4Token" is
- * released.
+ * #reserveViewExpansionToken(CatalogIdentity, NamespaceKey) reserveViewExpansionToken(view1Owner,
+ * view1Path)} 3.3.3.3 "view1" is called for expansion 3.3.3.4 "view1" expansion is complete
+ * 3.3.3.5 Token "view1Token" is released 3.3.4 "view2" expansion is complete 3.3.5 Token
+ * "view2Token" is released 3.4 "view3" expansion is complete 3.5 Token "view3Token" is released 4.
+ * "view4" expansion is complete 5. Token "view4Token" is released.
  */
 public class ViewExpansionContext {
   private static final org.slf4j.Logger logger =
@@ -70,6 +75,7 @@ public class ViewExpansionContext {
 
   private final CatalogIdentity catalogIdentity;
   private final ObjectIntHashMap<CatalogIdentity> userTokens = new ObjectIntHashMap<>();
+  private final Set<String> inExpansionPaths = new HashSet<>();
 
   private final Map<SubstitutionUtils.VersionedPath, DefaultSubstitutionInfo>
       defaultSubstitutionInfos;
@@ -87,10 +93,23 @@ public class ViewExpansionContext {
    * Reserve a token for expansion of view owned by given identity.
    *
    * @param viewOwner Identity who owns the view.
+   * @param viewPath Path of the view being expanded, used for cycle detection.
    * @return An instance of {@link com.dremio.exec.ops.ViewExpansionContext.ViewExpansionToken}
    *     which must be released when done using the token.
    */
-  public ViewExpansionToken reserveViewExpansionToken(@Nullable CatalogIdentity viewOwner) {
+  public ViewExpansionToken reserveViewExpansionToken(
+      @Nullable CatalogIdentity viewOwner, NamespaceKey viewPath) {
+    // DEFN-06: Detect cyclic view dependencies before issuing a token
+    String pathKey = viewPath.getSchemaPath();
+    if (!inExpansionPaths.add(pathKey)) {
+      throw UserException.validationError()
+          .message(
+              "Cyclic view dependency detected: view '%s' references itself "
+                  + "through a chain of view definitions.",
+              pathKey)
+          .buildSilently();
+    }
+
     int totalTokens = 1;
     if (!Objects.equals(catalogIdentity, viewOwner)) {
       // We want to track the tokens only if the "viewOwner" is not same as the "queryUser".
@@ -103,10 +122,11 @@ public class ViewExpansionContext {
       logger.debug("Issued view expansion token for user '{}'", viewOwner);
     }
 
-    return new ViewExpansionToken(viewOwner);
+    return new ViewExpansionToken(viewOwner, viewPath);
   }
 
   private void releaseViewExpansionToken(ViewExpansionToken token) {
+    inExpansionPaths.remove(token.viewPath.getSchemaPath());
     final CatalogIdentity viewOwner = token.viewOwner;
 
     if (Objects.equals(catalogIdentity, viewOwner)) {
@@ -131,11 +151,13 @@ public class ViewExpansionContext {
   /** Represents token issued to a view owner for expanding the view. */
   public class ViewExpansionToken {
     private final CatalogIdentity viewOwner;
+    private final NamespaceKey viewPath;
 
     private boolean released;
 
-    ViewExpansionToken(CatalogIdentity viewOwner) {
+    ViewExpansionToken(CatalogIdentity viewOwner, NamespaceKey viewPath) {
       this.viewOwner = viewOwner;
+      this.viewPath = viewPath;
     }
 
     /**
