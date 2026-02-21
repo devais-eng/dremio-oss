@@ -72,7 +72,10 @@ Plans:
   1. A user with EXECUTE privilege on a UDF can call it successfully even when the UDF body references tables the calling user cannot directly access (body runs as UDF owner)
   2. A user without EXECUTE privilege on a UDF receives a permission denied error when attempting to call it
   3. CatalogEntityOwnershipImpl.getCatalogEntityOwner() returns the correct owner username for FUNCTION entity type (no longer returns Optional.empty())
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 09-01-PLAN.md — Proto owner field + owner stamping in UserDefinedFunctionCatalogImpl + CatalogEntityOwnershipImpl FUNCTION branch fix
+- [ ] 09-02-PLAN.md — Unit tests for UDF ownership resolution (UDF-02), definer activation (UDF-01), and EXECUTE enforcement (UDF-03)
 
 ### Phase 10: PDS SELECT Enforcement (Opt-in)
 **Goal**: Admins can lock down specific physical tables by granting SELECT to explicit roles; only users with that grant can access those tables; tables with no grants remain universally accessible
@@ -118,7 +121,7 @@ Plans:
 | 6. REST API and Access Path Hardening | v1.0 | 3/3 | Complete | 2026-02-18 |
 | 7. VDS Lifecycle Privilege Enforcement | v1.2 | 0/2 | Planned | - |
 | 8. VDS Definer Rights Safety Cluster | v1.2 | 0/2 | Planned | - |
-| 9. UDF Rights Verification and Owner Resolution | v1.2 | 0/? | Not started | - |
+| 9. UDF Rights Verification and Owner Resolution | v1.2 | 0/2 | Planned | - |
 | 10. PDS SELECT Enforcement (Opt-in) | v1.2 | 0/? | Not started | - |
 | 11. Container Visibility Filtering | v1.2 | 0/? | Not started | - |
 | 12. Metadata Safety and Integration Testing | v1.2 | 0/? | Not started | - |
