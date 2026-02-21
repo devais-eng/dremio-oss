@@ -59,7 +59,10 @@ Plans:
   3. Revoking the definer's SELECT on the underlying table immediately causes view queries to fail for all invokers (no stale grant snapshot; live KV store is checked at expansion time)
   4. Querying a view whose owner account has been deleted produces an explicit "View owner no longer exists" permission error, not a silent fallback to the query user's grants
   5. A cyclic VDS chain (view A references view B references view A) produces a clear validation error, not a StackOverflowError
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 08-01-PLAN.md — Core definer rights activation: CatalogEntityOwnershipImpl VDS owner fix, ViewExpander deleted-owner error, ViewExpansionContext cycle detection
+- [ ] 08-02-PLAN.md — Plan cache definer-rights bypass + comprehensive unit tests for DEFN-01 through DEFN-06
 
 ### Phase 9: UDF Rights Verification and Owner Resolution
 **Goal**: UDF definer semantics are confirmed working, the owner resolution bug in CatalogEntityOwnershipImpl is fixed for FUNCTION type, and integration tests document the expected caller/body identity split
@@ -114,7 +117,7 @@ Plans:
 | 5. DDL Handlers and System Tables | v1.0 | 3/3 | Complete | 2026-02-18 |
 | 6. REST API and Access Path Hardening | v1.0 | 3/3 | Complete | 2026-02-18 |
 | 7. VDS Lifecycle Privilege Enforcement | v1.2 | 0/2 | Planned | - |
-| 8. VDS Definer Rights Safety Cluster | v1.2 | 0/? | Not started | - |
+| 8. VDS Definer Rights Safety Cluster | v1.2 | 0/2 | Planned | - |
 | 9. UDF Rights Verification and Owner Resolution | v1.2 | 0/? | Not started | - |
 | 10. PDS SELECT Enforcement (Opt-in) | v1.2 | 0/? | Not started | - |
 | 11. Container Visibility Filtering | v1.2 | 0/? | Not started | - |
