@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Users can only access views, tables, and UDFs they've been explicitly granted access to, with deny-by-default policy, privilege context switching (definer rights for VDS and UDF), and admin bypass.
-**Current focus:** v1.2 Privilege Context & Enforcement — Phase 9 complete (both plans), Phase 10 next
+**Current focus:** v1.2 Privilege Context & Enforcement — Phase 10 Plan 01 complete
 
 ## Current Position
 
-Phase: 9 of 12 (UDF Rights Verification and Owner Resolution)
-Plan: 02 of 02
-Status: Plan 02 Complete — Phase 9 Complete
-Last activity: 2026-02-21 — Phase 9 Plan 02 complete: 7 unit tests added to TestCatalogImpl.java covering UDF-01 (definer prerequisite), UDF-02 (FUNCTION ownership resolution: non-null/null/empty), UDF-03 (getFunctions() EXECUTE enforcement: deny/allow/rbac-disabled/system-user)
+Phase: 10 of 12 (PDS SELECT Enforcement Opt-In)
+Plan: 01 of 02
+Status: Plan 01 Complete
+Last activity: 2026-02-21 — Phase 10 Plan 01 complete: RBAC_PDS_ENABLED config constant, RbacService.hasAnyPdsGrant() helper, CatalogImpl.isRbacDeniedForPds() method with 6-step guard chain, wired into all 6 getTable*/bulkGetTables call sites
 
-Progress: [████░░░░░░] 20% (v1.2)
+Progress: [█████░░░░░] 25% (v1.2)
 
 ## Performance Metrics
 
@@ -46,6 +46,7 @@ Progress: [████░░░░░░] 20% (v1.2)
 | Phase 08 P02 | 4 | 2 | 3 |
 | Phase 09 P01 | 2 | 2 | 3 |
 | Phase 09 P02 | 2 | 2 | 1 |
+| Phase 10 P01 | 10 | 2 | 3 |
 
 ## Accumulated Context
 
@@ -76,6 +77,9 @@ Recent decisions affecting v1.2 work:
 - [Phase 09 P01]: Legacy UDFs with null owner fall back to Optional.empty() (query user identity) — consistent with DATASET pattern
 - [Phase 09 P02]: Added 4 UDF-03 tests instead of plan's 2 — rbacDisabled and systemUser paths cover the two early-return paths in isRbacDeniedForFunction() missed by the core deny/allow tests
 - [Phase 09 P02]: Used var for getFunctions() return type — avoids importing Collection/Function; consistent with existing test at line 1114
+- [Phase 10 P01]: RBAC_PDS_ENABLED defaults to false — PDS enforcement is OFF until explicitly enabled, allowing RBAC_ENABLED=true + RBAC_PDS_ENABLED=false for VDS-only enforcement
+- [Phase 10 P01]: hasAnyPdsGrant() uses 'PDS' object type string matching SqlGrant.GrantType.PDS.name() from CatalogGrantHandler persistence — opt-in semantics ensure tables with no grants remain universally accessible
+- [Phase 10 P01]: isRbacDeniedForPds() placed immediately after isRbacDeniedForVds() with symmetric 6-step guard chain; TODO comment at getTable(String datasetId) documents out-of-scope path
 
 ### Pending Todos
 
@@ -92,5 +96,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-21
-Stopped at: Completed 09-02-PLAN.md. Phase 9 complete. All UDF requirements (UDF-01, UDF-02, UDF-03) implemented and verified with 7 unit tests. Ready to plan and execute Phase 10 (PDS SELECT enforcement).
-Resume file: .planning/phases/
+Stopped at: Completed 10-01-PLAN.md. Phase 10 Plan 01 complete. RBAC_PDS_ENABLED config constant, RbacService.hasAnyPdsGrant() helper, CatalogImpl.isRbacDeniedForPds() with 6-step guard chain, wired into all 6 getTable*/bulkGetTables call sites. Ready for Phase 10 Plan 02 (tests).
+Resume file: .planning/phases/10-pds-select-enforcement-opt-in/
