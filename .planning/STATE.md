@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Users can only access views, tables, and UDFs they've been explicitly granted access to, with deny-by-default policy, privilege context switching (definer rights for VDS and UDF), and admin bypass.
-**Current focus:** v1.2 Privilege Context & Enforcement — Phase 11 complete, ready for Phase 12
+**Current focus:** v1.2 Privilege Context & Enforcement — Phase 12 in progress (Plan 01 complete)
 
 ## Current Position
 
-Phase: 11 of 12 (Container Visibility Filtering)
-Plan: 02 of 02
-Status: Phase 11 Complete
-Last activity: 2026-02-21 — Phase 11 Plan 02 complete: container visibility filtering wired into all remaining resource endpoints (SpaceResource, HomeResource, SpaceFolderResource, ResourceTreeResource, SourcesResource) + 7 unit tests
+Phase: 12 of 12 (Metadata Safety and Integration Testing)
+Plan: 01 of 02 complete
+Status: Phase 12 Plan 01 Complete
+Last activity: 2026-02-22 — Phase 12 Plan 01 complete: isRbacDeniedForSysPrivileges() added to CatalogImpl with admin-role enforcement, wired into all 6 getTable() RBAC call sites, 4 META-01 unit tests
 
-Progress: [███████░░░] 35% (v1.2)
+Progress: [████████░░] 42% (v1.2)
 
 ## Performance Metrics
 
@@ -50,6 +50,7 @@ Progress: [███████░░░] 35% (v1.2)
 | Phase 10 P02 | 2 | 2 | 2 |
 | Phase 11 P01 | 3 | 2 | 2 |
 | Phase 11 P02 | 5 | 2 | 6 |
+| Phase 12 P01 | 10 | 2 | 2 |
 
 ## Accumulated Context
 
@@ -92,6 +93,9 @@ Recent decisions affecting v1.2 work:
 - [Phase 11 P02]: ResourceTreeResource and SourcesResource use getUserAccessiblePaths() returning null-as-show-all -- same pattern as CatalogServiceHelper from Plan 01
 - [Phase 11 P02]: SourcesResource filters early in loop before creating SourceUI and fetching dataset counts -- avoids wasted work for hidden sources
 - [Phase 11 P02]: 7 unit tests cover getAccessibleObjectPaths (3: granted paths, PUBLIC grants, empty grants) and hasAccessibleChildUnderPath (4: prefix matching, dot-boundary safety, admin bypass, deep nesting CONT-04)
+- [Phase 12 P01]: isRbacDeniedForSysPrivileges uses isAdminMember() not hasPrivilege() -- sys.privileges access is role-based (admin membership), not grant-based
+- [Phase 12 P01]: Guard fires before getTableHelper() in getTableNoResolve and getTableNoColumnCount (pre-fetch) for efficiency; table object not needed
+- [Phase 12 P01]: equalsIgnoreCase for both 'sys' and 'privileges' to prevent case-variation bypass (SYS.PRIVILEGES, Sys.Privileges, etc.)
 
 ### Pending Todos
 
@@ -107,6 +111,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-21
-Stopped at: Completed 11-02-PLAN.md. Phase 11 complete: all container listing paths (SpaceResource, HomeResource, SpaceFolderResource, ResourceTreeResource, SourcesResource, CatalogServiceHelper) have uniform RBAC visibility filtering. 7 unit tests for RbacService container visibility contract. Ready for Phase 12 (integration tests).
-Resume file: .planning/phases/11-container-visibility-filtering/
+Last session: 2026-02-22
+Stopped at: Completed 12-01-PLAN.md. Phase 12 Plan 01 complete: isRbacDeniedForSysPrivileges() added to CatalogImpl (admin-role check), wired into all 6 getTable() RBAC call sites, 4 META-01 unit tests. Ready for Phase 12 Plan 02.
+Resume file: .planning/phases/12-metadata-safety-and-integration-testing/
