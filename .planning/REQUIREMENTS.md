@@ -25,7 +25,7 @@ Requirements for v1.2 milestone. Each maps to roadmap phases.
 ### PDS SELECT
 
 - [ ] **PDS-01**: Admin can GRANT/REVOKE SELECT on a physical table to a role
-- [ ] **PDS-02**: PDS with explicit grants are only accessible to users with a SELECT grant (opt-in enforcement: PDS without any grants remain universally accessible)
+- [ ] **PDS-02**: PDS are only accessible to users with a SELECT grant (deny-by-default: no grant = no access, consistent with VDS model)
 - [ ] **PDS-03**: PDS grants use distinct "PDS" object type, separate from "VDS" grants (no key collision)
 
 ### UDF Rights

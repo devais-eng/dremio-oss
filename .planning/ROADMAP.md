@@ -78,13 +78,13 @@ Plans:
 - [ ] 09-02-PLAN.md — Unit tests for UDF ownership resolution (UDF-02), definer activation (UDF-01), and EXECUTE enforcement (UDF-03)
 
 ### Phase 10: PDS SELECT Enforcement (Opt-in)
-**Goal**: Admins can lock down specific physical tables by granting SELECT to explicit roles; only users with that grant can access those tables; tables with no grants remain universally accessible
+**Goal**: When PDS enforcement is enabled, users must have explicit SELECT grants to access physical tables — deny-by-default, consistent with the VDS model; admin bypass preserved
 **Depends on**: Phase 8
 **Requirements**: PDS-01, PDS-02, PDS-03
 **Success Criteria** (what must be TRUE):
   1. An admin can issue `GRANT SELECT ON PDS source.schema.table TO ROLE analyst` and the grant is persisted with a distinct "PDS" object type key (no collision with VDS grants on same path)
-  2. Once at least one PDS grant exists for a table, users without a matching grant receive a permission denied error when querying that table directly
-  3. Physical tables with no grants configured remain accessible to all users (opt-in enforcement: no grants = universally accessible, backward compatible)
+  2. When PDS enforcement is enabled, users without a SELECT grant on a PDS receive a permission denied error (deny-by-default: no grant = no access)
+  3. An ADMIN user can access all PDS regardless of explicit grants (admin bypass via hasPrivilege short-circuit)
   4. A user with SELECT on a VDS wrapping a PDS can query the view successfully because definer rights are used during expansion — even if the user has no direct PDS SELECT grant
 **Plans:** 2/2 plans complete
 Plans:
