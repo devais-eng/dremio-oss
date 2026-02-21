@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Users can only access views, tables, and UDFs they've been explicitly granted access to, with deny-by-default policy, privilege context switching (definer rights for VDS and UDF), and admin bypass.
-**Current focus:** v1.2 Privilege Context & Enforcement — Phase 8 Plan 01 complete, Phase 8 Plan 02 next
+**Current focus:** v1.2 Privilege Context & Enforcement — Phase 8 Plan 02 complete, Phase 8 Plan 03 next (or Phase 8 complete if no Plan 03)
 
 ## Current Position
 
 Phase: 8 of 12 (VDS Definer Rights Safety Cluster)
-Plan: 01 of 03
-Status: Plan 01 Complete
-Last activity: 2026-02-21 — Phase 8 Plan 01 complete: activated VDS definer rights via CatalogEntityOwnershipImpl fix (DEFN-01/02/03), added cycle detection to ViewExpansionContext (DEFN-06), and added deleted-owner explicit error to ViewExpander (DEFN-05)
+Plan: 02 of 03
+Status: Plan 02 Complete
+Last activity: 2026-02-21 — Phase 8 Plan 02 complete: added plan cache bypass for definer-rights queries (DEFN-04) via containsDefinerRightsExpansion() in PlanCacheUtils; added 12 comprehensive unit tests covering DEFN-01 through DEFN-06 including chained 3-owner VDS scenario
 
 Progress: [██░░░░░░░░] 10% (v1.2)
 
@@ -43,6 +43,7 @@ Progress: [██░░░░░░░░] 10% (v1.2)
 | Phase 07 P01 | 5 | 2 | 5 |
 | Phase 07 P02 | 8 | 2 | 3 |
 | Phase 08 P01 | 15 | 2 | 4 |
+| Phase 08 P02 | 4 | 2 | 3 |
 
 ## Accumulated Context
 
@@ -66,6 +67,8 @@ Recent decisions affecting v1.2 work:
 - [Phase 08 P01]: ViewExpansionContext.reserveViewExpansionToken() signature changed to accept NamespaceKey viewPath — enables cycle detection (DEFN-06); only one production caller (ViewExpander)
 - [Phase 08 P01]: DEFN-05 guard: rbacEnabled && viewOwner != null in catch(UserNotFoundException) block — explicit planError only when RBAC active and view had recorded owner; legacy null-owner still falls back
 - [Phase 08 P01]: rbacEnabled wired as boolean constructor parameter to ViewExpander; SqlConverter reads context.getDremioConfig() with null guard (same pattern as CatalogImpl.validatePrivilege())
+- [Phase 08]: containsDefinerRightsExpansion placed after versioned-table check in PlanCacheUtils.supportPlanCache() — conservative ordering; null guards for both viewTable and viewOwner ensure legacy VDS and non-view ExpansionNodes remain cacheable
+- [Phase 08]: 12 unit tests added instead of 6 minimum: chained 3-owner scenario (User A owns V1, User B creates V2 from V1, User C queries V2) directly tested in testViewExpansion_chainedDefinerRights_noCycle
 
 ### Pending Todos
 
@@ -74,7 +77,7 @@ None.
 ### Blockers/Concerns
 
 - [Build]: Maven build requires Java 21 (enforcer [21,22) range); only Java 11/17 available. Full Maven compile blocked until Java 21 JDK is installed.
-- [Phase 8]: DEFN-04 (plan cache definer chain) remains open — plan cache key does not include definer chain; must be addressed in Phase 08 Plan 02 before Phase 8 is declared complete.
+- [Phase 08 P02 resolved]: DEFN-04 (plan cache definer chain) complete — containsDefinerRightsExpansion() traverses the rel tree and bypasses cache when any ExpansionNode has a non-query-user definer; NOT_PUT_DEFINER_RIGHTS metric emitted.
 - [Phase 10]: bulkGetTables() performance with opt-in PDS check (one listGrantsByObject() call per table in batch) must be profiled before shipping.
 - [Phase 08 P01 resolved]: VolcanoPlanner threading concern (P27) confirmed LOW risk — ViewExpansionContext is per-query, not shared; inExpansionPaths Set is single-threaded within planning.
 - [Phase 08 P01 resolved]: DatasetConfig.owner write path confirmed via research (DatasetsUtil.toVirtualDatasetVersion → datasetConfig.setOwner()); owner IS populated on VDS save.
@@ -82,5 +85,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-21
-Stopped at: Completed 08-01-PLAN.md. Phase 8 Plan 01 complete. Ready to execute Phase 8 Plan 02 (plan cache definer chain fix, DEFN-04).
+Stopped at: Completed 08-02-PLAN.md. Phase 8 Plan 02 complete. All DEFN-01 through DEFN-06 requirements done. Ready to execute Phase 8 Plan 03 if it exists, or declare Phase 8 complete.
 Resume file: .planning/phases/08-vds-definer-rights-safety-cluster/
