@@ -335,6 +335,21 @@ public class RbacService implements AccessControlListingManager {
     return grantStore.listByObject(objectType, objectPath);
   }
 
+  /**
+   * Returns true if at least one PDS SELECT grant exists for the given object path.
+   *
+   * <p>Used for opt-in PDS enforcement: a table with no grants is universally accessible. Only
+   * when at least one grant exists does per-user enforcement apply.
+   *
+   * @param objectPath the dot-delimited object path (e.g. "mysource.schema.table")
+   * @return true if any grant exists for this PDS path
+   */
+  public boolean hasAnyPdsGrant(String objectPath) {
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(objectPath), "objectPath must not be null or empty");
+    return !grantStore.listByObject("PDS", objectPath).isEmpty();
+  }
+
   // ---------------------------------------------------------------------------
   // Bootstrap
   // ---------------------------------------------------------------------------
