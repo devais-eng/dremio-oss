@@ -26,6 +26,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -338,8 +339,8 @@ public class RbacService implements AccessControlListingManager {
   /**
    * Returns true if at least one PDS SELECT grant exists for the given object path.
    *
-   * <p>Used for opt-in PDS enforcement: a table with no grants is universally accessible. Only
-   * when at least one grant exists does per-user enforcement apply.
+   * <p>Used for opt-in PDS enforcement: a table with no grants is universally accessible. Only when
+   * at least one grant exists does per-user enforcement apply.
    *
    * @param objectPath the dot-delimited object path (e.g. "mysource.schema.table")
    * @return true if any grant exists for this PDS path
@@ -348,6 +349,79 @@ public class RbacService implements AccessControlListingManager {
     Preconditions.checkArgument(
         !Strings.isNullOrEmpty(objectPath), "objectPath must not be null or empty");
     return !grantStore.listByObject("PDS", objectPath).isEmpty();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Container visibility
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns the set of all object paths the user has grants on (via any of their roles + PUBLIC).
+   *
+   * <p>Used for batch container visibility filtering in top-level listings: compute once, then do
+   * in-memory prefix matching per container instead of a full grant scan per container.
+   *
+   * <p>Does NOT check admin status -- caller handles admin short-circuit.
+   *
+   * @param userName the user whose accessible paths to collect
+   * @return set of dot-delimited object paths the user has grants on
+   */
+  public Set<String> getAccessibleObjectPaths(String userName) {
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(userName), "userName must not be null or empty");
+
+    List<String> roleIds =
+        membershipStore.listByUser(userName).stream()
+            .map(Membership::getRoleId)
+            .collect(Collectors.toList());
+    roleIds.add(PUBLIC_ROLE_ID);
+
+    return grantStore.listAll().stream()
+        .filter(grant -> roleIds.contains(grant.getRoleId()))
+        .map(Grant::getObjectPath)
+        .collect(Collectors.toSet());
+  }
+
+  /**
+   * Returns true if the user has at least one grant on any object whose dot-delimited path starts
+   * with the given container path prefix (e.g., "myspace" or "myspace.folderA").
+   *
+   * <p>Used to determine container visibility: a container is visible if and only if at least one
+   * accessible child object exists somewhere in the subtree.
+   *
+   * <p>ADMIN members always return true (short-circuit).
+   *
+   * @param userName the user to check
+   * @param containerPath dot-delimited container path (e.g., "myspace" or "myspace.folderA")
+   * @return true if any accessible object exists under this container
+   */
+  public boolean hasAccessibleChildUnderPath(String userName, String containerPath) {
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(userName), "userName must not be null or empty");
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(containerPath), "containerPath must not be null or empty");
+
+    // Admin short-circuit
+    if (isAdminMember(userName)) {
+      return true;
+    }
+
+    // Collect user's roles + PUBLIC
+    List<String> roleIds =
+        membershipStore.listByUser(userName).stream()
+            .map(Membership::getRoleId)
+            .collect(Collectors.toList());
+    roleIds.add(PUBLIC_ROLE_ID);
+
+    String prefix = containerPath + ".";
+
+    // Scan all grants, check if any object path is under this container for any of the user's roles
+    for (Grant grant : grantStore.listAll()) {
+      if (roleIds.contains(grant.getRoleId()) && grant.getObjectPath().startsWith(prefix)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // ---------------------------------------------------------------------------
