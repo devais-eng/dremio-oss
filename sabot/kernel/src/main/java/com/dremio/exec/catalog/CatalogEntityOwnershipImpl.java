@@ -56,7 +56,13 @@ public class CatalogEntityOwnershipImpl implements CatalogEntityOwnership {
         }
       case FUNCTION:
         {
-          return Optional.empty();
+          final com.dremio.service.namespace.function.proto.FunctionConfig function =
+              nameSpaceContainer.getFunction();
+          final String owner = function.getOwner();
+          if (owner == null || owner.isEmpty()) {
+            return Optional.empty(); // Legacy UDF without recorded owner
+          }
+          return Optional.of(new CatalogUser(owner));
         }
       default:
         throw new RuntimeException("Unexpected type for getOwner " + nameSpaceContainer.getType());
