@@ -329,7 +329,9 @@ public class CatalogImpl implements Catalog {
     if (CatalogUtil.forATSpecifierAccess(catalogEntityKey, this)) {
       try {
         DremioTable table = getTableSnapshot(catalogEntityKey);
-        if (table != null && (isRbacDeniedForVds(table, namespaceKey) || isRbacDeniedForPds(table, namespaceKey))) {
+        if (table != null
+            && (isRbacDeniedForVds(table, namespaceKey)
+                || isRbacDeniedForPds(table, namespaceKey))) {
           return null; // RBAC denied -- appear as "not found"
         }
         return table;
@@ -376,7 +378,8 @@ public class CatalogImpl implements Catalog {
             (originalKey, resolvedKey, optTable) -> {
               if (optTable.isPresent()) {
                 DremioTable table = optTable.get();
-                if (isRbacDeniedForVds(table, resolvedKey) || isRbacDeniedForPds(table, resolvedKey)) {
+                if (isRbacDeniedForVds(table, resolvedKey)
+                    || isRbacDeniedForPds(table, resolvedKey)) {
                   return Optional.empty(); // RBAC denied -- appear as "not found"
                 }
                 updateTableIfNeeded(resolvedKey, table);
@@ -1193,7 +1196,8 @@ public class CatalogImpl implements Catalog {
 
   @Override
   public DremioTable getTable(String datasetId) {
-    // TODO: PDS enforcement not applied here -- review if this path needs isRbacDeniedForPds enforcement
+    // TODO: PDS enforcement not applied here -- review if this path needs isRbacDeniedForPds
+    // enforcement
     VersionedDatasetId versionedDatasetId = VersionedDatasetId.tryParse(datasetId);
     final boolean isTimeTravelDataset =
         versionedDatasetId != null && versionedDatasetId.getVersionContext().isTimeTravelType();
@@ -2836,7 +2840,11 @@ public class CatalogImpl implements Catalog {
     String objectPath = key.getSchemaPath();
 
     if (!rbacService.hasPrivilege(userName, rbacPrivilege, rbacObjectType, objectPath)) {
-      logger.warn("RBAC: Access denied for user '{}' — privilege {} on {}", userName, rbacPrivilege, objectPath);
+      logger.warn(
+          "RBAC: Access denied for user '{}' — privilege {} on {}",
+          userName,
+          rbacPrivilege,
+          objectPath);
       throw UserException.validationError()
           .message("Permission denied: %s privilege required on '%s'", rbacPrivilege, objectPath)
           .buildSilently();
@@ -2856,7 +2864,10 @@ public class CatalogImpl implements Catalog {
     }
     String containerPath = viewKey.getParent().getSchemaPath();
     if (!rbacService.hasPrivilege(userName, "CREATE_VIEW", "VDS", containerPath)) {
-      logger.warn("RBAC: Access denied for user '{}' — privilege CREATE_VIEW on {}", userName, containerPath);
+      logger.warn(
+          "RBAC: Access denied for user '{}' — privilege CREATE_VIEW on {}",
+          userName,
+          containerPath);
       throw UserException.validationError()
           .message("Permission denied: CREATE_VIEW privilege required on '%s'", containerPath)
           .buildSilently();
@@ -2923,13 +2934,11 @@ public class CatalogImpl implements Catalog {
    * Checks if RBAC denies the current user SELECT access to a PDS (physical dataset / table).
    * Returns true if access is denied, false if access is allowed.
    *
-   * <p>Opt-in enforcement: tables with no PDS grants are universally accessible (backward
-   * compatible). Once at least one grant exists for a table, only users with a matching SELECT
-   * grant can access it.
+   * <p>Deny-by-default: when PDS enforcement is enabled, users must have an explicit SELECT grant
+   * to access any physical table. Admin users bypass via hasPrivilege() short-circuit.
    *
-   * <p>Only fires when both {@code services.rbac.enabled} and {@code services.rbac.pds.enabled}
-   * are true. This allows independent rollout of PDS enforcement after VDS enforcement is
-   * established.
+   * <p>Only fires when both {@code services.rbac.enabled} and {@code services.rbac.pds.enabled} are
+   * true. This allows independent rollout of PDS enforcement after VDS enforcement is established.
    *
    * @param table the resolved table -- must be non-null
    * @param key the namespace key of the table
@@ -2963,12 +2972,7 @@ public class CatalogImpl implements Catalog {
 
     String objectPath = key.getSchemaPath();
 
-    // Opt-in check: tables with no PDS grants are universally accessible
-    if (!rbacService.hasAnyPdsGrant(objectPath)) {
-      return false;
-    }
-
-    // At least one grant exists -- enforce SELECT for this user
+    // Deny-by-default: user must have SELECT grant on this PDS (admin bypass via hasPrivilege)
     if (!rbacService.hasPrivilege(userName, "SELECT", "PDS", objectPath)) {
       logger.warn("RBAC: PDS access denied for user '{}'", userName);
       return true;
