@@ -2235,5 +2235,67 @@ public class TestCatalogImpl {
     assertThat(catalog).isNotNull();
   }
 
+  // --- sys.privileges admin-only enforcement tests (Phase 12: META-01) ---
+
+  /**
+   * META-01 RBAC disabled: when RBAC_ENABLED is false, the sys.privileges guard must not fire.
+   * RbacService must never be consulted (no isAdminMember call).
+   */
+  @Test
+  public void testSysPrivileges_rbacDisabled_noEnforcement() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(false);
+
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // RBAC is OFF -- isRbacDeniedForSysPrivileges returns false before touching rbacService
+    catalog.getTable(new NamespaceKey(Arrays.asList("sys", "privileges")));
+    verifyNoInteractions(rbacService);
+  }
+
+  /**
+   * META-01 system user: the system user ($dremio$) bypasses the sys.privileges guard entirely.
+   * isAdminMember must never be called for system user.
+   */
+  @Test
+  public void testSysPrivileges_systemUser_bypasses() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+
+    CatalogImpl catalog = newCatalogImplForUser("$dremio$");
+    // SystemUser check short-circuits before rbacService is consulted
+    catalog.getTable(new NamespaceKey(Arrays.asList("sys", "privileges")));
+    verifyNoInteractions(rbacService);
+  }
+
+  /**
+   * META-01 admin access: admin users pass the sys.privileges guard. isAdminMember must be called
+   * and return true. The table itself may be null (no mock system dataset), but the guard did NOT
+   * deny access -- the request proceeded to the DatasetManager.
+   */
+  @Test
+  public void testSysPrivileges_admin_allowed() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.isAdminMember(eq("gnarly"))).thenReturn(true);
+
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // Admin: isAdminMember is called and returns true -> guard does NOT deny
+    catalog.getTable(new NamespaceKey(Arrays.asList("sys", "privileges")));
+    verify(rbacService).isAdminMember(eq("gnarly"));
+  }
+
+  /**
+   * META-01 non-admin denied: non-admin users receive null (table not found) from getTable() for
+   * sys.privileges. isAdminMember is called and returns false -> guard returns null immediately.
+   */
+  @Test
+  public void testSysPrivileges_nonAdmin_denied() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.isAdminMember(eq("gnarly"))).thenReturn(false);
+
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // Non-admin: isAdminMember is called and returns false -> guard returns null (denied)
+    DremioTable result = catalog.getTable(new NamespaceKey(Arrays.asList("sys", "privileges")));
+    verify(rbacService).isAdminMember(eq("gnarly"));
+    assertThat(result).isNull();
+  }
+
   private interface FakeVersionedPlugin extends VersionedPlugin, StoragePlugin {}
 }
