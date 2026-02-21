@@ -66,7 +66,8 @@ public final class PlanCacheMetrics {
     NOT_PUT_DYNAMIC_FUNCTION,
     NOT_PUT_MAT_CACHE_NOT_INIT,
     NOT_PUT_BLACKLISTED,
-    NOT_PUT_VERSIONED_TABLE
+    NOT_PUT_VERSIONED_TABLE,
+    NOT_PUT_DEFINER_RIGHTS
   }
 
   public static final String PLAN_CACHE_SYNC = "plan_cache_sync";
