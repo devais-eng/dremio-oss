@@ -18,6 +18,7 @@ package com.dremio.exec.planner.sql;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.dremio.common.config.SabotConfig;
+import com.dremio.config.DremioConfig;
 import com.dremio.common.exceptions.UserException;
 import com.dremio.common.scanner.persistence.ScanResult;
 import com.dremio.exec.catalog.CatalogUser;
@@ -178,7 +179,9 @@ public class SqlConverter {
         new ViewExpander(
             this.expansionSqlValidatorAndToRelContextBuilderFactory,
             this.viewExpansionContext,
-            autoVDSFixer);
+            autoVDSFixer,
+            context.getDremioConfig() != null
+                && context.getDremioConfig().getBoolean(DremioConfig.RBAC_ENABLED));
     this.toRelContext =
         DremioToRelContext.createQueryContext(
             this.expansionSqlValidatorAndToRelContextBuilderFactory,

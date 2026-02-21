@@ -46,16 +46,19 @@ public class ViewExpander {
       sqlValidatorAndToRelContextBuilderFactory;
   private final ViewExpansionContext viewExpansionContext;
   private final AutoVDSFixer viewVersionChecker;
+  private final boolean rbacEnabled;
 
   public ViewExpander(
       SqlValidatorAndToRelContext.BuilderFactory sqlValidatorAndToRelContextBuilderFactory,
       ViewExpansionContext viewExpansionContext,
-      AutoVDSFixer viewVersionChecker) {
+      AutoVDSFixer viewVersionChecker,
+      boolean rbacEnabled) {
     this.sqlValidatorAndToRelContextBuilderFactory =
         checkNotNull(
             sqlValidatorAndToRelContextBuilderFactory, "sqlValidatorAndToRelContextBuilderFactory");
     this.viewExpansionContext = checkNotNull(viewExpansionContext, "viewExpansionContext");
     this.viewVersionChecker = checkNotNull(viewVersionChecker, "viewVersionChecker");
+    this.rbacEnabled = rbacEnabled;
   }
 
   /**
@@ -122,13 +125,26 @@ public class ViewExpander {
     final String queryString = viewTable.getView().getSql();
     ViewExpansionContext.ViewExpansionToken token = null;
     try {
-      token = viewExpansionContext.reserveViewExpansionToken(viewOwner);
+      token = viewExpansionContext.reserveViewExpansionToken(viewOwner, viewTable.getPath());
       return expandRelNode(viewTable, viewOwner, queryString);
     } catch (RuntimeException e) {
       if (!(e.getCause() instanceof UserNotFoundException)) {
         throw e;
       }
 
+      // DEFN-05: When RBAC is active and the view has a recorded owner,
+      // a deleted owner must produce an explicit error, not a silent fallback.
+      if (rbacEnabled && viewOwner != null) {
+        throw UserException.planError(e)
+            .message(
+                "View owner '%s' no longer exists. Cannot expand view '%s'. "
+                    + "The view must be updated by an active user before it can be queried.",
+                viewOwner.getName(),
+                viewTable.getPath().getSchemaPath())
+            .build(LOGGER);
+      }
+
+      // Legacy/RBAC-disabled behavior: fall back to query user's identity.
       final CatalogIdentity delegatedUser = viewExpansionContext.getQueryUser();
       return expandRelNode(viewTable, delegatedUser, queryString);
     } finally {
