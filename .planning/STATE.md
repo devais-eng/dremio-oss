@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Users can only access views, tables, and UDFs they've been explicitly granted access to, with deny-by-default policy, privilege context switching (definer rights for VDS and UDF), and admin bypass.
-**Current focus:** v1.2 Privilege Context & Enforcement — Phase 12 in progress (Plan 01 complete)
+**Current focus:** v1.2 Privilege Context & Enforcement — Phase 12 COMPLETE (all plans done)
 
 ## Current Position
 
 Phase: 12 of 12 (Metadata Safety and Integration Testing)
-Plan: 01 of 02 complete
-Status: Phase 12 Plan 01 Complete
-Last activity: 2026-02-22 — Phase 12 Plan 01 complete: isRbacDeniedForSysPrivileges() added to CatalogImpl with admin-role enforcement, wired into all 6 getTable() RBAC call sites, 4 META-01 unit tests
+Plan: 02 of 02 complete
+Status: Phase 12 Complete — v1.2 RBAC implementation complete
+Last activity: 2026-02-22 — Phase 12 Plan 02 complete: SELECT privilege soft-deny in DescribeTableHandler (META-02), META-03 test documenting ExplainHandler delegation
 
-Progress: [████████░░] 42% (v1.2)
+Progress: [██████████] 100% (v1.2)
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Progress: [████████░░] 42% (v1.2)
 | Phase 11 P01 | 3 | 2 | 2 |
 | Phase 11 P02 | 5 | 2 | 6 |
 | Phase 12 P01 | 10 | 2 | 2 |
+| Phase 12 P02 | 3 | 2 | 3 |
 
 ## Accumulated Context
 
@@ -96,6 +97,10 @@ Recent decisions affecting v1.2 work:
 - [Phase 12 P01]: isRbacDeniedForSysPrivileges uses isAdminMember() not hasPrivilege() -- sys.privileges access is role-based (admin membership), not grant-based
 - [Phase 12 P01]: Guard fires before getTableHelper() in getTableNoResolve and getTableNoColumnCount (pre-fetch) for efficiency; table object not needed
 - [Phase 12 P01]: equalsIgnoreCase for both 'sys' and 'privileges' to prevent case-variation bypass (SYS.PRIVILEGES, Sys.Privileges, etc.)
+- [Phase 12 P02]: Soft-deny pattern in DESCRIBE: validatePrivilege() is VDS-only; PDS users get through via getTable() fallback (isRbacDeniedForPds allows); exception only re-thrown when both checks fail
+- [Phase 12 P02]: UserException catch block added between AccessControlException and Exception catches to prevent planError wrapping of permission denied messages (Pitfall 5)
+- [Phase 12 P02]: sys and INFORMATION_SCHEMA skip validatePrivilege entirely -- handled by isRbacDeniedForSysPrivileges in getTable()
+- [Phase 12 P02]: META-03 required no code change -- ExplainHandler delegates to inner handlers; structural test documents contract
 
 ### Pending Todos
 
@@ -112,5 +117,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-22
-Stopped at: Completed 12-01-PLAN.md. Phase 12 Plan 01 complete: isRbacDeniedForSysPrivileges() added to CatalogImpl (admin-role check), wired into all 6 getTable() RBAC call sites, 4 META-01 unit tests. Ready for Phase 12 Plan 02.
+Stopped at: Completed 12-02-PLAN.md. Phase 12 Plan 02 complete: SELECT privilege soft-deny in DescribeTableHandler (META-02), META-03 test. v1.2 RBAC implementation complete.
 Resume file: .planning/phases/12-metadata-safety-and-integration-testing/
