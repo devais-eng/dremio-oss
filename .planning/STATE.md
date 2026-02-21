@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Users can only access views, tables, and UDFs they've been explicitly granted access to, with deny-by-default policy, privilege context switching (definer rights for VDS and UDF), and admin bypass.
-**Current focus:** v1.2 Privilege Context & Enforcement — Phase 11 Plan 01 complete
+**Current focus:** v1.2 Privilege Context & Enforcement — Phase 11 complete, ready for Phase 12
 
 ## Current Position
 
 Phase: 11 of 12 (Container Visibility Filtering)
-Plan: 01 of 02
-Status: Plan 01 Complete
-Last activity: 2026-02-21 — Phase 11 Plan 01 complete: container visibility core algorithm in RbacService + CatalogServiceHelper wiring for top-level and folder filtering
+Plan: 02 of 02
+Status: Phase 11 Complete
+Last activity: 2026-02-21 — Phase 11 Plan 02 complete: container visibility filtering wired into all remaining resource endpoints (SpaceResource, HomeResource, SpaceFolderResource, ResourceTreeResource, SourcesResource) + 7 unit tests
 
-Progress: [██████░░░░] 30% (v1.2)
+Progress: [███████░░░] 35% (v1.2)
 
 ## Performance Metrics
 
@@ -49,6 +49,7 @@ Progress: [██████░░░░] 30% (v1.2)
 | Phase 10 P01 | 10 | 2 | 3 |
 | Phase 10 P02 | 2 | 2 | 2 |
 | Phase 11 P01 | 3 | 2 | 2 |
+| Phase 11 P02 | 5 | 2 | 6 |
 
 ## Accumulated Context
 
@@ -88,6 +89,9 @@ Recent decisions affecting v1.2 work:
 - [Phase 11 P01]: Sources filtered same as spaces in getTopLevelCatalogItems() -- deny-by-default PDS means grant prefix scan correctly identifies sources with no accessible children
 - [Phase 11 P01]: getUserAccessibleObjectPaths() returns null for RBAC-disabled/admin as "show all" signal -- callers check accessiblePaths == null to skip filtering
 - [Phase 11 P01]: Folder filtering in isVisibleToUser() uses per-folder hasAccessibleChildUnderPath() -- child folder listings are smaller cardinality than top-level
+- [Phase 11 P02]: ResourceTreeResource and SourcesResource use getUserAccessiblePaths() returning null-as-show-all -- same pattern as CatalogServiceHelper from Plan 01
+- [Phase 11 P02]: SourcesResource filters early in loop before creating SourceUI and fetching dataset counts -- avoids wasted work for hidden sources
+- [Phase 11 P02]: 7 unit tests cover getAccessibleObjectPaths (3: granted paths, PUBLIC grants, empty grants) and hasAccessibleChildUnderPath (4: prefix matching, dot-boundary safety, admin bypass, deep nesting CONT-04)
 
 ### Pending Todos
 
@@ -104,5 +108,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-21
-Stopped at: Completed 11-01-PLAN.md. Container visibility core: getAccessibleObjectPaths() and hasAccessibleChildUnderPath() in RbacService, top-level space/source filtering and folder filtering in CatalogServiceHelper. Ready for Phase 11 Plan 02 (remaining call sites).
+Stopped at: Completed 11-02-PLAN.md. Phase 11 complete: all container listing paths (SpaceResource, HomeResource, SpaceFolderResource, ResourceTreeResource, SourcesResource, CatalogServiceHelper) have uniform RBAC visibility filtering. 7 unit tests for RbacService container visibility contract. Ready for Phase 12 (integration tests).
 Resume file: .planning/phases/11-container-visibility-filtering/
