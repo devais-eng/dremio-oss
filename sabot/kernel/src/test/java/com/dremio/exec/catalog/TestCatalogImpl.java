@@ -2061,5 +2061,85 @@ public class TestCatalogImpl {
     assertThat(owner).isEmpty();
   }
 
+  /**
+   * UDF-03: getFunctions() returns an empty collection when the user does NOT have EXECUTE
+   * privilege on the function. The enforcement is in isRbacDeniedForFunction() which is called at
+   * the entry of getFunctions(). This is a silent deny (empty result), not an exception — different
+   * from validatePrivilege() which throws.
+   */
+  @Test
+  public void testGetFunctions_executeDenied_returnsEmptyCollection() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString()))
+        .thenReturn(false);
+
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    var functions =
+        catalog.getFunctions(
+            CatalogEntityKey.fromNamespaceKey(new NamespaceKey(Arrays.asList("myspace", "myfunc"))),
+            SimpleCatalog.FunctionType.SCALAR);
+
+    assertThat(functions).isEmpty();
+    verify(rbacService).hasPrivilege(eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString());
+  }
+
+  /**
+   * UDF-03: getFunctions() proceeds past the RBAC check when the user has EXECUTE privilege. We
+   * verify that hasPrivilege was called with the correct arguments (user="gnarly",
+   * privilege="EXECUTE", objectType="FUNCTION") and returned true, allowing the function lookup to
+   * continue. The actual function lookup may return empty for other reasons (function doesn't exist
+   * in namespace), but the RBAC gate was passed.
+   */
+  @Test
+  public void testGetFunctions_executeGranted_passesRbacCheck() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString()))
+        .thenReturn(true);
+
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // getFunctions may return empty (function doesn't exist in namespace),
+    // but the RBAC check must have passed (not short-circuited to empty)
+    catalog.getFunctions(
+        CatalogEntityKey.fromNamespaceKey(new NamespaceKey(Arrays.asList("myspace", "myfunc"))),
+        SimpleCatalog.FunctionType.SCALAR);
+
+    verify(rbacService).hasPrivilege(eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString());
+  }
+
+  /**
+   * UDF-03: getFunctions() must NOT call isRbacDeniedForFunction() when RBAC is disabled. The
+   * feature flag (RBAC_ENABLED=false) means all access is allowed without any privilege checks.
+   */
+  @Test
+  public void testGetFunctions_rbacDisabled_noRbacCheck() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(false);
+
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    catalog.getFunctions(
+        CatalogEntityKey.fromNamespaceKey(new NamespaceKey(Arrays.asList("myspace", "myfunc"))),
+        SimpleCatalog.FunctionType.SCALAR);
+
+    // RbacService must not be consulted when feature flag is OFF
+    verifyNoInteractions(rbacService);
+  }
+
+  /**
+   * UDF-03: System user ($dremio$) bypasses the RBAC check in getFunctions(). System user must
+   * always have full access, regardless of privilege grants.
+   */
+  @Test
+  public void testGetFunctions_systemUser_bypassesRbacCheck() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    // No mock for rbacService.hasPrivilege — system user never reaches that code
+
+    CatalogImpl catalog = newCatalogImplForUser("$dremio$");
+    catalog.getFunctions(
+        CatalogEntityKey.fromNamespaceKey(new NamespaceKey(Arrays.asList("myspace", "myfunc"))),
+        SimpleCatalog.FunctionType.SCALAR);
+
+    // System user should bypass RBAC entirely — rbacService must not be consulted
+    verifyNoInteractions(rbacService);
+  }
+
   private interface FakeVersionedPlugin extends VersionedPlugin, StoragePlugin {}
 }
