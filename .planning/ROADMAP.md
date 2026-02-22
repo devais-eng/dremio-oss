@@ -113,10 +113,11 @@ Plans:
   1. A non-admin user who queries `SELECT * FROM sys.privileges` receives a permission denied error; an ADMIN user can query it without restriction
   2. A user without SELECT on a VDS or PDS who issues `DESCRIBE table_or_view` receives a permission denied error (DESCRIBE inherits SELECT enforcement)
   3. An EXPLAIN command referencing objects the user does not have access to fails with a permission denied error; EXPLAIN succeeds only when the user holds all required privileges on all referenced objects
-**Plans:** 2/2 plans complete
+**Plans:** 3 plans (2 complete, 1 gap closure)
 Plans:
-- [ ] 12-01-PLAN.md — sys.privileges admin-only enforcement: isRbacDeniedForSysPrivileges() in CatalogImpl + 4 unit tests
-- [ ] 12-02-PLAN.md — DESCRIBE SELECT privilege check in DescribeTableHandler + UserException handling + META-02/03 unit tests
+- [x] 12-01-PLAN.md — sys.privileges admin-only enforcement: isRbacDeniedForSysPrivileges() in CatalogImpl + 4 unit tests
+- [x] 12-02-PLAN.md — DESCRIBE SELECT privilege check in DescribeTableHandler + UserException handling + META-02/03 unit tests
+- [ ] 12-03-PLAN.md — (gap closure) End-to-end integration tests: TestRbacIntegration with live Dremio server verifying META-01/02/03
 
 ## Progress
 
