@@ -30,7 +30,7 @@ See `milestones/v1.0-ROADMAP.md` for full phase details.
 - [x] **Phase 9: UDF Rights Verification and Owner Resolution** — Confirm and harden UDF definer semantics; fix CatalogEntityOwnershipImpl for FUNCTION type; add integration test coverage
 - [x] **Phase 10: PDS SELECT Enforcement (Opt-in)** — Grant SELECT on physical tables to roles; enforce access on tables that have explicit grants; tables without grants remain universally accessible
 - [x] **Phase 11: Container Visibility Filtering** — Sources, spaces, and folders are hidden from non-admin users unless they have access to at least one child object; full ancestor path is shown (completed 2026-02-21)
-- [ ] **Phase 12: Metadata Safety and Integration Testing** — Restrict sys.privileges to ADMIN; gate DESCRIBE and EXPLAIN on existing privilege model; end-to-end integration tests across all v1.2 features
+- [x] **Phase 12: Metadata Safety and Integration Testing** — Restrict sys.privileges to ADMIN; gate DESCRIBE and EXPLAIN on existing privilege model; end-to-end integration tests across all v1.2 features (completed 2026-02-21)
 
 ## Phase Details
 
@@ -113,7 +113,10 @@ Plans:
   1. A non-admin user who queries `SELECT * FROM sys.privileges` receives a permission denied error; an ADMIN user can query it without restriction
   2. A user without SELECT on a VDS or PDS who issues `DESCRIBE table_or_view` receives a permission denied error (DESCRIBE inherits SELECT enforcement)
   3. An EXPLAIN command referencing objects the user does not have access to fails with a permission denied error; EXPLAIN succeeds only when the user holds all required privileges on all referenced objects
-**Plans**: TBD
+**Plans:** 2/2 plans complete
+Plans:
+- [ ] 12-01-PLAN.md — sys.privileges admin-only enforcement: isRbacDeniedForSysPrivileges() in CatalogImpl + 4 unit tests
+- [ ] 12-02-PLAN.md — DESCRIBE SELECT privilege check in DescribeTableHandler + UserException handling + META-02/03 unit tests
 
 ## Progress
 
@@ -130,4 +133,4 @@ Plans:
 | 9. UDF Rights Verification and Owner Resolution | v1.2 | 2/2 | Complete | 2026-02-21 |
 | 10. PDS SELECT Enforcement (Opt-in) | v1.2 | Complete    | 2026-02-21 | 2026-02-21 |
 | 11. Container Visibility Filtering | v1.2 | Complete    | 2026-02-21 | - |
-| 12. Metadata Safety and Integration Testing | v1.2 | 0/? | Not started | - |
+| 12. Metadata Safety and Integration Testing | v1.2 | Complete    | 2026-02-21 | - |

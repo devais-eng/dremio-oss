@@ -25,10 +25,10 @@ import static org.mockito.Mockito.when;
 
 import com.dremio.BaseTestQuery;
 import com.dremio.catalog.model.CatalogEntityKey;
-import com.dremio.common.exceptions.UserException;
 import com.dremio.catalog.model.VersionContext;
 import com.dremio.catalog.model.dataset.TableVersionContext;
 import com.dremio.catalog.model.dataset.TableVersionType;
+import com.dremio.common.exceptions.UserException;
 import com.dremio.connector.metadata.AttributeValue;
 import com.dremio.exec.ExecConstants;
 import com.dremio.exec.catalog.Catalog;
@@ -203,6 +203,7 @@ public class TestDescribeTableHandler extends BaseTestQuery {
     // Setup: catalog.validatePrivilege() throws UserException for this path
     List<String> viewPath = List.of("myspace", "myview");
     when(catalog.resolveSingle(new NamespaceKey(viewPath))).thenReturn(new NamespaceKey(viewPath));
+    when(session.getSessionVersionForSource("myspace")).thenReturn(VersionContext.NOT_SPECIFIED);
     doThrow(
             UserException.validationError()
                 .message("Permission denied: SELECT privilege required on 'myspace.myview'")
@@ -249,6 +250,7 @@ public class TestDescribeTableHandler extends BaseTestQuery {
         .hasMessageContaining("Unknown table");
 
     // Verify validatePrivilege was NOT called for sys path
-    verify(catalog, never()).validatePrivilege(any(NamespaceKey.class), any(SqlGrant.Privilege.class));
+    verify(catalog, never())
+        .validatePrivilege(any(NamespaceKey.class), any(SqlGrant.Privilege.class));
   }
 }
