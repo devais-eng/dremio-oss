@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Users can only access views, tables, and UDFs they've been explicitly granted access to, with deny-by-default policy, privilege context switching (definer rights for VDS and UDF), and admin bypass.
-**Current focus:** v1.2 Privilege Context & Enforcement — Phase 12 COMPLETE (all plans done)
+**Current focus:** v1.2 Privilege Context & Enforcement — Phase 12 COMPLETE (all plans done, integration tests green)
 
 ## Current Position
 
 Phase: 12 of 12 (Metadata Safety and Integration Testing)
-Plan: 02 of 02 complete
-Status: Phase 12 Complete — v1.2 RBAC implementation complete
-Last activity: 2026-02-22 — Phase 12 Plan 02 complete: SELECT privilege soft-deny in DescribeTableHandler (META-02), META-03 test documenting ExplainHandler delegation
+Plan: 03 of 03 complete (gap closure plan)
+Status: v1.2 RBAC FULLY COMPLETE — all implementation plans + integration tests green
+Last activity: 2026-02-22 — Phase 12 Plan 03 complete: 27 integration tests covering all v1.2 RBAC features pass (TestRbacIntegration)
 
 Progress: [██████████] 100% (v1.2)
 
@@ -52,6 +52,7 @@ Progress: [██████████] 100% (v1.2)
 | Phase 11 P02 | 5 | 2 | 6 |
 | Phase 12 P01 | 10 | 2 | 2 |
 | Phase 12 P02 | 3 | 2 | 3 |
+| Phase 12 P03 | 60 | 2 | 2 |
 
 ## Accumulated Context
 
@@ -101,6 +102,10 @@ Recent decisions affecting v1.2 work:
 - [Phase 12 P02]: UserException catch block added between AccessControlException and Exception catches to prevent planError wrapping of permission denied messages (Pitfall 5)
 - [Phase 12 P02]: sys and INFORMATION_SCHEMA skip validatePrivilege entirely -- handled by isRbacDeniedForSysPrivileges in getTable()
 - [Phase 12 P02]: META-03 required no code change -- ExplainHandler delegates to inner handlers; structural test documents contract
+- [Phase 12 P03]: GRANT syntax is TO ROLE not TO USER; integration tests use USER_ROLE as intermediary role and GRANT ROLE USER_ROLE TO USER test_user
+- [Phase 12 P03]: Admin bootstrap required via rbacService.assignBootstrapAdmin(ADMIN) when RBAC enabled and users created programmatically (not via REST bootstrap endpoint)
+- [Phase 12 P03]: DROP VDS requires both SELECT and DROP grants -- DropViewHandler calls getTableNoColumnCount after validatePrivilege(DROP), isRbacDeniedForVds checks SELECT
+- [Phase 12 P03]: services.rbac.pds.enabled key added to dremio-reference.conf to pass DACConfig.checkForInvalidPaths validation when RBAC_PDS_ENABLED passed via test config
 
 ### Pending Todos
 
@@ -117,5 +122,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-22
-Stopped at: Completed 12-02-PLAN.md. Phase 12 Plan 02 complete: SELECT privilege soft-deny in DescribeTableHandler (META-02), META-03 test. v1.2 RBAC implementation complete.
-Resume file: .planning/phases/12-metadata-safety-and-integration-testing/
+Stopped at: Completed 12-03-PLAN.md. Phase 12 Plan 03 complete: 27 integration tests covering all v1.2 RBAC features (TestRbacIntegration). v1.2 RBAC fully complete.
+Resume file: .planning/phases/12-metadata-safety-and-integration-testing/12-03-SUMMARY.md
