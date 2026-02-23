@@ -2142,10 +2142,14 @@ public class TestCatalogImpl {
   }
 
   // --- PDS SELECT enforcement tests (Phase 10: PDS-01, PDS-02, PDS-03) ---
+  // Rewritten in Phase 14 to use MockedConstruction<DatasetManager> and catalog.getTable(key)
+  // so that isRbacDeniedForPds() is exercised through the actual code path, making verify()
+  // and result assertions meaningful (not vacuously true at construction time).
 
   /**
    * PDS-02 deny-by-default: tables with no PDS grants are NOT accessible. When RBAC+PDS is enabled,
-   * hasPrivilege is always called (no opt-in short-circuit). Users without SELECT are denied.
+   * hasPrivilege returns false, and getTable() returns null (denied). Verified via
+   * catalog.getTable(key) returning null.
    */
   @Test
   public void testPdsAccess_noGrants_denied() {
@@ -2154,14 +2158,30 @@ public class TestCatalogImpl {
     when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString()))
         .thenReturn(false);
 
-    // Deny-by-default: no grant = denied. hasPrivilege returns false = isRbacDeniedForPds true.
-    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
-    assertThat(catalog).isNotNull();
+    DremioTable pdsTable = mock(DremioTable.class); // NOT ViewTable — avoids isRbacDeniedForPds short-circuit
+    NamespaceKey key = new NamespaceKey(Arrays.asList("source", "table"));
+
+    try (MockedConstruction<DatasetManager> ignored =
+        mockConstructionWithAnswer(
+            DatasetManager.class,
+            invocation -> {
+              if ("getTable".equals(invocation.getMethod().getName())) {
+                return pdsTable;
+              }
+              return invocation.callRealMethod();
+            })) {
+      CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+      DremioTable result = catalog.getTable(key);
+
+      // Deny-by-default: no grant = denied. getTable() returns null.
+      assertThat(result).isNull();
+      verify(rbacService).hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString());
+    }
   }
 
   /**
-   * PDS-02 deny: users without SELECT on a PDS are denied access. The contract: hasPrivilege(false)
-   * = isRbacDeniedForPds returns true.
+   * PDS-02 deny: users without SELECT on a PDS are denied access. Verified via
+   * catalog.getTable(key) returning null when hasPrivilege returns false.
    */
   @Test
   public void testPdsAccess_userDenied() {
@@ -2170,14 +2190,30 @@ public class TestCatalogImpl {
     when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString()))
         .thenReturn(false);
 
-    // Construct catalog -- isRbacDeniedForPds will return true when table is non-null.
-    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
-    assertThat(catalog).isNotNull();
+    DremioTable pdsTable = mock(DremioTable.class);
+    NamespaceKey key = new NamespaceKey(Arrays.asList("source", "table"));
+
+    try (MockedConstruction<DatasetManager> ignored =
+        mockConstructionWithAnswer(
+            DatasetManager.class,
+            invocation -> {
+              if ("getTable".equals(invocation.getMethod().getName())) {
+                return pdsTable;
+              }
+              return invocation.callRealMethod();
+            })) {
+      CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+      DremioTable result = catalog.getTable(key);
+
+      // hasPrivilege(false) = isRbacDeniedForPds true => getTable returns null
+      assertThat(result).isNull();
+      verify(rbacService).hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString());
+    }
   }
 
   /**
-   * PDS-02 allow: users WITH SELECT on a PDS can access it. The contract: hasPrivilege(true) =
-   * isRbacDeniedForPds returns false.
+   * PDS-02 allow: users WITH SELECT on a PDS can access it. Verified via catalog.getTable(key)
+   * returning the PDS table when hasPrivilege returns true.
    */
   @Test
   public void testPdsAccess_userGranted() {
@@ -2186,50 +2222,115 @@ public class TestCatalogImpl {
     when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString()))
         .thenReturn(true);
 
-    // hasPrivilege(true) = allowed (isRbacDeniedForPds returns false)
-    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
-    assertThat(catalog).isNotNull();
+    DremioTable pdsTable = mock(DremioTable.class);
+    NamespaceKey key = new NamespaceKey(Arrays.asList("source", "table"));
+
+    try (MockedConstruction<DatasetManager> ignored =
+        mockConstructionWithAnswer(
+            DatasetManager.class,
+            invocation -> {
+              if ("getTable".equals(invocation.getMethod().getName())) {
+                return pdsTable;
+              }
+              return invocation.callRealMethod();
+            })) {
+      CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+      DremioTable result = catalog.getTable(key);
+
+      // hasPrivilege(true) = allowed => getTable returns the PDS table
+      assertThat(result).isEqualTo(pdsTable);
+      verify(rbacService).hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString());
+    }
   }
 
   /**
    * PDS flag independent rollout: RBAC_ENABLED=true but RBAC_PDS_ENABLED=false means no PDS
-   * enforcement at all. VDS enforcement remains active.
+   * enforcement at all. VDS enforcement remains active. Verified via catalog.getTable(key)
+   * returning the PDS table and hasPrivilege never being called with PDS args.
    */
   @Test
   public void testPdsAccess_pdsFeatureFlagOff_noEnforcement() {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
     when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(false);
 
-    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
-    // With PDS flag OFF, no PDS privilege checks should happen
-    verify(rbacService, never()).hasPrivilege(anyString(), eq("SELECT"), eq("PDS"), anyString());
-    assertThat(catalog).isNotNull();
+    DremioTable pdsTable = mock(DremioTable.class);
+    NamespaceKey key = new NamespaceKey(Arrays.asList("source", "table"));
+
+    try (MockedConstruction<DatasetManager> ignored =
+        mockConstructionWithAnswer(
+            DatasetManager.class,
+            invocation -> {
+              if ("getTable".equals(invocation.getMethod().getName())) {
+                return pdsTable;
+              }
+              return invocation.callRealMethod();
+            })) {
+      CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+      DremioTable result = catalog.getTable(key);
+
+      // PDS flag OFF => table returned, no PDS privilege check
+      assertThat(result).isEqualTo(pdsTable);
+      verify(rbacService, never()).hasPrivilege(anyString(), eq("SELECT"), eq("PDS"), anyString());
+    }
   }
 
   /**
    * PDS-02 flag off: when RBAC_ENABLED is false, PDS enforcement is also off regardless of PDS
-   * flag.
+   * flag. Verified via catalog.getTable(key) returning the PDS table.
    */
   @Test
   public void testPdsAccess_rbacDisabled_noEnforcement() {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(false);
 
-    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
-    // With main RBAC flag OFF, no PDS-related calls should happen
-    verify(rbacService, never()).hasPrivilege(anyString(), eq("SELECT"), eq("PDS"), anyString());
-    assertThat(catalog).isNotNull();
+    DremioTable pdsTable = mock(DremioTable.class);
+    NamespaceKey key = new NamespaceKey(Arrays.asList("source", "table"));
+
+    try (MockedConstruction<DatasetManager> ignored =
+        mockConstructionWithAnswer(
+            DatasetManager.class,
+            invocation -> {
+              if ("getTable".equals(invocation.getMethod().getName())) {
+                return pdsTable;
+              }
+              return invocation.callRealMethod();
+            })) {
+      CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+      DremioTable result = catalog.getTable(key);
+
+      // Main RBAC flag OFF => table returned, no PDS-related calls
+      assertThat(result).isEqualTo(pdsTable);
+      verify(rbacService, never()).hasPrivilege(anyString(), eq("SELECT"), eq("PDS"), anyString());
+    }
   }
 
-  /** PDS-02 system user: System user ($dremio$) bypasses all RBAC checks including PDS. */
+  /**
+   * PDS-02 system user: System user ($dremio$) bypasses all RBAC checks including PDS. Verified
+   * via catalog.getTable(key) returning the PDS table and hasPrivilege never being called.
+   */
   @Test
   public void testPdsAccess_systemUser_bypassesPdsEnforcement() {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
     when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(true);
 
-    CatalogImpl catalog = newCatalogImplForUser("$dremio$");
-    // System user should never trigger PDS privilege checks
-    verify(rbacService, never()).hasPrivilege(anyString(), eq("SELECT"), eq("PDS"), anyString());
-    assertThat(catalog).isNotNull();
+    DremioTable pdsTable = mock(DremioTable.class);
+    NamespaceKey key = new NamespaceKey(Arrays.asList("source", "table"));
+
+    try (MockedConstruction<DatasetManager> ignored =
+        mockConstructionWithAnswer(
+            DatasetManager.class,
+            invocation -> {
+              if ("getTable".equals(invocation.getMethod().getName())) {
+                return pdsTable;
+              }
+              return invocation.callRealMethod();
+            })) {
+      CatalogImpl catalog = newCatalogImplForUser("$dremio$");
+      DremioTable result = catalog.getTable(key);
+
+      // System user bypasses PDS RBAC => table returned, no privilege check
+      assertThat(result).isEqualTo(pdsTable);
+      verify(rbacService, never()).hasPrivilege(anyString(), eq("SELECT"), eq("PDS"), anyString());
+    }
   }
 
   // --- getTable(String datasetId) PDS enforcement test (Phase 13: INT-01) ---
