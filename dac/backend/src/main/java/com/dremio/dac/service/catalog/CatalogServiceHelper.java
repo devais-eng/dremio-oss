@@ -469,6 +469,16 @@ public class CatalogServiceHelper {
   private @NotNull Optional<CatalogEntity> getCatalogEntityFromNonPromotedFileOrFolder(
       List<String> path, @Nullable CatalogPageToken pageToken, Integer maxChildren)
       throws NamespaceException {
+    if (rbacService != null
+        && dremioConfig != null
+        && dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      String userName = securityContext.getUserPrincipal().getName();
+      if (!rbacService.isAdminMember(userName)) {
+        throw UserException.validationError()
+            .message("Permission denied: only administrators can browse source files.")
+            .buildSilently();
+      }
+    }
     Optional<CatalogItem> internalItem = getInternalItemByPath(path);
     if (internalItem.isEmpty()) {
       return Optional.empty();
@@ -813,6 +823,16 @@ public class CatalogServiceHelper {
   private Optional<CatalogEntity> getCatalogEntityFromCatalogItem(
       CatalogItem catalogItem, @Nullable CatalogPageToken pageToken, Integer maxChildren)
       throws NamespaceException {
+    if (rbacService != null
+        && dremioConfig != null
+        && dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      String userName = securityContext.getUserPrincipal().getName();
+      if (!rbacService.isAdminMember(userName)) {
+        throw UserException.validationError()
+            .message("Permission denied: only administrators can browse source files.")
+            .buildSilently();
+      }
+    }
     // can either be a folder or a file
     if (catalogItem.getContainerType() == CatalogItem.ContainerSubType.FOLDER) {
       CatalogListingResult listingResult =
@@ -1333,6 +1353,16 @@ public class CatalogServiceHelper {
   @WithSpan
   public Dataset promoteToDataset(String targetId, Dataset dataset)
       throws NamespaceException, UnsupportedOperationException {
+    if (rbacService != null
+        && dremioConfig != null
+        && dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      String userName = securityContext.getUserPrincipal().getName();
+      if (!rbacService.isAdminMember(userName)) {
+        throw UserException.validationError()
+            .message("Permission denied: only administrators can promote datasets.")
+            .buildSilently();
+      }
+    }
     Preconditions.checkArgument(
         dataset.getType() == Dataset.DatasetType.PHYSICAL_DATASET,
         "Promoting can only create physical datasets.");

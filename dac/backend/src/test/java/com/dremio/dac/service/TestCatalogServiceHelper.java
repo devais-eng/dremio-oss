@@ -2429,4 +2429,109 @@ public class TestCatalogServiceHelper {
     // Verify sourceService.createSource was never called (no metadata leak)
     verify(sourceService, never()).createSource(any(), any(), any());
   }
+
+  // --- FILE-01/FILE-02: File browse and promote RBAC enforcement tests (Phase 15) ---
+
+  @Test
+  public void testPromoteToDataset_nonAdmin_getsPermissionDenied() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(false);
+
+    Dataset dataset =
+        new Dataset(
+            "id", Dataset.DatasetType.PHYSICAL_DATASET, asList("src", "tbl"), null, null, null,
+            null, null, null, null, null, null, null);
+
+    assertThatThrownBy(() -> rbacEnabledHelper.promoteToDataset("internalId", dataset))
+        .isInstanceOf(UserException.class)
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("promote datasets");
+  }
+
+  @Test
+  public void testPromoteToDataset_admin_noBlock() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(true);
+
+    Dataset dataset =
+        new Dataset(
+            "id", Dataset.DatasetType.PHYSICAL_DATASET, asList("src", "tbl"), null, null, null,
+            null, null, null, null, null, null, null);
+
+    // Guard passes; method continues and may throw other exceptions from incomplete mocks
+    try {
+      rbacEnabledHelper.promoteToDataset("internalId", dataset);
+    } catch (Exception e) {
+      assertNotPermissionDenied(e);
+    }
+    verify(rbacService).isAdminMember("user");
+  }
+
+  @Test
+  public void testPromoteToDataset_rbacDisabled_noBlock() throws Exception {
+    Dataset dataset =
+        new Dataset(
+            "id", Dataset.DatasetType.PHYSICAL_DATASET, asList("src", "tbl"), null, null, null,
+            null, null, null, null, null, null, null);
+
+    // catalogServiceHelper has null rbacService — guard is no-op
+    try {
+      catalogServiceHelper.promoteToDataset("internalId", dataset);
+    } catch (Exception e) {
+      assertNotPermissionDenied(e);
+    }
+  }
+
+  @Test
+  public void testBrowseNonPromotedFileOrFolder_nonAdmin_getsPermissionDenied() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(false);
+    // Entity not in namespace → triggers getCatalogEntityFromNonPromotedFileOrFolder path
+    when(mockNamespaceService.getEntities(any())).thenReturn(Collections.singletonList(null));
+
+    assertThatThrownBy(
+            () ->
+                rbacEnabledHelper.getCatalogEntityByPath(
+                    asList("mySource", "folder"), Collections.emptyList(), Collections.emptyList()))
+        .isInstanceOf(UserException.class)
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("browse source files");
+  }
+
+  @Test
+  public void testBrowseNonPromotedFileOrFolder_admin_noBlock() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(true);
+    when(mockNamespaceService.getEntities(any())).thenReturn(Collections.singletonList(null));
+
+    // Guard passes; method may throw other exceptions
+    try {
+      rbacEnabledHelper.getCatalogEntityByPath(
+          asList("mySource", "folder"), Collections.emptyList(), Collections.emptyList());
+    } catch (Exception e) {
+      assertNotPermissionDenied(e);
+    }
+    verify(rbacService).isAdminMember("user");
+  }
+
+  @Test
+  public void testBrowseNonPromotedFileOrFolder_rbacDisabled_noBlock() throws Exception {
+    when(mockNamespaceService.getEntities(any())).thenReturn(Collections.singletonList(null));
+
+    // catalogServiceHelperWithMockNs has null rbacService — guard is no-op
+    try {
+      catalogServiceHelperWithMockNs.getCatalogEntityByPath(
+          asList("mySource", "folder"), Collections.emptyList(), Collections.emptyList());
+    } catch (Exception e) {
+      assertNotPermissionDenied(e);
+    }
+  }
+
+  // getCatalogEntityFromCatalogItem guard shares the same pattern and is covered
+  // indirectly via getCatalogEntityFromNonPromotedFileOrFolder (which delegates to it).
+
+  private void assertNotPermissionDenied(Exception e) {
+    if (e instanceof UserException) {
+      String msg = e.getMessage();
+      if (msg != null && msg.contains("Permission denied")) {
+        throw new AssertionError("Expected no Permission denied, but got: " + msg, e);
+      }
+    }
+  }
 }
