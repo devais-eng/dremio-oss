@@ -27,7 +27,9 @@ import com.dremio.dac.model.job.ResultOrder;
 import com.dremio.dac.obfuscate.ObfuscationUtils;
 import com.dremio.dac.service.catalog.CatalogServiceHelper;
 import com.dremio.dac.service.errors.JobResourceNotFoundException;
+import com.dremio.config.DremioConfig;
 import com.dremio.exec.proto.UserBitShared;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.service.job.JobDetails;
 import com.dremio.service.job.JobDetailsRequest;
 import com.dremio.service.job.JobSummary;
@@ -44,6 +46,7 @@ import com.google.common.escape.Escaper;
 import com.google.common.net.UrlEscapers;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.List;
+import javax.annotation.Nullable;
 import javax.annotation.security.RolesAllowed;
 import javax.inject.Inject;
 import javax.inject.Provider;
@@ -70,6 +73,8 @@ public class JobsListingResource {
   private final SecurityContext securityContext;
   private final CatalogServiceHelper catalogServiceHelper;
   private final NamespaceService namespaceService;
+  @Nullable private final RbacService rbacService;
+  @Nullable private final DremioConfig dremioConfig;
 
   @Inject
   public JobsListingResource(
@@ -77,12 +82,16 @@ public class JobsListingResource {
       JobsService jobService,
       CatalogServiceHelper catalogServiceHelper,
       NamespaceService namespaceService,
-      @Context SecurityContext securityContext) {
+      @Context SecurityContext securityContext,
+      @Nullable RbacService rbacService,
+      @Nullable DremioConfig dremioConfig) {
     this.jobsService = jobsService;
     this.jobService = jobService;
     this.securityContext = securityContext;
     this.catalogServiceHelper = catalogServiceHelper;
     this.namespaceService = namespaceService;
+    this.rbacService = rbacService;
+    this.dremioConfig = dremioConfig;
   }
 
   // Get jobs using filters and set order
@@ -96,12 +105,24 @@ public class JobsListingResource {
       @QueryParam("offset") @DefaultValue("0") int offset,
       @QueryParam("limit") @DefaultValue("100") int limit,
       @QueryParam("level") @DefaultValue("0") int level) {
+    final String userName = securityContext.getUserPrincipal().getName();
     final SearchJobsRequest.Builder requestBuilder = SearchJobsRequest.newBuilder();
     requestBuilder.setOffset(offset);
     requestBuilder.setLimit(limit);
-    requestBuilder.setUserName(securityContext.getUserPrincipal().getName());
-    if (filters != null) {
-      requestBuilder.setFilterString(filters);
+    requestBuilder.setUserName(userName);
+
+    // RBAC: non-admin users can only see their own jobs
+    String effectiveFilters = filters;
+    if (rbacService != null
+        && dremioConfig != null
+        && dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)
+        && !rbacService.isAdminMember(userName)) {
+      String userFilter = "usr==" + userName;
+      effectiveFilters =
+          (effectiveFilters != null) ? effectiveFilters + ";" + userFilter : userFilter;
+    }
+    if (effectiveFilters != null) {
+      requestBuilder.setFilterString(effectiveFilters);
     }
     if (sortColumn != null) {
       requestBuilder.setSortColumn(sortColumn);
