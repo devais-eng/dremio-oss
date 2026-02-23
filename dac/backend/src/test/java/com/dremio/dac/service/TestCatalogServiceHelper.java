@@ -36,6 +36,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -2401,5 +2402,31 @@ public class TestCatalogServiceHelper {
 
     // PDS should be visible without any privilege check
     assertThat(result.children()).hasSize(1);
+  }
+
+  // --- createSource admin-only enforcement test (Phase 13: Finding 4) ---
+
+  /**
+   * Finding 4: A non-admin user calling createSource() must see "Permission denied: only
+   * administrators can create sources." instead of the existence-leaking "Source already exists"
+   * error. The admin guard fires before sourceService.createSource() is called.
+   */
+  @Test
+  public void testCreateSource_nonAdmin_getsPermissionDenied() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(false);
+
+    Source source = new Source();
+    source.setName("newsource");
+
+    assertThatThrownBy(
+            () ->
+                rbacEnabledHelper.createCatalogItem(
+                    source, SourceRefreshOption.BACKGROUND_DATASETS_CREATION))
+        .isInstanceOf(UserException.class)
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("administrators");
+
+    // Verify sourceService.createSource was never called (no metadata leak)
+    verify(sourceService, never()).createSource(any(), any(), any());
   }
 }

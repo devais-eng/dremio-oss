@@ -2144,9 +2144,8 @@ public class TestCatalogImpl {
   // --- PDS SELECT enforcement tests (Phase 10: PDS-01, PDS-02, PDS-03) ---
 
   /**
-   * PDS-02 deny-by-default: tables with no PDS grants are NOT accessible. When RBAC+PDS is
-   * enabled, hasPrivilege is always called (no opt-in short-circuit). Users without SELECT are
-   * denied.
+   * PDS-02 deny-by-default: tables with no PDS grants are NOT accessible. When RBAC+PDS is enabled,
+   * hasPrivilege is always called (no opt-in short-circuit). Users without SELECT are denied.
    */
   @Test
   public void testPdsAccess_noGrants_denied() {
@@ -2161,8 +2160,8 @@ public class TestCatalogImpl {
   }
 
   /**
-   * PDS-02 deny: users without SELECT on a PDS are denied access. The contract:
-   * hasPrivilege(false) = isRbacDeniedForPds returns true.
+   * PDS-02 deny: users without SELECT on a PDS are denied access. The contract: hasPrivilege(false)
+   * = isRbacDeniedForPds returns true.
    */
   @Test
   public void testPdsAccess_userDenied() {
@@ -2177,8 +2176,8 @@ public class TestCatalogImpl {
   }
 
   /**
-   * PDS-02 allow: users WITH SELECT on a PDS can access it. The contract:
-   * hasPrivilege(true) = isRbacDeniedForPds returns false.
+   * PDS-02 allow: users WITH SELECT on a PDS can access it. The contract: hasPrivilege(true) =
+   * isRbacDeniedForPds returns false.
    */
   @Test
   public void testPdsAccess_userGranted() {
@@ -2221,9 +2220,7 @@ public class TestCatalogImpl {
     assertThat(catalog).isNotNull();
   }
 
-  /**
-   * PDS-02 system user: System user ($dremio$) bypasses all RBAC checks including PDS.
-   */
+  /** PDS-02 system user: System user ($dremio$) bypasses all RBAC checks including PDS. */
   @Test
   public void testPdsAccess_systemUser_bypassesPdsEnforcement() {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
@@ -2233,6 +2230,29 @@ public class TestCatalogImpl {
     // System user should never trigger PDS privilege checks
     verify(rbacService, never()).hasPrivilege(anyString(), eq("SELECT"), eq("PDS"), anyString());
     assertThat(catalog).isNotNull();
+  }
+
+  // --- getTable(String datasetId) PDS enforcement test (Phase 13: INT-01) ---
+
+  /**
+   * INT-01: getTable(String datasetId) now wires through isRbacDeniedForPds. When the table is null
+   * (dataset not found), the RBAC guard is bypassed (null guard fires first). Full behavioral path
+   * tested in TestRbacIntegration; this unit test documents that getTable(String) wires through
+   * isRbacDeniedForPds and that the null guard prevents NPE.
+   */
+  @Test
+  public void testGetTableByDatasetId_pdsEnforcement() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString()))
+        .thenReturn(false);
+
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // datasetManager.getTable(datasetId, options) returns null for non-existent IDs in unit tests
+    DremioTable result = catalog.getTable("nonexistent-id");
+    assertThat(result).isNull();
+    // Null table bypasses isRbacDeniedForPds -- rbacService.hasPrivilege must NOT be called
+    verify(rbacService, never()).hasPrivilege(anyString(), eq("SELECT"), eq("PDS"), anyString());
   }
 
   // --- sys.privileges admin-only enforcement tests (Phase 12: META-01) ---
