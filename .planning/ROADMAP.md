@@ -34,7 +34,7 @@ See `milestones/v1.0-ROADMAP.md` for full phase details.
 
 #### Gap Closure (from v1.2 audit)
 
-- [ ] **Phase 13: Code Hardening** — Fix getTable(datasetId) PDS enforcement gap, DROP VDS misleading error, and source creation metadata leak
+- [x] **Phase 13: Code Hardening** — Fix getTable(datasetId) PDS enforcement gap, DROP VDS misleading error, and source creation metadata leak (completed 2026-02-23)
 - [ ] **Phase 14: Test Coverage and Documentation** — Strengthen PDS flag-off tests, add REST API container visibility test, add ExplainHandler behavioral test, update REQUIREMENTS.md traceability
 
 ## Phase Details
@@ -133,9 +133,9 @@ Plans:
   1. `getTable(String datasetId)` enforces `isRbacDeniedForPds` — versioned/time-travel lookups respect PDS grants
   2. A user with DROP but not SELECT on a VDS receives "Permission denied: SELECT privilege required" instead of "Unknown view"
   3. A non-admin user attempting to create a source that already exists receives "Permission denied" instead of "already exists"
-**Plans:** TBD
+**Plans:** 1/1 plans complete
 Plans:
-- [ ] 13-01-PLAN.md — PDS enforcement gap fix + DROP VDS error fix + SourceService metadata leak fix
+- [ ] 13-01-PLAN.md — Three surgical fixes: getTable(String) PDS enforcement, DropViewHandler SELECT check, CatalogServiceHelper admin guard + unit tests
 
 ### Phase 14: Test Coverage and Documentation
 **Goal**: Strengthen test assertions and close documentation tracking gaps identified by the v1.2 audit
@@ -167,5 +167,5 @@ Plans:
 | 10. PDS SELECT Enforcement (Opt-in) | v1.2 | Complete    | 2026-02-21 | 2026-02-21 |
 | 11. Container Visibility Filtering | v1.2 | Complete    | 2026-02-21 | - |
 | 12. Metadata Safety and Integration Testing | v1.2 | Complete    | 2026-02-21 | - |
-| 13. Code Hardening | v1.2 | 0/1 | Planned | - |
+| 13. Code Hardening | v1.2 | Complete    | 2026-02-23 | - |
 | 14. Test Coverage and Documentation | v1.2 | 0/1 | Planned | - |
