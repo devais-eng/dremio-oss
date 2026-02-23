@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Naive RBAC** — Phases 1-6 (shipped 2026-02-19)
-- 🚧 **v1.2 Privilege Context & Enforcement** — Phases 7-14 (gap closure in progress)
+- 🚧 **v1.2 Privilege Context & Enforcement** — Phases 7-15 (file browse/promote RBAC in progress)
 
 ## Phases
 
@@ -26,7 +26,7 @@ See `milestones/v1.0-ROADMAP.md` for full phase details.
 **Milestone Goal:** Add privilege context switching (definer rights for VDS and UDF), SELECT grants on physical tables, container visibility filtering, complete VDS lifecycle privilege enforcement, and metadata safety checks. Every access path — views, tables, UDFs, containers, describe, explain — is governed by explicit grants with deny-by-default policy.
 
 - [x] **Phase 7: VDS Lifecycle Privilege Enforcement** — Wire ALTER, DROP, and CREATE_VIEW enforcement into the three missing call sites; close the v1.0 enforcement gap
-- [x] **Phase 8: VDS Definer Rights Safety Cluster** — Implement view expansion under the last modifier's identity, shipping all eight interdependent pitfall guards as a single atomic unit
+- [x] **Phase 8: VDS Definer Rights Safety Cluster** — Implement view expansion under the last modifier's identity, shipping all eight interdependent pitfall guards active as a unit
 - [x] **Phase 9: UDF Rights Verification and Owner Resolution** — Confirm and harden UDF definer semantics; fix CatalogEntityOwnershipImpl for FUNCTION type; add integration test coverage
 - [x] **Phase 10: PDS SELECT Enforcement (Opt-in)** — Grant SELECT on physical tables to roles; enforce access on tables that have explicit grants; tables without grants remain universally accessible
 - [x] **Phase 11: Container Visibility Filtering** — Sources, spaces, and folders are hidden from non-admin users unless they have access to at least one child object; full ancestor path is shown (completed 2026-02-21)
@@ -36,6 +36,7 @@ See `milestones/v1.0-ROADMAP.md` for full phase details.
 
 - [x] **Phase 13: Code Hardening** — Fix getTable(datasetId) PDS enforcement gap, DROP VDS misleading error, and source creation metadata leak (completed 2026-02-23)
 - [x] **Phase 14: Test Coverage and Documentation** — Strengthen PDS flag-off tests, add REST API container visibility test, add ExplainHandler behavioral test, update REQUIREMENTS.md traceability (completed 2026-02-23)
+- [ ] **Phase 15: File Browse and Promote RBAC Enforcement** — Restrict file browsing and dataset promotion in sources to admin users; prevent non-admin users from exploring file systems or promoting files/folders
 
 ## Phase Details
 
@@ -151,6 +152,20 @@ Plans:
 Plans:
 - [ ] 14-01-PLAN.md — PDS test strengthening + REST API container visibility test + ExplainHandler behavioral test + REQUIREMENTS.md verification
 
+### Phase 15: File Browse and Promote RBAC Enforcement
+**Goal**: Non-admin users cannot browse files in sources or promote files/folders to datasets — file system exploration and dataset promotion are restricted to administrators when RBAC is enabled
+**Depends on**: Phase 14
+**Requirements**: FILE-01, FILE-02
+**Success Criteria** (what must be TRUE):
+  1. A non-admin user attempting to browse files in a source (list folder contents) receives a permission denied error instead of seeing the file listing
+  2. A non-admin user attempting to promote a file or folder to a dataset receives a permission denied error
+  3. An ADMIN user can browse files and promote datasets without restriction (admin bypass preserved)
+  4. The file browse and promote restrictions apply across all access paths (REST API, SQL, UI)
+**Plans:** 2 plans
+Plans:
+- [ ] 15-01-PLAN.md — Production guards: SourceResource RBAC injection + requireAdmin helper + 5 browse/promote guards; CatalogServiceHelper 3 browse/promote guards
+- [ ] 15-02-PLAN.md — Unit tests: TestSourceResourceRbac (15 tests for SourceResource guards) + TestCatalogServiceHelper additions (6 tests for CatalogServiceHelper guards)
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -169,3 +184,4 @@ Plans:
 | 12. Metadata Safety and Integration Testing | v1.2 | Complete    | 2026-02-21 | - |
 | 13. Code Hardening | v1.2 | Complete    | 2026-02-23 | - |
 | 14. Test Coverage and Documentation | v1.2 | Complete    | 2026-02-23 | - |
+| 15. File Browse and Promote RBAC Enforcement | v1.2 | 0/2 | Planned | - |
