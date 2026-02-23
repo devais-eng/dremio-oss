@@ -1850,6 +1850,18 @@ public class CatalogServiceHelper {
   private CatalogEntity createSource(
       Source source, SourceRefreshOption sourceRefreshOption, NamespaceAttribute... attributes)
       throws NamespaceException, ExecutionSetupException {
+    // Phase 13 Finding 4: enforce admin-only before existence check to prevent metadata leak.
+    // Non-admin users must see "Permission denied" not "Source already exists".
+    if (rbacService != null
+        && dremioConfig != null
+        && dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      String userName = securityContext.getUserPrincipal().getName();
+      if (!rbacService.isAdminMember(userName)) {
+        throw UserException.validationError()
+            .message("Permission denied: only administrators can create sources.")
+            .buildSilently();
+      }
+    }
     SourceConfig sourceConfig =
         sourceService.createSource(source.toSourceConfig(), sourceRefreshOption, attributes);
     // TODO: Use NamespaceService::getSourceById

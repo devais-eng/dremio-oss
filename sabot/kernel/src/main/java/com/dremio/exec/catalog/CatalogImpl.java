@@ -1211,16 +1211,20 @@ public class CatalogImpl implements Catalog {
 
   @Override
   public DremioTable getTable(String datasetId) {
-    // TODO: PDS enforcement not applied here -- review if this path needs isRbacDeniedForPds
-    // enforcement
     VersionedDatasetId versionedDatasetId = VersionedDatasetId.tryParse(datasetId);
     final boolean isTimeTravelDataset =
         versionedDatasetId != null && versionedDatasetId.getVersionContext().isTimeTravelType();
     Span.current().setAttribute("dremio.catalog.getTable.isTimeTravelDataset", isTimeTravelDataset);
+    final DremioTable table;
     if (isTimeTravelDataset) {
-      return getTableForTimeTravel(versionedDatasetId);
+      table = getTableForTimeTravel(versionedDatasetId);
+    } else {
+      table = datasetManager.getTable(datasetId, options);
     }
-    return datasetManager.getTable(datasetId, options);
+    if (table != null && isRbacDeniedForPds(table, table.getPath())) {
+      return null; // RBAC denied -- appear as "not found"
+    }
+    return table;
   }
 
   @Override
@@ -3036,8 +3040,7 @@ public class CatalogImpl implements Catalog {
    */
   private boolean isRbacDeniedForSysPrivileges(NamespaceKey key) {
     // Only applies to sys.privileges specifically
-    if (!"sys".equalsIgnoreCase(key.getRoot())
-        || !"privileges".equalsIgnoreCase(key.getLeaf())) {
+    if (!"sys".equalsIgnoreCase(key.getRoot()) || !"privileges".equalsIgnoreCase(key.getLeaf())) {
       return false;
     }
     // Feature flag OFF -> allow (RBAC disabled)
