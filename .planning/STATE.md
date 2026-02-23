@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Users can only access views, tables, and UDFs they've been explicitly granted access to, with deny-by-default policy, privilege context switching (definer rights for VDS and UDF), and admin bypass.
-**Current focus:** v1.2 Privilege Context & Enforcement — Phase 12 COMPLETE (all plans done, integration tests green)
+**Current focus:** v1.2 Privilege Context & Enforcement — Phase 13 COMPLETE (code hardening done, 3 gaps closed)
 
 ## Current Position
 
 Phase: 13 of 14 (Code Hardening — gap closure from v1.2 audit)
-Plan: 00 of 01 (not yet planned)
-Status: v1.2 gap closure — 2 phases added from audit tech debt (Phases 13-14)
-Last activity: 2026-02-23 — Gap closure phases created from v1.2 milestone audit
+Plan: 01 of 01 (COMPLETE)
+Status: Phase 13 complete — all three code-level RBAC gaps closed (INT-01, LIFE-02, Finding 4)
+Last activity: 2026-02-23 — Phase 13 Plan 01 executed: 3 production fixes + 3 unit tests
 
-Progress: [████████░░] 86% (v1.2 — 12/14 phases complete)
+Progress: [█████████░] 93% (v1.2 — 13/14 phases complete)
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [████████░░] 86% (v1.2 — 12/14 phases complete)
 | Phase 12 P01 | 10 | 2 | 2 |
 | Phase 12 P02 | 3 | 2 | 3 |
 | Phase 12 P03 | 60 | 2 | 2 |
+| Phase 13 P01 | 4 | 2 | 6 |
 
 ## Accumulated Context
 
@@ -107,6 +108,10 @@ Recent decisions affecting v1.2 work:
 - [Phase 12 P03]: DROP VDS requires both SELECT and DROP grants -- DropViewHandler calls getTableNoColumnCount after validatePrivilege(DROP), isRbacDeniedForVds checks SELECT
 - [Phase 12 P03]: services.rbac.pds.enabled key added to dremio-reference.conf to pass DACConfig.checkForInvalidPaths validation when RBAC_PDS_ENABLED passed via test config
 
+- [Phase 13 P01]: getTable(String datasetId) uses table.getPath() for PDS enforcement key -- raw datasetId is JSON blob, not namespace path; null guard prevents NPE when dataset not found
+- [Phase 13 P01]: DropViewHandler SELECT check placed immediately after DROP check, before version resolution and getTableNoColumnCount -- prevents misleading "Unknown view" for DROP-only users
+- [Phase 13 P01]: CatalogServiceHelper createSource admin guard uses three-way null guard (rbacService != null && dremioConfig != null && RBAC_ENABLED) matching existing getUserAccessibleObjectPaths pattern
+
 ### Pending Todos
 
 None.
@@ -121,6 +126,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-22
-Stopped at: Completed 12-03-PLAN.md. Phase 12 Plan 03 complete: 27 integration tests covering all v1.2 RBAC features (TestRbacIntegration). v1.2 RBAC fully complete.
-Resume file: .planning/phases/12-metadata-safety-and-integration-testing/12-03-SUMMARY.md
+Last session: 2026-02-23
+Stopped at: Completed 13-01-PLAN.md. Phase 13 complete: 3 production code fixes (INT-01, LIFE-02, Finding 4) + 3 unit tests. All code-level RBAC gaps closed.
+Resume file: .planning/phases/13-code-hardening/13-01-SUMMARY.md
