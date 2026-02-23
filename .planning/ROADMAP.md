@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Naive RBAC** — Phases 1-6 (shipped 2026-02-19)
-- 🚧 **v1.2 Privilege Context & Enforcement** — Phases 7-12 (in progress)
+- 🚧 **v1.2 Privilege Context & Enforcement** — Phases 7-14 (gap closure in progress)
 
 ## Phases
 
@@ -31,6 +31,11 @@ See `milestones/v1.0-ROADMAP.md` for full phase details.
 - [x] **Phase 10: PDS SELECT Enforcement (Opt-in)** — Grant SELECT on physical tables to roles; enforce access on tables that have explicit grants; tables without grants remain universally accessible
 - [x] **Phase 11: Container Visibility Filtering** — Sources, spaces, and folders are hidden from non-admin users unless they have access to at least one child object; full ancestor path is shown (completed 2026-02-21)
 - [x] **Phase 12: Metadata Safety and Integration Testing** — Restrict sys.privileges to ADMIN; gate DESCRIBE and EXPLAIN on existing privilege model; end-to-end integration tests across all v1.2 features (completed 2026-02-21)
+
+#### Gap Closure (from v1.2 audit)
+
+- [ ] **Phase 13: Code Hardening** — Fix getTable(datasetId) PDS enforcement gap, DROP VDS misleading error, and source creation metadata leak
+- [ ] **Phase 14: Test Coverage and Documentation** — Strengthen PDS flag-off tests, add REST API container visibility test, add ExplainHandler behavioral test, update REQUIREMENTS.md traceability
 
 ## Phase Details
 
@@ -119,6 +124,33 @@ Plans:
 - [x] 12-02-PLAN.md — DESCRIBE SELECT privilege check in DescribeTableHandler + UserException handling + META-02/03 unit tests
 - [ ] 12-03-PLAN.md — (gap closure) End-to-end integration tests: TestRbacIntegration with live Dremio server verifying META-01/02/03
 
+### Phase 13: Code Hardening
+**Goal**: Close the three code-level gaps identified by the v1.2 audit — PDS enforcement on the versioned-dataset-ID lookup path, DROP VDS error message accuracy, and source creation metadata leak
+**Depends on**: Phase 12
+**Requirements**: PDS-02 (hardening), LIFE-02 (UX fix)
+**Gap Closure**: Closes INT-01, tech debt items from Phases 7 and 10, plus Finding 4 (source metadata leak)
+**Success Criteria** (what must be TRUE):
+  1. `getTable(String datasetId)` enforces `isRbacDeniedForPds` — versioned/time-travel lookups respect PDS grants
+  2. A user with DROP but not SELECT on a VDS receives "Permission denied: SELECT privilege required" instead of "Unknown view"
+  3. A non-admin user attempting to create a source that already exists receives "Permission denied" instead of "already exists"
+**Plans:** TBD
+Plans:
+- [ ] 13-01-PLAN.md — PDS enforcement gap fix + DROP VDS error fix + SourceService metadata leak fix
+
+### Phase 14: Test Coverage and Documentation
+**Goal**: Strengthen test assertions and close documentation tracking gaps identified by the v1.2 audit
+**Depends on**: Phase 13
+**Requirements**: PDS-02 (test), CONT-01/02 (test), META-03 (test)
+**Gap Closure**: Closes tech debt items from Phases 10, 11, 12
+**Success Criteria** (what must be TRUE):
+  1. PDS flag-off/bypass unit tests use meaningful assertions (not trivially-true `verify(never())` at construction time)
+  2. Container visibility is tested via REST API listing endpoint (not just SQL access proxy)
+  3. ExplainHandler has a behavioral test proving META-03 enforcement (not just structural proof)
+  4. REQUIREMENTS.md traceability shows all 22 requirements as Satisfied
+**Plans:** TBD
+Plans:
+- [ ] 14-01-PLAN.md — PDS test strengthening + REST API container visibility test + ExplainHandler behavioral test + REQUIREMENTS.md update
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -135,3 +167,5 @@ Plans:
 | 10. PDS SELECT Enforcement (Opt-in) | v1.2 | Complete    | 2026-02-21 | 2026-02-21 |
 | 11. Container Visibility Filtering | v1.2 | Complete    | 2026-02-21 | - |
 | 12. Metadata Safety and Integration Testing | v1.2 | Complete    | 2026-02-21 | - |
+| 13. Code Hardening | v1.2 | 0/1 | Planned | - |
+| 14. Test Coverage and Documentation | v1.2 | 0/1 | Planned | - |
