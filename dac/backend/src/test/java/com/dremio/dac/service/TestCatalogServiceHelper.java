@@ -2372,9 +2372,13 @@ public class TestCatalogServiceHelper {
     assertThat(result.children()).isEmpty();
   }
 
-  /** META-03: Folders are always visible to non-admin users (containers are not RBAC-gated). */
+  /**
+   * Container visibility: folders with no accessible children are hidden. A folder is only visible
+   * if the user has grants on at least one child object inside it.
+   */
   @Test
-  public void testGetNamespaceChildren_nonAdmin_foldersAlwaysVisible() throws Exception {
+  public void testGetNamespaceChildren_nonAdmin_folderWithNoAccessibleChildren_hidden()
+      throws Exception {
     when(rbacService.isAdminMember("user")).thenReturn(false);
     when(rbacService.hasPrivilege("user", "SELECT", "VDS", "myspace.my_view")).thenReturn(false);
     NameSpaceContainer vds = vdsContainer("myspace", "my_view");
@@ -2384,10 +2388,8 @@ public class TestCatalogServiceHelper {
     CatalogListingResult result =
         rbacEnabledHelper.getChildrenForPath(new NamespaceKey("myspace"), null, 100);
 
-    // Only folder should be visible; VDS should be hidden
-    assertThat(result.children()).hasSize(1);
-    assertThat(result.children().get(0).getContainerType())
-        .isEqualTo(CatalogItem.ContainerSubType.FOLDER);
+    // Both folder and VDS hidden — no accessible children
+    assertThat(result.children()).isEmpty();
   }
 
   /** META-03: Physical datasets (PDS) are always visible -- only VDS is RBAC-gated in v1. */
