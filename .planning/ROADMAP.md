@@ -35,7 +35,7 @@ See `milestones/v1.0-ROADMAP.md` for full phase details.
 #### Gap Closure (from v1.2 audit)
 
 - [x] **Phase 13: Code Hardening** — Fix getTable(datasetId) PDS enforcement gap, DROP VDS misleading error, and source creation metadata leak (completed 2026-02-23)
-- [ ] **Phase 14: Test Coverage and Documentation** — Strengthen PDS flag-off tests, add REST API container visibility test, add ExplainHandler behavioral test, update REQUIREMENTS.md traceability
+- [x] **Phase 14: Test Coverage and Documentation** — Strengthen PDS flag-off tests, add REST API container visibility test, add ExplainHandler behavioral test, update REQUIREMENTS.md traceability (completed 2026-02-23)
 
 ## Phase Details
 
@@ -147,9 +147,9 @@ Plans:
   2. Container visibility is tested via REST API listing endpoint (not just SQL access proxy)
   3. ExplainHandler has a behavioral test proving META-03 enforcement (not just structural proof)
   4. REQUIREMENTS.md traceability shows all 22 requirements as Satisfied
-**Plans:** TBD
+**Plans:** 1/1 plans complete
 Plans:
-- [ ] 14-01-PLAN.md — PDS test strengthening + REST API container visibility test + ExplainHandler behavioral test + REQUIREMENTS.md update
+- [ ] 14-01-PLAN.md — PDS test strengthening + REST API container visibility test + ExplainHandler behavioral test + REQUIREMENTS.md verification
 
 ## Progress
 
@@ -168,4 +168,4 @@ Plans:
 | 11. Container Visibility Filtering | v1.2 | Complete    | 2026-02-21 | - |
 | 12. Metadata Safety and Integration Testing | v1.2 | Complete    | 2026-02-21 | - |
 | 13. Code Hardening | v1.2 | Complete    | 2026-02-23 | - |
-| 14. Test Coverage and Documentation | v1.2 | 0/1 | Planned | - |
+| 14. Test Coverage and Documentation | v1.2 | Complete    | 2026-02-23 | - |
