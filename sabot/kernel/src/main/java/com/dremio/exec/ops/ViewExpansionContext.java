@@ -58,16 +58,16 @@ import org.apache.calcite.rel.RelNode;
  * NamespaceKey) reserveViewExpansionToken(view4Owner, view4Path)} 3. "view4" is called for
  * expansion. As part of it 3.1 "view3" comes for expansion 3.2 A token "view3Token" is requested
  * through {@link #reserveViewExpansionToken(CatalogIdentity, NamespaceKey)
- * reserveViewExpansionToken(view3Owner, view3Path)} 3.3 "view3" is called for expansion. As part
- * of it 3.3.1 "view2" comes for expansion 3.3.2 A token "view2Token" is requested through {@link
+ * reserveViewExpansionToken(view3Owner, view3Path)} 3.3 "view3" is called for expansion. As part of
+ * it 3.3.1 "view2" comes for expansion 3.3.2 A token "view2Token" is requested through {@link
  * #reserveViewExpansionToken(CatalogIdentity, NamespaceKey) reserveViewExpansionToken(view2Owner,
  * view2Path)} 3.3.3 "view2" is called for expansion. As part of it 3.3.3.1 "view1" comes for
  * expansion 3.3.3.2 A token "view1Token" is requested through {@link
  * #reserveViewExpansionToken(CatalogIdentity, NamespaceKey) reserveViewExpansionToken(view1Owner,
- * view1Path)} 3.3.3.3 "view1" is called for expansion 3.3.3.4 "view1" expansion is complete
- * 3.3.3.5 Token "view1Token" is released 3.3.4 "view2" expansion is complete 3.3.5 Token
- * "view2Token" is released 3.4 "view3" expansion is complete 3.5 Token "view3Token" is released 4.
- * "view4" expansion is complete 5. Token "view4Token" is released.
+ * view1Path)} 3.3.3.3 "view1" is called for expansion 3.3.3.4 "view1" expansion is complete 3.3.3.5
+ * Token "view1Token" is released 3.3.4 "view2" expansion is complete 3.3.5 Token "view2Token" is
+ * released 3.4 "view3" expansion is complete 3.5 Token "view3Token" is released 4. "view4"
+ * expansion is complete 5. Token "view4Token" is released.
  */
 public class ViewExpansionContext {
   private static final org.slf4j.Logger logger =

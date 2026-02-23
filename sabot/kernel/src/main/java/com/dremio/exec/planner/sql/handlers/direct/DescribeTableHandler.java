@@ -114,9 +114,7 @@ public class DescribeTableHandler implements SqlDirectHandler<DescribeTableHandl
         if (savedPermissionDenied != null) {
           throw savedPermissionDenied; // Permission denied takes priority over "Unknown table"
         }
-        throw UserException.validationError()
-            .message("Unknown table [%s]", path)
-            .buildSilently();
+        throw UserException.validationError().message("Unknown table [%s]", path).buildSilently();
       } else {
         type = table.getRowType(JavaTypeFactoryImpl.INSTANCE);
       }

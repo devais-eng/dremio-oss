@@ -151,8 +151,10 @@ public class DremioConfig extends NestedConfig {
   /** RBAC enforcement; requires coordinator restart to change. Defaults to false (OFF). */
   public static final String RBAC_ENABLED = "services.rbac.enabled";
 
-  /** PDS SELECT enforcement (opt-in). Only active when RBAC_ENABLED is also true.
-   *  Defaults to false. Requires coordinator restart to change. */
+  /**
+   * PDS SELECT enforcement (opt-in). Only active when RBAC_ENABLED is also true. Defaults to false.
+   * Requires coordinator restart to change.
+   */
   public static final String RBAC_PDS_ENABLED = "services.rbac.pds.enabled";
 
   public static final String AUTOUPGRADE = "services.coordinator.auto-upgrade";

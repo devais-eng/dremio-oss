@@ -18,9 +18,9 @@ package com.dremio.exec.planner.sql;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.dremio.common.config.SabotConfig;
-import com.dremio.config.DremioConfig;
 import com.dremio.common.exceptions.UserException;
 import com.dremio.common.scanner.persistence.ScanResult;
+import com.dremio.config.DremioConfig;
 import com.dremio.exec.catalog.CatalogUser;
 import com.dremio.exec.expr.fn.FunctionImplementationRegistry;
 import com.dremio.exec.ops.PlannerCatalog;

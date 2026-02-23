@@ -376,7 +376,8 @@ public class RbacServiceTest {
   // ---------------------------------------------------------------------------
 
   @Test
-  public void testGetAccessibleObjectPaths_returnsGrantedPaths() throws RbacEntityNotFoundException {
+  public void testGetAccessibleObjectPaths_returnsGrantedPaths()
+      throws RbacEntityNotFoundException {
     rbacService.createRole("analyst", "Analyst", "admin");
     rbacService.addMembership("alice", "analyst", "admin");
     rbacService.grantPrivilege("analyst", "VDS", "myspace.view1", "SELECT", "admin");

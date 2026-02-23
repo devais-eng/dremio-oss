@@ -19,10 +19,10 @@ import static com.dremio.exec.planner.events.PlannerEventHandler.handle;
 import static com.dremio.exec.planner.physical.PlannerSettings.QUERY_PLAN_CACHE_ENABLED;
 import static com.dremio.exec.planner.plancache.PlanCacheMetrics.PlanCachePhases.PLAN_CACHE_PUT;
 import static com.dremio.exec.planner.plancache.PlanCacheMetrics.QueryOutcome.NOT_PUT_BLACKLISTED;
+import static com.dremio.exec.planner.plancache.PlanCacheMetrics.QueryOutcome.NOT_PUT_DEFINER_RIGHTS;
 import static com.dremio.exec.planner.plancache.PlanCacheMetrics.QueryOutcome.NOT_PUT_DYNAMIC_FUNCTION;
 import static com.dremio.exec.planner.plancache.PlanCacheMetrics.QueryOutcome.NOT_PUT_EXTERNAL_QUERY;
 import static com.dremio.exec.planner.plancache.PlanCacheMetrics.QueryOutcome.NOT_PUT_MAT_CACHE_NOT_INIT;
-import static com.dremio.exec.planner.plancache.PlanCacheMetrics.QueryOutcome.NOT_PUT_DEFINER_RIGHTS;
 import static com.dremio.exec.planner.plancache.PlanCacheMetrics.QueryOutcome.NOT_PUT_VERSIONED_TABLE;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.apache.commons.lang3.StringUtils.containsIgnoreCase;
@@ -33,15 +33,15 @@ import com.dremio.exec.catalog.CatalogUtil;
 import com.dremio.exec.catalog.DremioTable;
 import com.dremio.exec.ops.PlannerCatalog;
 import com.dremio.exec.ops.QueryContext;
-import com.dremio.exec.planner.acceleration.ExpansionNode;
-import com.dremio.exec.planner.logical.ViewTable;
 import com.dremio.exec.planner.PlannerPhase;
 import com.dremio.exec.planner.acceleration.DremioMaterialization;
+import com.dremio.exec.planner.acceleration.ExpansionNode;
 import com.dremio.exec.planner.acceleration.MaterializationList;
 import com.dremio.exec.planner.common.CopyIntoTableRelBase;
 import com.dremio.exec.planner.common.TableOptimizeRelBase;
 import com.dremio.exec.planner.common.VacuumCatalogRelBase;
 import com.dremio.exec.planner.common.VacuumTableRelBase;
+import com.dremio.exec.planner.logical.ViewTable;
 import com.dremio.exec.planner.observer.AttemptObserver;
 import com.dremio.exec.planner.physical.PlannerSettings;
 import com.dremio.exec.planner.physical.Prel;
@@ -139,11 +139,10 @@ public class PlanCacheUtils {
       plannerEventBus.dispatch(
           new PlanCacheEvent(NOT_PUT_VERSIONED_TABLE, "Query contains a versioned table."));
       return false;
-    } else if (containsDefinerRightsExpansion(relNode,
-        config.getContext().getQueryUserName())) {
+    } else if (containsDefinerRightsExpansion(relNode, config.getContext().getQueryUserName())) {
       plannerEventBus.dispatch(
-          new PlanCacheEvent(NOT_PUT_DEFINER_RIGHTS,
-              "Query contains views expanded under definer identity."));
+          new PlanCacheEvent(
+              NOT_PUT_DEFINER_RIGHTS, "Query contains views expanded under definer identity."));
       return false;
     } else {
       return true;
@@ -151,9 +150,9 @@ public class PlanCacheUtils {
   }
 
   /**
-   * Recursively checks whether the rel tree contains any {@link ExpansionNode} whose
-   * view owner (definer) differs from the query user. When definer rights are active,
-   * the plan is identity-dependent and must not be cached under the query user's key alone.
+   * Recursively checks whether the rel tree contains any {@link ExpansionNode} whose view owner
+   * (definer) differs from the query user. When definer rights are active, the plan is
+   * identity-dependent and must not be cached under the query user's key alone.
    */
   private static boolean containsDefinerRightsExpansion(RelNode relNode, String queryUser) {
     if (relNode instanceof ExpansionNode) {

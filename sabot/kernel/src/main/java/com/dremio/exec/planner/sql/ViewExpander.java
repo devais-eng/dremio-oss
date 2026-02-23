@@ -139,8 +139,7 @@ public class ViewExpander {
             .message(
                 "View owner '%s' no longer exists. Cannot expand view '%s'. "
                     + "The view must be updated by an active user before it can be queried.",
-                viewOwner.getName(),
-                viewTable.getPath().getSchemaPath())
+                viewOwner.getName(), viewTable.getPath().getSchemaPath())
             .build(LOGGER);
       }
 
