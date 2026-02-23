@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Users can only access views, tables, and UDFs they've been explicitly granted access to, with deny-by-default policy, privilege context switching (definer rights for VDS and UDF), and admin bypass.
-**Current focus:** v1.2 Privilege Context & Enforcement — Phase 13 COMPLETE (code hardening done, 3 gaps closed)
+**Current focus:** v1.2 Privilege Context & Enforcement — MILESTONE COMPLETE (all 14 phases done, all 22 requirements Satisfied)
 
 ## Current Position
 
-Phase: 13 of 14 (Code Hardening — gap closure from v1.2 audit)
+Phase: 14 of 14 (Test Coverage and Documentation)
 Plan: 01 of 01 (COMPLETE)
-Status: Phase 13 complete — all three code-level RBAC gaps closed (INT-01, LIFE-02, Finding 4)
-Last activity: 2026-02-23 — Phase 13 Plan 01 executed: 3 production fixes + 3 unit tests
+Status: v1.2 milestone complete — all 14 phases executed, all 22 requirements Satisfied
+Last activity: 2026-02-23 — Phase 14 Plan 01 executed: test coverage improvements (6 PDS tests rewritten, 3 REST API tests, 1 ExplainHandler behavioral test)
 
-Progress: [█████████░] 93% (v1.2 — 13/14 phases complete)
+Progress: [██████████] 100% (v1.2 — 14/14 phases complete)
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Progress: [█████████░] 93% (v1.2 — 13/14 phases complete)
 | Phase 12 P02 | 3 | 2 | 3 |
 | Phase 12 P03 | 60 | 2 | 2 |
 | Phase 13 P01 | 4 | 2 | 6 |
+| Phase 14 P01 | 10 | 2 | 3 |
 
 ## Accumulated Context
 
@@ -112,6 +113,11 @@ Recent decisions affecting v1.2 work:
 - [Phase 13 P01]: DropViewHandler SELECT check placed immediately after DROP check, before version resolution and getTableNoColumnCount -- prevents misleading "Unknown view" for DROP-only users
 - [Phase 13 P01]: CatalogServiceHelper createSource admin guard uses three-way null guard (rbacService != null && dremioConfig != null && RBAC_ENABLED) matching existing getUserAccessibleObjectPaths pattern
 
+- [Phase 14 P01]: PDS tests rewritten with MockedConstruction<DatasetManager> pattern from lines 448-466 -- getTable(NamespaceKey) exercises full code path including resolveToDefault null fallback
+- [Phase 14 P01]: DremioTable mock (not ViewTable) avoids isRbacDeniedForPds short-circuit at ViewTable instanceof check (line 2968 of CatalogImpl)
+- [Phase 14 P01]: ExplainHandler test uses MockedConstruction<SqlHandlerConfig> (Option D) to avoid SqlHandlerConfig constructor NPE -- mirrors DatasetManager pattern from Task 1
+- [Phase 14 P01]: Sources listing test uses before/after assertion structure to handle cp source system-bypass; SqlString import corrected to org.apache.calcite.sql.util.SqlString
+
 ### Pending Todos
 
 None.
@@ -127,5 +133,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 13-01-PLAN.md. Phase 13 complete: 3 production code fixes (INT-01, LIFE-02, Finding 4) + 3 unit tests. All code-level RBAC gaps closed.
-Resume file: .planning/phases/13-code-hardening/13-01-SUMMARY.md
+Stopped at: Completed 14-01-PLAN.md. v1.2 MILESTONE COMPLETE: all 14 phases executed, all 22 requirements Satisfied. Phase 14 added 6 rewritten PDS tests, 3 REST API container visibility tests, and 1 ExplainHandler behavioral test. No production code changes.
+Resume file: .planning/phases/14-test-coverage-and-documentation/14-01-SUMMARY.md
