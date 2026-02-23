@@ -36,7 +36,7 @@ See `milestones/v1.0-ROADMAP.md` for full phase details.
 
 - [x] **Phase 13: Code Hardening** — Fix getTable(datasetId) PDS enforcement gap, DROP VDS misleading error, and source creation metadata leak (completed 2026-02-23)
 - [x] **Phase 14: Test Coverage and Documentation** — Strengthen PDS flag-off tests, add REST API container visibility test, add ExplainHandler behavioral test, update REQUIREMENTS.md traceability (completed 2026-02-23)
-- [ ] **Phase 15: File Browse and Promote RBAC Enforcement** — Restrict file browsing and dataset promotion in sources to admin users; prevent non-admin users from exploring file systems or promoting files/folders
+- [x] **Phase 15: File Browse and Promote RBAC Enforcement** — Restrict file browsing and dataset promotion in sources to admin users; prevent non-admin users from exploring file systems or promoting files/folders (completed 2026-02-23)
 
 ## Phase Details
 
@@ -163,8 +163,8 @@ Plans:
   4. The file browse and promote restrictions apply across all access paths (REST API, SQL, UI)
 **Plans:** 2 plans
 Plans:
-- [ ] 15-01-PLAN.md — Production guards: SourceResource RBAC injection + requireAdmin helper + 5 browse/promote guards; CatalogServiceHelper 3 browse/promote guards
-- [ ] 15-02-PLAN.md — Unit tests: TestSourceResourceRbac (15 tests for SourceResource guards) + TestCatalogServiceHelper additions (6 tests for CatalogServiceHelper guards)
+- [x] 15-01-PLAN.md — Production guards: SourceResource RBAC injection + requireAdmin helper + 5 browse/promote guards; CatalogServiceHelper 3 browse/promote guards
+- [x] 15-02-PLAN.md — Unit tests: TestSourceResourceRbac (15 tests for SourceResource guards) + TestCatalogServiceHelper additions (6 tests for CatalogServiceHelper guards)
 
 ## Progress
 
@@ -184,4 +184,4 @@ Plans:
 | 12. Metadata Safety and Integration Testing | v1.2 | Complete    | 2026-02-21 | - |
 | 13. Code Hardening | v1.2 | Complete    | 2026-02-23 | - |
 | 14. Test Coverage and Documentation | v1.2 | Complete    | 2026-02-23 | - |
-| 15. File Browse and Promote RBAC Enforcement | v1.2 | 0/2 | Planned | - |
+| 15. File Browse and Promote RBAC Enforcement | v1.2 | 2/2 | Complete | 2026-02-23 |
