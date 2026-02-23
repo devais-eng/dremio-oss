@@ -22,14 +22,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.dremio.catalog.model.VersionContext;
 import com.dremio.common.exceptions.UserException;
 import com.dremio.exec.catalog.Catalog;
 import com.dremio.exec.ops.QueryContext;
 import com.dremio.exec.planner.sql.handlers.SqlHandlerConfig;
 import com.dremio.exec.planner.sql.parser.SqlDropView;
 import com.dremio.exec.planner.sql.parser.SqlGrant;
-import com.dremio.sabot.rpc.user.UserSession;
 import com.dremio.service.namespace.NamespaceKey;
 import java.util.List;
 import org.apache.calcite.sql.SqlIdentifier;
@@ -50,15 +48,12 @@ public class TestDropViewHandler {
   @Mock private SqlHandlerConfig config;
   @Mock private QueryContext queryContext;
   @Mock private Catalog catalog;
-  @Mock private UserSession session;
-
   private DropViewHandler handler;
 
   @Before
   public void setUp() {
     when(config.getContext()).thenReturn(queryContext);
     when(queryContext.getCatalog()).thenReturn(catalog);
-    when(queryContext.getSession()).thenReturn(session);
     handler = new DropViewHandler(config);
   }
 
@@ -72,7 +67,6 @@ public class TestDropViewHandler {
     List<String> viewPath = List.of("myspace", "myview");
     NamespaceKey path = new NamespaceKey(viewPath);
     when(catalog.resolveSingle(any(NamespaceKey.class))).thenReturn(path);
-    when(session.getSessionVersionForSource("myspace")).thenReturn(VersionContext.NOT_SPECIFIED);
 
     // DROP passes (mock default -- no exception), SELECT throws
     doThrow(
