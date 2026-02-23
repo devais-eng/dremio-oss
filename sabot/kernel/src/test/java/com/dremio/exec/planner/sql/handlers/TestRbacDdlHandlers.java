@@ -17,7 +17,11 @@ package com.dremio.exec.planner.sql.handlers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -25,6 +29,7 @@ import com.dremio.common.exceptions.UserException;
 import com.dremio.exec.ops.QueryContext;
 import com.dremio.exec.planner.sql.handlers.direct.ExplainHandler;
 import com.dremio.exec.planner.sql.handlers.direct.SimpleCommandResult;
+import com.dremio.exec.planner.sql.handlers.query.SqlToPlanHandler;
 import com.dremio.exec.planner.sql.parser.SqlCreateRole;
 import com.dremio.exec.planner.sql.parser.SqlDropRole;
 import com.dremio.exec.planner.sql.parser.SqlGrant;
@@ -36,12 +41,17 @@ import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.store.sys.accesscontrol.AccessControlListingManager;
 import java.util.Arrays;
 import java.util.List;
+import org.apache.calcite.sql.SqlExplain;
 import org.apache.calcite.sql.SqlIdentifier;
+import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlLiteral;
+import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
+import org.apache.calcite.sql.util.SqlString;
 import org.apache.calcite.sql.parser.SqlParserPos;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedConstruction;
 
 /**
  * Unit tests for all 6 RBAC DDL handlers: RoleCreateHandler, RoleDropHandler, RoleGrantHandler,
@@ -485,7 +495,8 @@ public class TestRbacDdlHandlers {
     // SqlExceptionHelper.coerceException(), preserving UserException type.
     //
     // Inner handler enforcement paths:
-    //   NormalHandler (SELECT) -> catalog.getTable() -> isRbacDeniedForVds/Pds -> null -> validation
+    //   NormalHandler (SELECT) -> catalog.getTable() -> isRbacDeniedForVds/Pds -> null ->
+    // validation
     // error
     //   InsertTableHandler     -> catalog.validatePrivilege(path, INSERT)
     //   DeleteHandler          -> catalog.validatePrivilege(path, DELETE) + validatePrivilege(path,
@@ -501,5 +512,100 @@ public class TestRbacDdlHandlers {
             "ExplainHandler should not have its own RbacService field -- it delegates to inner handlers")
         .extracting(java.lang.reflect.Field::getName)
         .doesNotContain("rbacService");
+  }
+
+  // -------------------------------------------------------------------------
+  // META-03: EXPLAIN behavioral test — exception propagation (Phase 14)
+  // -------------------------------------------------------------------------
+
+  /**
+   * META-03 behavioral proof: ExplainHandler.toResult() propagates UserException from the inner
+   * handler through SqlExceptionHelper.coerceException(). This test:
+   *
+   * <ol>
+   *   <li>Uses MockedConstruction&lt;SqlHandlerConfig&gt; to intercept the {@code new
+   *       SqlHandlerConfig(...)} call inside ExplainHandler's constructor. Without this,
+   *       SqlHandlerConfig's constructor calls context.getPlanCacheCreator().resolve(...)
+   *       and context.createPlannerNormalizerComponent(...), which NPE with plain mocks.
+   *   <li>Subclasses ExplainHandler to override setupInnerHandlerForDefaultCase() to return a mock
+   *       SqlToPlanHandler that throws UserException on getPlan().
+   *   <li>Asserts that the UserException propagates through toResult().
+   * </ol>
+   *
+   * <p>This replaces the structural assertion (no rbacService field) with behavioral proof that
+   * permission errors are not swallowed.
+   */
+  @Test
+  public void testExplainHandler_denied_propagatesPermissionError() throws Exception {
+    // Create the permission error that inner handlers throw when catalog denies access
+    UserException permissionDenied =
+        UserException.permissionError()
+            .message("Permission denied: SELECT privilege required on source.table")
+            .buildSilently();
+
+    // Create a mock SqlToPlanHandler that throws when getPlan() is called
+    SqlToPlanHandler mockInnerHandler = mock(SqlToPlanHandler.class);
+    doThrow(permissionDenied)
+        .when(mockInnerHandler)
+        .getPlan(any(SqlHandlerConfig.class), anyString(), any(SqlNode.class));
+
+    // Create a mock SqlExplain with PHYSICAL depth and a SELECT-kind inner node
+    SqlExplain mockExplain = mock(SqlExplain.class);
+    SqlLiteral depthLiteral =
+        SqlLiteral.createSymbol(SqlExplain.Depth.PHYSICAL, SqlParserPos.ZERO);
+    when(mockExplain.operand(2)).thenReturn(depthLiteral);
+    when(mockExplain.getDetailLevel()).thenReturn(null);
+
+    // Inner node: a mock SqlNode with SELECT kind, stubbed for toSqlString()
+    SqlNode innerSelectNode = mock(SqlNode.class);
+    when(innerSelectNode.getKind()).thenReturn(SqlKind.SELECT);
+    SqlString mockSqlString = mock(SqlString.class);
+    when(mockSqlString.getSql()).thenReturn("SELECT * FROM source.table");
+    when(innerSelectNode.toSqlString(any(org.apache.calcite.sql.SqlDialect.class)))
+        .thenReturn(mockSqlString);
+    when(mockExplain.operand(0)).thenReturn(innerSelectNode);
+
+    // Configure the outerConfig that gets passed to ExplainHandler's constructor.
+    // The constructor calls new SqlHandlerConfig(config.getContext(), ...) — we intercept
+    // the new SqlHandlerConfig(...) via MockedConstruction to avoid the NPE blocker.
+    SqlHandlerConfig outerConfig = mock(SqlHandlerConfig.class);
+    when(outerConfig.getContext()).thenReturn(queryContext);
+    when(outerConfig.getConverter()).thenReturn(null);
+    when(outerConfig.getObserver())
+        .thenReturn(com.dremio.exec.planner.observer.AttemptObservers.of());
+    when(outerConfig.getMaterializations()).thenReturn(java.util.Optional.empty());
+
+    try (MockedConstruction<SqlHandlerConfig> configConstruction =
+        mockConstruction(
+            SqlHandlerConfig.class,
+            (configMock, ctx) -> {
+              // Configure the intercepted SqlHandlerConfig mock so toResult() can
+              // call config.setResultMode(), config.getContext().getOptions(), etc.
+              when(configMock.getContext()).thenReturn(queryContext);
+              when(configMock.getResultMode())
+                  .thenReturn(
+                      com.dremio.common.logical.PlanProperties.Generator.ResultMode.EXEC);
+            })) {
+
+      // Subclass ExplainHandler to inject our mock inner handler
+      ExplainHandler handler =
+          new ExplainHandler(outerConfig) {
+            @Override
+            protected SqlToPlanHandler setupInnerHandlerForDefaultCase() {
+              return mockInnerHandler;
+            }
+          };
+
+      // Verify MockedConstruction intercepted the constructor (no NPE)
+      assertThat(configConstruction.constructed()).isNotEmpty();
+
+      // The key assertion: UserException propagates through toResult()
+      assertThatThrownBy(
+              () ->
+                  handler.toResult(
+                      "EXPLAIN PLAN FOR SELECT * FROM source.table", mockExplain))
+          .isInstanceOf(UserException.class)
+          .hasMessageContaining("Permission denied");
+    }
   }
 }
