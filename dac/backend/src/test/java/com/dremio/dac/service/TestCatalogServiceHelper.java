@@ -36,8 +36,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -2392,17 +2392,50 @@ public class TestCatalogServiceHelper {
     assertThat(result.children()).isEmpty();
   }
 
-  /** META-03: Physical datasets (PDS) are always visible -- only VDS is RBAC-gated in v1. */
+  /** PDS visible when PDS enforcement is disabled (default). */
   @Test
-  public void testGetNamespaceChildren_nonAdmin_pdsAlwaysVisible() throws Exception {
+  public void testGetNamespaceChildren_nonAdmin_pdsAlwaysVisible_whenPdsEnforcementOff()
+      throws Exception {
     when(rbacService.isAdminMember("user")).thenReturn(false);
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(false);
     NameSpaceContainer pds = pdsContainer("myspace", "my_table");
     setupRbacMockNamespace("myspace", ImmutableList.of(pds));
 
     CatalogListingResult result =
         rbacEnabledHelper.getChildrenForPath(new NamespaceKey("myspace"), null, 100);
 
-    // PDS should be visible without any privilege check
+    assertThat(result.children()).hasSize(1);
+  }
+
+  /** PDS hidden when PDS enforcement is enabled and user has no grant. */
+  @Test
+  public void testGetNamespaceChildren_nonAdmin_pdsHidden_whenPdsEnforcementOn_noGrant()
+      throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(false);
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege("user", "SELECT", "PDS", "myspace.my_table")).thenReturn(false);
+    NameSpaceContainer pds = pdsContainer("myspace", "my_table");
+    setupRbacMockNamespace("myspace", ImmutableList.of(pds));
+
+    CatalogListingResult result =
+        rbacEnabledHelper.getChildrenForPath(new NamespaceKey("myspace"), null, 100);
+
+    assertThat(result.children()).isEmpty();
+  }
+
+  /** PDS visible when PDS enforcement is enabled and user has SELECT grant. */
+  @Test
+  public void testGetNamespaceChildren_nonAdmin_pdsVisible_whenPdsEnforcementOn_withGrant()
+      throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(false);
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege("user", "SELECT", "PDS", "myspace.my_table")).thenReturn(true);
+    NameSpaceContainer pds = pdsContainer("myspace", "my_table");
+    setupRbacMockNamespace("myspace", ImmutableList.of(pds));
+
+    CatalogListingResult result =
+        rbacEnabledHelper.getChildrenForPath(new NamespaceKey("myspace"), null, 100);
+
     assertThat(result.children()).hasSize(1);
   }
 
@@ -2440,8 +2473,19 @@ public class TestCatalogServiceHelper {
 
     Dataset dataset =
         new Dataset(
-            "id", Dataset.DatasetType.PHYSICAL_DATASET, asList("src", "tbl"), null, null, null,
-            null, null, null, null, null, null, null);
+            "id",
+            Dataset.DatasetType.PHYSICAL_DATASET,
+            asList("src", "tbl"),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
 
     assertThatThrownBy(() -> rbacEnabledHelper.promoteToDataset("internalId", dataset))
         .isInstanceOf(UserException.class)
@@ -2455,8 +2499,19 @@ public class TestCatalogServiceHelper {
 
     Dataset dataset =
         new Dataset(
-            "id", Dataset.DatasetType.PHYSICAL_DATASET, asList("src", "tbl"), null, null, null,
-            null, null, null, null, null, null, null);
+            "id",
+            Dataset.DatasetType.PHYSICAL_DATASET,
+            asList("src", "tbl"),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
 
     // Guard passes; method continues and may throw other exceptions from incomplete mocks
     try {
@@ -2471,8 +2526,19 @@ public class TestCatalogServiceHelper {
   public void testPromoteToDataset_rbacDisabled_noBlock() throws Exception {
     Dataset dataset =
         new Dataset(
-            "id", Dataset.DatasetType.PHYSICAL_DATASET, asList("src", "tbl"), null, null, null,
-            null, null, null, null, null, null, null);
+            "id",
+            Dataset.DatasetType.PHYSICAL_DATASET,
+            asList("src", "tbl"),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
 
     // catalogServiceHelper has null rbacService — guard is no-op
     try {

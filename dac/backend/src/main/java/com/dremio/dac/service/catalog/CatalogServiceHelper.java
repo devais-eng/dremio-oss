@@ -1776,7 +1776,10 @@ public class CatalogServiceHelper {
       case VIRTUAL_DATASET:
         {
           // RBAC: enforce DROP privilege on the view being deleted
-          catalogSupplier.get().validatePrivilege(new NamespaceKey(config.getFullPathList()), SqlGrant.Privilege.DROP);
+          catalogSupplier
+              .get()
+              .validatePrivilege(
+                  new NamespaceKey(config.getFullPathList()), SqlGrant.Privilege.DROP);
           namespaceService.deleteDataset(new NamespaceKey(config.getFullPathList()), version);
           break;
         }
@@ -3219,7 +3222,11 @@ public class CatalogServiceHelper {
         String objectPath = String.join(".", container.getFullPathList());
         return rbacService.hasPrivilege(userName, "SELECT", "VDS", objectPath);
       }
-      // Physical datasets (promoted, PDS) are always visible.
+      // When PDS enforcement is enabled, check SELECT grant on PDS
+      if (dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)) {
+        String objectPath = String.join(".", container.getFullPathList());
+        return rbacService.hasPrivilege(userName, "SELECT", "PDS", objectPath);
+      }
       return true;
     }
     if (container.getType() == NameSpaceContainer.Type.FUNCTION) {
