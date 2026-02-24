@@ -19,10 +19,12 @@ import com.dremio.config.DremioConfig;
 import com.dremio.exec.catalog.PluginSabotContext;
 import com.dremio.exec.catalog.StoragePluginId;
 import com.dremio.exec.catalog.conf.DisplayMetadata;
+import com.dremio.exec.catalog.conf.SourceType;
 import io.protostuff.Tag;
 import java.util.List;
 import javax.inject.Provider;
 
+@SourceType(value = "RESTCATALOG", label = "Iceberg REST Catalog", uiConfig = "restcatalog-layout.json")
 public class RestIcebergCatalogPluginConfig extends IcebergCatalogPluginConfig {
 
   // 1-9   - IcebergCatalogPluginConfig

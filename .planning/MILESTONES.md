@@ -28,3 +28,31 @@
 
 ---
 
+
+## v1.1 Enable Iceberg REST Catalog (Shipped: 2026-02-20)
+
+**Phases completed:** 2 phases, 3 plans, 4 tasks
+**Code files modified:** 3 (1 modified, 2 created)
+**Lines of code:** 120 insertions (Java + JSON + SVG)
+**Timeline:** 1 day (2026-02-20)
+**Git range:** 37b035f80..079b07017
+
+**Delivered:** Iceberg REST Catalog source type wired into Dremio OSS, enabling read-only connectivity to any Iceberg REST Catalog server (Lakekeeper, Nessie, Polaris) through standard SQL.
+
+**Key accomplishments:**
+- Added `@SourceType(value="RESTCATALOG")` annotation making the Iceberg REST Catalog plugin discoverable by Dremio's connection scanner
+- Created `restcatalog-layout.json` with 3-tab UI form covering all 8 config fields (endpoint, namespaces, properties, credentials, caching)
+- Validated end-to-end against Lakekeeper: source creation, namespace browsing, table listing, SELECT queries
+- Validated OAuth2 bearer token authentication via `rest.token` catalog property
+- Documented credential vending gap and established portable static `fs.s3a.*` workaround
+- Validated plugin against both Lakekeeper and Nessie REST catalogs
+
+### Known Gaps
+
+- **CONN-03 (partial):** Credential vending from Lakekeeper `loadTable()` not propagated through DremioFileIO. Static `fs.s3a.*` credentials workaround validated. Fix point: `AbstractRestCatalogAccessor.getTableHandleInternal()`. Works for long-lived creds; fails for IAM/STS short-lived tokens.
+- **hasAccessPermission() no-op:** All Dremio users have full read access to all REST catalog tables. RBAC integration deferred to future milestone.
+
+**Archives:** `milestones/v1.1-ROADMAP.md`, `milestones/v1.1-REQUIREMENTS.md`, `milestones/v1.1-MILESTONE-AUDIT.md`
+
+---
+
