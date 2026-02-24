@@ -56,3 +56,33 @@
 
 ---
 
+
+## v1.2 Privilege Context & Enforcement (Shipped: 2026-02-24)
+
+**Phases completed:** 9 phases, 17 plans, 30 tasks
+**Files affected:** 114 files
+**Lines of code:** ~3,091 Java insertions
+**Timeline:** 5 days (2026-02-20 to 2026-02-24)
+**Git range:** 2a8cf2427..cf526f2cc (84 commits on rbac branch)
+
+**Delivered:** Privilege context switching (definer rights for VDS and UDF), SELECT grants on physical tables, container visibility filtering, VDS lifecycle privileges, metadata safety checks, and file browse/promote admin restrictions — completing deny-by-default enforcement across every access path.
+
+**Key accomplishments:**
+- VDS lifecycle enforcement: ALTER, DROP, and CREATE_VIEW privileges enforced at all SQL DDL and REST API call sites
+- Definer rights: view expansion runs under the last modifier's identity with cycle detection, deleted-owner safety, and plan cache definer-chain bypass
+- UDF definer semantics: FunctionConfig owner stamping, CatalogEntityOwnershipImpl FUNCTION fix, EXECUTE enforcement verified
+- PDS SELECT enforcement: opt-in deny-by-default SELECT grants on physical tables with separate `services.rbac.pds.enabled` flag
+- Container visibility filtering: sources, spaces, and folders hidden unless user has access to at least one child; full ancestor path shown
+- Metadata safety: sys.privileges admin-only, DESCRIBE/EXPLAIN gated on privilege model, file browse/promote restricted to admins
+- UAT verified on Docker (port 19047) with 10/10 RBAC tests passing; PostgreSQL source tested with PDS enforcement
+
+**Known gaps (from audit — all low severity):**
+- DROP VDS requires SELECT + DROP grants (undocumented cross-phase constraint; misleading "Unknown view" error)
+- getTable(String datasetId) PDS enforcement TODO (versioned/time-travel path, not main query path)
+- UI search for promoted PDS blocked for non-admin users (guard applies to all source types)
+- Container visibility tested via SQL proxy only, not REST API listing endpoints
+
+**Archives:** `milestones/v1.2-ROADMAP.md`, `milestones/v1.2-REQUIREMENTS.md`, `milestones/v1.2-MILESTONE-AUDIT.md`
+
+---
+

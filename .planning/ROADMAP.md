@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Naive RBAC** — Phases 1-6 (shipped 2026-02-19)
-- 🚧 **v1.2 Privilege Context & Enforcement** — Phases 7-15 (file browse/promote RBAC in progress)
+- ✅ **v1.2 Privilege Context & Enforcement** — Phases 7-15 (shipped 2026-02-24)
 
 ## Phases
 
@@ -21,150 +21,22 @@ See `milestones/v1.0-ROADMAP.md` for full phase details.
 
 </details>
 
-### 🚧 v1.2 Privilege Context & Enforcement (In Progress)
+<details>
+<summary>✅ v1.2 Privilege Context & Enforcement (Phases 7-15) — SHIPPED 2026-02-24</summary>
 
-**Milestone Goal:** Add privilege context switching (definer rights for VDS and UDF), SELECT grants on physical tables, container visibility filtering, complete VDS lifecycle privilege enforcement, and metadata safety checks. Every access path — views, tables, UDFs, containers, describe, explain — is governed by explicit grants with deny-by-default policy.
+- [x] Phase 7: VDS Lifecycle Privilege Enforcement (2/2 plans) — completed 2026-02-21
+- [x] Phase 8: VDS Definer Rights Safety Cluster (2/2 plans) — completed 2026-02-21
+- [x] Phase 9: UDF Rights Verification and Owner Resolution (2/2 plans) — completed 2026-02-21
+- [x] Phase 10: PDS SELECT Enforcement (Opt-in) (2/2 plans) — completed 2026-02-21
+- [x] Phase 11: Container Visibility Filtering (2/2 plans) — completed 2026-02-21
+- [x] Phase 12: Metadata Safety and Integration Testing (3/3 plans) — completed 2026-02-21
+- [x] Phase 13: Code Hardening (1/1 plan) — completed 2026-02-23
+- [x] Phase 14: Test Coverage and Documentation (1/1 plan) — completed 2026-02-23
+- [x] Phase 15: File Browse and Promote RBAC Enforcement (2/2 plans) — completed 2026-02-23
 
-- [x] **Phase 7: VDS Lifecycle Privilege Enforcement** — Wire ALTER, DROP, and CREATE_VIEW enforcement into the three missing call sites; close the v1.0 enforcement gap
-- [x] **Phase 8: VDS Definer Rights Safety Cluster** — Implement view expansion under the last modifier's identity, shipping all eight interdependent pitfall guards active as a unit
-- [x] **Phase 9: UDF Rights Verification and Owner Resolution** — Confirm and harden UDF definer semantics; fix CatalogEntityOwnershipImpl for FUNCTION type; add integration test coverage
-- [x] **Phase 10: PDS SELECT Enforcement (Opt-in)** — Grant SELECT on physical tables to roles; enforce access on tables that have explicit grants; tables without grants remain universally accessible
-- [x] **Phase 11: Container Visibility Filtering** — Sources, spaces, and folders are hidden from non-admin users unless they have access to at least one child object; full ancestor path is shown (completed 2026-02-21)
-- [x] **Phase 12: Metadata Safety and Integration Testing** — Restrict sys.privileges to ADMIN; gate DESCRIBE and EXPLAIN on existing privilege model; end-to-end integration tests across all v1.2 features (completed 2026-02-21)
+See `milestones/v1.2-ROADMAP.md` for full phase details.
 
-#### Gap Closure (from v1.2 audit)
-
-- [x] **Phase 13: Code Hardening** — Fix getTable(datasetId) PDS enforcement gap, DROP VDS misleading error, and source creation metadata leak (completed 2026-02-23)
-- [x] **Phase 14: Test Coverage and Documentation** — Strengthen PDS flag-off tests, add REST API container visibility test, add ExplainHandler behavioral test, update REQUIREMENTS.md traceability (completed 2026-02-23)
-- [x] **Phase 15: File Browse and Promote RBAC Enforcement** — Restrict file browsing and dataset promotion in sources to admin users; prevent non-admin users from exploring file systems or promoting files/folders (completed 2026-02-23)
-
-## Phase Details
-
-### Phase 7: VDS Lifecycle Privilege Enforcement
-**Goal**: Users can only create, alter, and drop views when they hold the corresponding privilege — no view lifecycle operation succeeds without an explicit grant
-**Depends on**: Phase 6 (v1.0 complete)
-**Requirements**: LIFE-01, LIFE-02, LIFE-03
-**Success Criteria** (what must be TRUE):
-  1. A user without ALTER privilege who issues `ALTER VIEW` receives a permission denied error, not a silent success
-  2. A user without DROP privilege who issues `DROP VIEW` receives a permission denied error, not a silent success
-  3. A user without CREATE_VIEW privilege who issues `CREATE VIEW` receives a permission denied error (closes v1.0 enforcement gap where createView() had no validatePrivilege() call)
-  4. An ADMIN user can perform all three operations regardless of explicit grants (admin bypass preserved)
-  5. GRANT/REVOKE ALTER and GRANT/REVOKE DROP on a VDS are accepted by the SQL DDL layer and persisted correctly in the grant store
-**Plans:** 2 plans
-Plans:
-- [ ] 07-01-PLAN.md — Core enforcement infrastructure: error message format, DROP object type, validateCreateViewPrivilege() method + interface chain, updated tests
-- [ ] 07-02-PLAN.md — Call site wiring: fix DropViewHandler, CreateOrUpdateViewHandler ALTER/CREATE_VIEW, CatalogServiceHelper REST API enforcement
-
-### Phase 8: VDS Definer Rights Safety Cluster
-**Goal**: View expansion runs under the last modifier's identity, enabling users to query views over tables they cannot directly access — with all eight pitfall guards active as a unit
-**Depends on**: Phase 7
-**Requirements**: DEFN-01, DEFN-02, DEFN-03, DEFN-04, DEFN-05, DEFN-06
-**Success Criteria** (what must be TRUE):
-  1. User B with SELECT on view V can successfully query V even when V's underlying physical table T is not directly accessible to B (definer's grants are used during expansion)
-  2. A VDS-over-VDS chain with different owners at each level resolves correctly — each view expands under its own creator's identity, not the final querying user's identity
-  3. Revoking the definer's SELECT on the underlying table immediately causes view queries to fail for all invokers (no stale grant snapshot; live KV store is checked at expansion time)
-  4. Querying a view whose owner account has been deleted produces an explicit "View owner no longer exists" permission error, not a silent fallback to the query user's grants
-  5. A cyclic VDS chain (view A references view B references view A) produces a clear validation error, not a StackOverflowError
-**Plans:** 2 plans
-Plans:
-- [ ] 08-01-PLAN.md — Core definer rights activation: CatalogEntityOwnershipImpl VDS owner fix, ViewExpander deleted-owner error, ViewExpansionContext cycle detection
-- [ ] 08-02-PLAN.md — Plan cache definer-rights bypass + comprehensive unit tests for DEFN-01 through DEFN-06
-
-### Phase 9: UDF Rights Verification and Owner Resolution
-**Goal**: UDF definer semantics are confirmed working, the owner resolution bug in CatalogEntityOwnershipImpl is fixed for FUNCTION type, and integration tests document the expected caller/body identity split
-**Depends on**: Phase 8
-**Requirements**: UDF-01, UDF-02, UDF-03
-**Success Criteria** (what must be TRUE):
-  1. A user with EXECUTE privilege on a UDF can call it successfully even when the UDF body references tables the calling user cannot directly access (body runs as UDF owner)
-  2. A user without EXECUTE privilege on a UDF receives a permission denied error when attempting to call it
-  3. CatalogEntityOwnershipImpl.getCatalogEntityOwner() returns the correct owner username for FUNCTION entity type (no longer returns Optional.empty())
-**Plans:** 2 plans
-Plans:
-- [ ] 09-01-PLAN.md — Proto owner field + owner stamping in UserDefinedFunctionCatalogImpl + CatalogEntityOwnershipImpl FUNCTION branch fix
-- [ ] 09-02-PLAN.md — Unit tests for UDF ownership resolution (UDF-02), definer activation (UDF-01), and EXECUTE enforcement (UDF-03)
-
-### Phase 10: PDS SELECT Enforcement (Opt-in)
-**Goal**: When PDS enforcement is enabled, users must have explicit SELECT grants to access physical tables — deny-by-default, consistent with the VDS model; admin bypass preserved
-**Depends on**: Phase 8
-**Requirements**: PDS-01, PDS-02, PDS-03
-**Success Criteria** (what must be TRUE):
-  1. An admin can issue `GRANT SELECT ON PDS source.schema.table TO ROLE analyst` and the grant is persisted with a distinct "PDS" object type key (no collision with VDS grants on same path)
-  2. When PDS enforcement is enabled, users without a SELECT grant on a PDS receive a permission denied error (deny-by-default: no grant = no access)
-  3. An ADMIN user can access all PDS regardless of explicit grants (admin bypass via hasPrivilege short-circuit)
-  4. A user with SELECT on a VDS wrapping a PDS can query the view successfully because definer rights are used during expansion — even if the user has no direct PDS SELECT grant
-**Plans:** 2/2 plans complete
-Plans:
-- [ ] 10-01-PLAN.md — Config flag (RBAC_PDS_ENABLED), RbacService.hasAnyPdsGrant() helper, CatalogImpl.isRbacDeniedForPds() method + 6 call site wiring
-- [ ] 10-02-PLAN.md — Unit tests: 6 PDS enforcement tests in TestCatalogImpl + 2 PDS GRANT/REVOKE tests in TestRbacDdlHandlers
-
-### Phase 11: Container Visibility Filtering
-**Goal**: Non-admin users see only the sources, spaces, and folders that contain at least one object they have access to — the catalog tree reflects actual access, not the full hierarchy
-**Depends on**: Phase 6 (independent of Phases 7-10; can follow Phase 6 directly)
-**Requirements**: CONT-01, CONT-02, CONT-03, CONT-04
-**Success Criteria** (what must be TRUE):
-  1. A non-admin user with SELECT on one VDS inside a space sees that space in the catalog listing; spaces containing no accessible objects are hidden
-  2. A non-admin user with SELECT on a VDS inside a nested folder sees the folder and all its ancestor containers up to the source root
-  3. A non-admin user who has no access to any object inside a source does not see that source in catalog listings
-  4. An ADMIN user sees all sources, spaces, and folders regardless of grant coverage
-**Plans:** 2/2 plans complete
-Plans:
-- [ ] 11-01-PLAN.md — Core algorithm (RbacService getAccessibleObjectPaths + hasAccessibleChildUnderPath) + CatalogServiceHelper space/folder filtering
-- [ ] 11-02-PLAN.md — Resource endpoint wiring (SpaceResource, HomeResource, SpaceFolderResource, ResourceTreeResource) + RbacService unit tests
-
-### Phase 12: Metadata Safety and Integration Testing
-**Goal**: sys.privileges is admin-only, DESCRIBE and EXPLAIN are gated on existing privilege grants, and end-to-end integration tests prove all v1.2 features work correctly together
-**Depends on**: Phases 7, 8, 9, 10, 11 (all features must be present)
-**Requirements**: META-01, META-02, META-03
-**Success Criteria** (what must be TRUE):
-  1. A non-admin user who queries `SELECT * FROM sys.privileges` receives a permission denied error; an ADMIN user can query it without restriction
-  2. A user without SELECT on a VDS or PDS who issues `DESCRIBE table_or_view` receives a permission denied error (DESCRIBE inherits SELECT enforcement)
-  3. An EXPLAIN command referencing objects the user does not have access to fails with a permission denied error; EXPLAIN succeeds only when the user holds all required privileges on all referenced objects
-**Plans:** 3 plans (2 complete, 1 gap closure)
-Plans:
-- [x] 12-01-PLAN.md — sys.privileges admin-only enforcement: isRbacDeniedForSysPrivileges() in CatalogImpl + 4 unit tests
-- [x] 12-02-PLAN.md — DESCRIBE SELECT privilege check in DescribeTableHandler + UserException handling + META-02/03 unit tests
-- [ ] 12-03-PLAN.md — (gap closure) End-to-end integration tests: TestRbacIntegration with live Dremio server verifying META-01/02/03
-
-### Phase 13: Code Hardening
-**Goal**: Close the three code-level gaps identified by the v1.2 audit — PDS enforcement on the versioned-dataset-ID lookup path, DROP VDS error message accuracy, and source creation metadata leak
-**Depends on**: Phase 12
-**Requirements**: PDS-02 (hardening), LIFE-02 (UX fix)
-**Gap Closure**: Closes INT-01, tech debt items from Phases 7 and 10, plus Finding 4 (source metadata leak)
-**Success Criteria** (what must be TRUE):
-  1. `getTable(String datasetId)` enforces `isRbacDeniedForPds` — versioned/time-travel lookups respect PDS grants
-  2. A user with DROP but not SELECT on a VDS receives "Permission denied: SELECT privilege required" instead of "Unknown view"
-  3. A non-admin user attempting to create a source that already exists receives "Permission denied" instead of "already exists"
-**Plans:** 1/1 plans complete
-Plans:
-- [ ] 13-01-PLAN.md — Three surgical fixes: getTable(String) PDS enforcement, DropViewHandler SELECT check, CatalogServiceHelper admin guard + unit tests
-
-### Phase 14: Test Coverage and Documentation
-**Goal**: Strengthen test assertions and close documentation tracking gaps identified by the v1.2 audit
-**Depends on**: Phase 13
-**Requirements**: PDS-02 (test), CONT-01/02 (test), META-03 (test)
-**Gap Closure**: Closes tech debt items from Phases 10, 11, 12
-**Success Criteria** (what must be TRUE):
-  1. PDS flag-off/bypass unit tests use meaningful assertions (not trivially-true `verify(never())` at construction time)
-  2. Container visibility is tested via REST API listing endpoint (not just SQL access proxy)
-  3. ExplainHandler has a behavioral test proving META-03 enforcement (not just structural proof)
-  4. REQUIREMENTS.md traceability shows all 22 requirements as Satisfied
-**Plans:** 1/1 plans complete
-Plans:
-- [ ] 14-01-PLAN.md — PDS test strengthening + REST API container visibility test + ExplainHandler behavioral test + REQUIREMENTS.md verification
-
-### Phase 15: File Browse and Promote RBAC Enforcement
-**Goal**: Non-admin users cannot browse files in sources or promote files/folders to datasets — file system exploration and dataset promotion are restricted to administrators when RBAC is enabled
-**Depends on**: Phase 14
-**Requirements**: FILE-01, FILE-02
-**Success Criteria** (what must be TRUE):
-  1. A non-admin user attempting to browse files in a source (list folder contents) receives a permission denied error instead of seeing the file listing
-  2. A non-admin user attempting to promote a file or folder to a dataset receives a permission denied error
-  3. An ADMIN user can browse files and promote datasets without restriction (admin bypass preserved)
-  4. The file browse and promote restrictions apply across all access paths (REST API, SQL, UI)
-**Plans:** 2 plans
-Plans:
-- [x] 15-01-PLAN.md — Production guards: SourceResource RBAC injection + requireAdmin helper + 5 browse/promote guards; CatalogServiceHelper 3 browse/promote guards
-- [x] 15-02-PLAN.md — Unit tests: TestSourceResourceRbac (15 tests for SourceResource guards) + TestCatalogServiceHelper additions (6 tests for CatalogServiceHelper guards)
+</details>
 
 ## Progress
 
@@ -179,9 +51,9 @@ Plans:
 | 7. VDS Lifecycle Privilege Enforcement | v1.2 | 2/2 | Complete | 2026-02-21 |
 | 8. VDS Definer Rights Safety Cluster | v1.2 | 2/2 | Complete | 2026-02-21 |
 | 9. UDF Rights Verification and Owner Resolution | v1.2 | 2/2 | Complete | 2026-02-21 |
-| 10. PDS SELECT Enforcement (Opt-in) | v1.2 | Complete    | 2026-02-21 | 2026-02-21 |
-| 11. Container Visibility Filtering | v1.2 | Complete    | 2026-02-21 | - |
-| 12. Metadata Safety and Integration Testing | v1.2 | Complete    | 2026-02-21 | - |
-| 13. Code Hardening | v1.2 | Complete    | 2026-02-23 | - |
-| 14. Test Coverage and Documentation | v1.2 | Complete    | 2026-02-23 | - |
+| 10. PDS SELECT Enforcement (Opt-in) | v1.2 | 2/2 | Complete | 2026-02-21 |
+| 11. Container Visibility Filtering | v1.2 | 2/2 | Complete | 2026-02-21 |
+| 12. Metadata Safety and Integration Testing | v1.2 | 3/3 | Complete | 2026-02-21 |
+| 13. Code Hardening | v1.2 | 1/1 | Complete | 2026-02-23 |
+| 14. Test Coverage and Documentation | v1.2 | 1/1 | Complete | 2026-02-23 |
 | 15. File Browse and Promote RBAC Enforcement | v1.2 | 2/2 | Complete | 2026-02-23 |

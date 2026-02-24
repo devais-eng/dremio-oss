@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A role-based access control system for Dremio OSS with privilege context switching. v1.0 established deny-by-default enforcement for VDS and UDF access. v1.2 adds definer rights on views (VDS expansion uses the last modifier's grants), definer semantics verification for UDFs, SELECT grants on physical tables, container visibility filtering, additional VDS lifecycle privileges, and metadata safety. Built on Dremio's catalog infrastructure with RocksDB persistence, SQL DDL, REST API, and system table observability.
+A role-based access control system for Dremio OSS with privilege context switching. v1.0 established deny-by-default enforcement for VDS and UDF access. v1.2 shipped definer rights on views, UDF definer semantics, SELECT grants on physical tables, container visibility filtering, VDS lifecycle privileges (ALTER/DROP/CREATE_VIEW), metadata safety (sys.privileges admin-only, DESCRIBE/EXPLAIN gating), and file browse/promote admin restrictions. All access paths — SQL, REST API, catalog tree — are governed by explicit grants with deny-by-default policy. Built on Dremio's catalog infrastructure with RocksDB persistence, SQL DDL, REST API, and system table observability.
 
 ## Core Value
 
@@ -28,25 +28,23 @@ Users can only access views, tables, and UDFs they've been explicitly granted ac
 - ✓ Wire up existing GRANT/REVOKE SQL DDL (no longer throws UnsupportedError in OSS) — v1.0
 - ✓ REST API endpoints for role and grant management (9 endpoints at /api/v3/rbac) — v1.0
 - ✓ System tables populated: sys.roles, sys.privileges, sys.membership — v1.0
+- ✓ VDS definer rights: view expansion under last modifier's identity with cycle detection and deleted-owner safety — v1.2
+- ✓ UDF definer semantics: FunctionConfig owner stamping, FUNCTION owner resolution fix — v1.2
+- ✓ SELECT on physical tables (PDS): opt-in deny-by-default via `services.rbac.pds.enabled` — v1.2
+- ✓ Container visibility: sources/spaces/folders hidden unless user has child access — v1.2
+- ✓ VDS lifecycle privileges: ALTER, DROP, CREATE_VIEW enforced at all call sites — v1.2
+- ✓ DESCRIBE gating: follows SELECT privilege — v1.2
+- ✓ EXPLAIN gating: requires privileges on all referenced objects — v1.2
+- ✓ sys.privileges admin-only — v1.2
+- ✓ File browse and promote restricted to admin users — v1.2
+- ✓ PDS visibility filtering: non-granted PDS hidden from catalog tree when PDS enforcement enabled — v1.2
+- ✓ Plan cache definer-rights bypass: different definer chains produce different cache entries — v1.2
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-**Current Milestone: v1.2 Privilege Context & Enforcement**
-
-**Goal:** Add privilege context switching (definer/invoker rights), table-level SELECT grants, container visibility, and VDS lifecycle privileges.
-
-**Target features:**
-- VDS definer rights — VDS expansion uses last modifier's privileges, enabling users to query views over tables they can't directly access
-- UDF definer semantics — verified and tested; UDF body runs as creator's identity (already implemented, needs owner resolution fix)
-- SELECT on physical tables (PDS) — grantable SELECT privilege on tables, not just views
-- Container visibility — sources/spaces/folders only visible if user has access to at least one child, full ancestor path shown
-- VDS lifecycle privileges — ALTER and DROP on views as distinct grantable privileges
-- DESCRIBE gating — follows SELECT privilege (implicit, no separate grant)
-- EXPLAIN gating — requires privileges on all referenced objects, for any command type (SELECT, CREATE, etc.)
-- sys.privileges admin-only — system privilege table restricted to ADMIN role
-- PDS CREATE admin-only — only admins can create physical tables in sources
+(No active milestone — next milestone TBD via `/gsd:new-milestone`)
 
 ### Out of Scope
 
@@ -64,13 +62,13 @@ Users can only access views, tables, and UDFs they've been explicitly granted ac
 
 ## Context
 
-Shipped v1.0 with ~4,577 LOC Java across 69 files.
+Shipped v1.2 with ~7,668 LOC Java across 114+ files (v1.0: 4,577 + v1.2: 3,091).
 Tech stack: Java, Proto3, RocksDB KV stores, Jersey/JAX-RS REST, Dremio CatalogImpl enforcement.
-All RBAC code lives in `com.dremio.exec.rbac` package (sabot/kernel module).
+RBAC core lives in `com.dremio.exec.rbac` package (sabot/kernel module). Enforcement wired into CatalogImpl, DDL handlers, REST resources, and CatalogServiceHelper.
 
-Post-v1.0 audit identified and fixed 2 enforcement bypass paths (bulkGetTables, AT-specifier) and v2 API visibility gaps.
-Known v1.0 limitation: catalog visibility pagination may return fewer items than requested when RBAC filters are active.
-Build caveat: Maven build requires Java 21 (enforcer [21,22) range); proto verified with protoc 3.6.0 directly.
+v1.2 UAT verified on Docker (port 19047) with 10/10 RBAC tests + PostgreSQL source PDS enforcement (6/6 tests).
+Known limitations: UI search blocks all source types for non-admin users; container visibility tested via SQL proxy only.
+Build caveat: Maven build requires Java 21 (enforcer [21,22) range).
 
 ### Future candidates (from requirements backlog)
 - WITH GRANT OPTION (delegate privilege granting)
@@ -91,10 +89,10 @@ Build caveat: Maven build requires Java 21 (enforcer [21,22) range); proto verif
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Catalog-level enforcement only (v1.0) | Covers all access paths (SQL + REST), simpler than dual-layer, consistent with EE approach | ⚠️ Revisit — v1.2 needs privilege context switching during planning for definer/invoker rights |
+| Catalog-level enforcement only (v1.0) | Covers all access paths (SQL + REST), simpler than dual-layer, consistent with EE approach | ✓ Good — v1.2 added definer rights within catalog enforcement layer |
 | Deny by default | More secure than allow-by-default; standard practice for access control systems | ✓ Good — clean security model |
 | Flat roles only | Simplicity; nested roles add resolution complexity without clear v1 value | ✓ Good — sufficient for OSS use case |
-| Views as security boundary (v1.0) | Definer rights model makes inner-table checks redundant; standard SQL behavior | ⚠️ Revisit — v1.2 adds table-level SELECT and explicit definer rights |
+| Views as security boundary (v1.0) | Definer rights model makes inner-table checks redundant; standard SQL behavior | ✓ Good — v1.2 shipped both: definer rights on views + opt-in PDS SELECT enforcement |
 | KV Store (RocksDB) persistence | Consistent with Dremio's existing metadata storage patterns | ✓ Good — survives restarts, uses existing infra |
 | Wire up existing SQL DDL | GRANT/REVOKE/CREATE ROLE parsers already exist; avoids reinventing SQL grammar | ✓ Good — zero parser changes needed |
 | Feature flag defaults to OFF | Safe deployment — existing behavior preserved until admin explicitly enables RBAC | ✓ Good — no surprises on upgrade |
@@ -103,6 +101,10 @@ Build caveat: Maven build requires Java 21 (enforcer [21,22) range); proto verif
 | Role IDs = slugified names (not UUIDs) | Human-readable keys, immutable (no rename support) | ✓ Good — simple lookup |
 | No privilege caching in v1 | Hit KV store every hasPrivilege() call; simplicity over performance | ⚠️ Revisit — may need caching at scale |
 | DDL works when RBAC flag is OFF | Admins set up roles/grants before enabling enforcement | ✓ Good — enables staged rollout |
+| Separate PDS enforcement flag | `services.rbac.pds.enabled` independent of `services.rbac.enabled` | ✓ Good — allows VDS-only RBAC rollout first |
+| Definer rights via ViewExpander identity | Reuse existing view expansion identity model, not a new privilege layer | ✓ Good — minimal code, maximum integration |
+| File browse/promote admin-only | Guard all source types (not just file-based) for simplicity | ⚠️ Revisit — over-restrictive for database/catalog sources |
+| Container visibility from grants | Derive container visibility from child grants, not explicit container grants | ✓ Good — no new grant type needed |
 
 ---
-*Last updated: 2026-02-20 after v1.2 requirements defined*
+*Last updated: 2026-02-24 after v1.2 milestone*
