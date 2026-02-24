@@ -39,8 +39,8 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 /**
- * Unit tests for DropViewHandler RBAC enforcement. Follows TestDescribeTableHandler pattern for mock
- * setup.
+ * Unit tests for DropViewHandler RBAC enforcement. Follows TestDescribeTableHandler pattern for
+ * mock setup.
  */
 @RunWith(MockitoJUnitRunner.class)
 public class TestDropViewHandler {

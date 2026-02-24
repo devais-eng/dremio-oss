@@ -47,8 +47,8 @@ import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
-import org.apache.calcite.sql.util.SqlString;
 import org.apache.calcite.sql.parser.SqlParserPos;
+import org.apache.calcite.sql.util.SqlString;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.MockedConstruction;
@@ -525,8 +525,8 @@ public class TestRbacDdlHandlers {
    * <ol>
    *   <li>Uses MockedConstruction&lt;SqlHandlerConfig&gt; to intercept the {@code new
    *       SqlHandlerConfig(...)} call inside ExplainHandler's constructor. Without this,
-   *       SqlHandlerConfig's constructor calls context.getPlanCacheCreator().resolve(...)
-   *       and context.createPlannerNormalizerComponent(...), which NPE with plain mocks.
+   *       SqlHandlerConfig's constructor calls context.getPlanCacheCreator().resolve(...) and
+   *       context.createPlannerNormalizerComponent(...), which NPE with plain mocks.
    *   <li>Subclasses ExplainHandler to override setupInnerHandlerForDefaultCase() to return a mock
    *       SqlToPlanHandler that throws UserException on getPlan().
    *   <li>Asserts that the UserException propagates through toResult().
@@ -551,8 +551,7 @@ public class TestRbacDdlHandlers {
 
     // Create a mock SqlExplain with PHYSICAL depth and a SELECT-kind inner node
     SqlExplain mockExplain = mock(SqlExplain.class);
-    SqlLiteral depthLiteral =
-        SqlLiteral.createSymbol(SqlExplain.Depth.PHYSICAL, SqlParserPos.ZERO);
+    SqlLiteral depthLiteral = SqlLiteral.createSymbol(SqlExplain.Depth.PHYSICAL, SqlParserPos.ZERO);
     when(mockExplain.operand(2)).thenReturn(depthLiteral);
     when(mockExplain.getDetailLevel()).thenReturn(null);
 
@@ -583,8 +582,7 @@ public class TestRbacDdlHandlers {
               // call config.setResultMode(), config.getContext().getOptions(), etc.
               when(configMock.getContext()).thenReturn(queryContext);
               when(configMock.getResultMode())
-                  .thenReturn(
-                      com.dremio.common.logical.PlanProperties.Generator.ResultMode.EXEC);
+                  .thenReturn(com.dremio.common.logical.PlanProperties.Generator.ResultMode.EXEC);
             })) {
 
       // Subclass ExplainHandler to inject our mock inner handler
@@ -601,9 +599,7 @@ public class TestRbacDdlHandlers {
 
       // The key assertion: UserException propagates through toResult()
       assertThatThrownBy(
-              () ->
-                  handler.toResult(
-                      "EXPLAIN PLAN FOR SELECT * FROM source.table", mockExplain))
+              () -> handler.toResult("EXPLAIN PLAN FOR SELECT * FROM source.table", mockExplain))
           .isInstanceOf(UserException.class)
           .hasMessageContaining("Permission denied");
     }

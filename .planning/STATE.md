@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** Users can only access views, tables, and UDFs they've been explicitly granted access to, with deny-by-default policy, privilege context switching (definer rights for VDS and UDF), and admin bypass.
-**Current focus:** v1.2 Privilege Context & Enforcement — MILESTONE COMPLETE (all 14 phases done, all 22 requirements Satisfied)
+**Current focus:** v1.2 Privilege Context & Enforcement — COMPLETE (15/15 phases)
 
 ## Current Position
 
-Phase: 14 of 14 (Test Coverage and Documentation)
-Plan: 01 of 01 (COMPLETE)
-Status: v1.2 milestone complete — all 14 phases executed, all 22 requirements Satisfied
-Last activity: 2026-02-23 — Phase 14 Plan 01 executed: test coverage improvements (6 PDS tests rewritten, 3 REST API tests, 1 ExplainHandler behavioral test)
+Phase: 15 of 15 (File Browse and Promote RBAC Enforcement)
+Plan: 2/2 complete
+Status: Phase 15 complete — UAT verified on Docker (port 19047)
+Last activity: 2026-02-24 — Phase 15 executed and UAT passed (10/10 RBAC tests)
 
-Progress: [██████████] 100% (v1.2 — 14/14 phases complete)
+Progress: [██████████] 100% (v1.2 — 15/15 phases complete)
 
 ## Performance Metrics
 
@@ -118,9 +118,18 @@ Recent decisions affecting v1.2 work:
 - [Phase 14 P01]: ExplainHandler test uses MockedConstruction<SqlHandlerConfig> (Option D) to avoid SqlHandlerConfig constructor NPE -- mirrors DatasetManager pattern from Task 1
 - [Phase 14 P01]: Sources listing test uses before/after assertion structure to handle cp source system-bypass; SqlString import corrected to org.apache.calcite.sql.util.SqlString
 
+### Roadmap Evolution
+
+- Phase 15 added: File Browse and Promote RBAC Enforcement — non-admin users cannot browse source files or promote files/folders to datasets
+
+### Known Limitations / Future Improvements
+
+- **UI search for promoted PDS**: Non-admin users cannot discover promoted PDS via the global UI search bar — the `getSource()` guard blocks the entire call, returning "Permission denied: only administrators can browse source files." Users CAN still see and query granted PDS via the SQL editor left panel and direct SQL. A future improvement would refine the guard to block only raw file/folder browsing while still allowing promoted PDS (namespace entities) to pass through search results. This requires splitting the `getSource()` response to strip unpromoted file listings while preserving promoted dataset metadata.
+- **Guard applies to all source types**: The `getSource()` and `getFolder()` guards block non-admin access for ALL source types — not just file-based sources (S3/NAS) but also database sources (PostgreSQL, MySQL) and catalog sources (Nessie, REST catalogs). For database/catalog sources there are no files to browse, so the guard is over-restrictive. However, users CAN still see granted tables/views in the SQL editor left panel and query them directly. A future improvement would check the source type and only apply the guard to file-system-based sources (FileSystemPlugin).
+
 ### Pending Todos
 
-None.
+- Jobs visibility fix (JobsListingResource/JobsResource) committed and UAT-verified.
 
 ### Blockers/Concerns
 
@@ -132,6 +141,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-23
-Stopped at: Completed 14-01-PLAN.md. v1.2 MILESTONE COMPLETE: all 14 phases executed, all 22 requirements Satisfied. Phase 14 added 6 rewritten PDS tests, 3 REST API container visibility tests, and 1 ExplainHandler behavioral test. No production code changes.
-Resume file: .planning/phases/14-test-coverage-and-documentation/14-01-SUMMARY.md
+Last session: 2026-02-24
+Stopped at: Phase 15 complete and UAT verified. v1.2 MILESTONE COMPLETE: all 15 phases executed. Phase 15 added 8 admin-only guards (5 SourceResource, 3 CatalogServiceHelper) and 21 unit tests. Jobs visibility fix committed. UAT passed 10/10 on Docker (port 19047).
+Resume file: .planning/phases/15-file-browse-and-promote-rbac-enforcement/15-02-SUMMARY.md

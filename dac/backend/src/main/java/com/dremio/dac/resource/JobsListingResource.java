@@ -18,6 +18,7 @@ package com.dremio.dac.resource;
 import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
 
 import com.dremio.common.exceptions.UserException;
+import com.dremio.config.DremioConfig;
 import com.dremio.dac.annotations.RestResource;
 import com.dremio.dac.annotations.Secured;
 import com.dremio.dac.model.job.JobDatasetGraphUI;
@@ -27,7 +28,6 @@ import com.dremio.dac.model.job.ResultOrder;
 import com.dremio.dac.obfuscate.ObfuscationUtils;
 import com.dremio.dac.service.catalog.CatalogServiceHelper;
 import com.dremio.dac.service.errors.JobResourceNotFoundException;
-import com.dremio.config.DremioConfig;
 import com.dremio.exec.proto.UserBitShared;
 import com.dremio.exec.rbac.RbacService;
 import com.dremio.service.job.JobDetails;

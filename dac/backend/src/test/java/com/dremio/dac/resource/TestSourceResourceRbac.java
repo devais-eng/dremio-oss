@@ -17,7 +17,6 @@ package com.dremio.dac.resource;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -89,8 +88,7 @@ public class TestSourceResourceRbac {
     // Prevent SourceNotFoundException in constructor
     SourceConfig sourceConfig = new SourceConfig();
     sourceConfig.setName("testSource");
-    when(namespaceService.getSource(
-            new com.dremio.service.namespace.NamespaceKey("testSource")))
+    when(namespaceService.getSource(new com.dremio.service.namespace.NamespaceKey("testSource")))
         .thenReturn(sourceConfig);
 
     // Prevent NPE in getSource()

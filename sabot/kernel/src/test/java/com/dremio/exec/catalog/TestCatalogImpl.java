@@ -2158,7 +2158,8 @@ public class TestCatalogImpl {
     when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString()))
         .thenReturn(false);
 
-    DremioTable pdsTable = mock(DremioTable.class); // NOT ViewTable — avoids isRbacDeniedForPds short-circuit
+    DremioTable pdsTable =
+        mock(DremioTable.class); // NOT ViewTable — avoids isRbacDeniedForPds short-circuit
     NamespaceKey key = new NamespaceKey(Arrays.asList("source", "table"));
 
     try (MockedConstruction<DatasetManager> ignored =
@@ -2304,8 +2305,8 @@ public class TestCatalogImpl {
   }
 
   /**
-   * PDS-02 system user: System user ($dremio$) bypasses all RBAC checks including PDS. Verified
-   * via catalog.getTable(key) returning the PDS table and hasPrivilege never being called.
+   * PDS-02 system user: System user ($dremio$) bypasses all RBAC checks including PDS. Verified via
+   * catalog.getTable(key) returning the PDS table and hasPrivilege never being called.
    */
   @Test
   public void testPdsAccess_systemUser_bypassesPdsEnforcement() {

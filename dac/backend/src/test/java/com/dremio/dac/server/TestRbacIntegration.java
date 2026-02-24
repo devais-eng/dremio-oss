@@ -80,9 +80,7 @@ public class TestRbacIntegration extends BaseTestServer {
   // SQL helpers
   // ---------------------------------------------------------------------------
 
-  /**
-   * Runs SQL as the given user and expects success. Throws RuntimeException if the job fails.
-   */
+  /** Runs SQL as the given user and expects success. Throws RuntimeException if the job fails. */
   private static void runSql(String sql, String username) {
     submitJobAndWaitUntilCompletion(
         JobRequest.newBuilder()
@@ -115,9 +113,7 @@ public class TestRbacIntegration extends BaseTestServer {
     }
   }
 
-  /**
-   * Creates a Dremio space via the namespace service. Safe to call multiple times (idempotent).
-   */
+  /** Creates a Dremio space via the namespace service. Safe to call multiple times (idempotent). */
   private static void createSpaceIfNotExists(String spaceName) {
     try {
       NamespaceKey key = new NamespaceKey(spaceName);
@@ -204,8 +200,7 @@ public class TestRbacIntegration extends BaseTestServer {
     // Grant SELECT so user can see the view, but not ALTER.
     grantSelectOnVds("life_alter.v1");
     // Re-creating an existing view = ALTER operation in Dremio.
-    String error =
-        runSqlExpectingFailure("CREATE VIEW life_alter.v1 AS SELECT 2 AS id", USER);
+    String error = runSqlExpectingFailure("CREATE VIEW life_alter.v1 AS SELECT 2 AS id", USER);
     assertThat(error).isNotNull();
   }
 
@@ -242,8 +237,7 @@ public class TestRbacIntegration extends BaseTestServer {
     // table is not directly accessible (view expansion uses definer's grants).
     createSpaceIfNotExists("defn_basic");
     // Admin creates a view over INFORMATION_SCHEMA (always accessible to admin as definer).
-    runSqlAsAdmin(
-        "CREATE VIEW defn_basic.v1 AS SELECT * FROM INFORMATION_SCHEMA.\"tables\"");
+    runSqlAsAdmin("CREATE VIEW defn_basic.v1 AS SELECT * FROM INFORMATION_SCHEMA.\"tables\"");
     // Grant SELECT on the view only — not on underlying INFORMATION_SCHEMA tables.
     grantSelectOnVds("defn_basic.v1");
     // User queries the view via definer rights.
@@ -286,8 +280,7 @@ public class TestRbacIntegration extends BaseTestServer {
     // If CREATE FUNCTION is not supported in this OSS build, skip gracefully.
     createSpaceIfNotExists("udf_test");
     try {
-      runSqlAsAdmin(
-          "CREATE FUNCTION udf_test.add_one(x INT) RETURNS INT RETURN x + 1");
+      runSqlAsAdmin("CREATE FUNCTION udf_test.add_one(x INT) RETURNS INT RETURN x + 1");
       String error = runSqlExpectingFailure("SELECT udf_test.add_one(5)", USER);
       assertThat(error).isNotNull();
     } catch (Exception e) {
@@ -313,12 +306,10 @@ public class TestRbacIntegration extends BaseTestServer {
     // Uses a role to verify the grant/revoke lifecycle compiles and stores correctly.
     runSqlAsAdmin("CREATE ROLE pds_analyst");
     try {
-      runSqlAsAdmin(
-          "GRANT SELECT ON PDS \"cp\".\"tpch/nation.parquet\" TO ROLE pds_analyst");
+      runSqlAsAdmin("GRANT SELECT ON PDS \"cp\".\"tpch/nation.parquet\" TO ROLE pds_analyst");
       // Verify the grant was accepted (no exception = success).
       // Cleanup: revoke and drop role.
-      runSqlAsAdmin(
-          "REVOKE SELECT ON PDS \"cp\".\"tpch/nation.parquet\" FROM ROLE pds_analyst");
+      runSqlAsAdmin("REVOKE SELECT ON PDS \"cp\".\"tpch/nation.parquet\" FROM ROLE pds_analyst");
     } finally {
       try {
         runSqlAsAdmin("DROP ROLE pds_analyst");
@@ -436,8 +427,7 @@ public class TestRbacIntegration extends BaseTestServer {
     // META-03: EXPLAIN PLAN FOR SELECT * FROM VDS requires SELECT privilege on the VDS.
     createSpaceIfNotExists("explain_test");
     runSqlAsAdmin("CREATE VIEW explain_test.v1 AS SELECT 1 AS id");
-    String error =
-        runSqlExpectingFailure("EXPLAIN PLAN FOR SELECT * FROM explain_test.v1", USER);
+    String error = runSqlExpectingFailure("EXPLAIN PLAN FOR SELECT * FROM explain_test.v1", USER);
     assertThat(error).isNotNull();
   }
 
@@ -463,7 +453,8 @@ public class TestRbacIntegration extends BaseTestServer {
     runSqlAsAdmin("SELECT * FROM INFORMATION_SCHEMA.\"tables\"");
     // Verify non-admin can query via a VDS (definer rights allow INFORMATION_SCHEMA access):
     createSpaceIfNotExists("info_schema_space");
-    runSqlAsAdmin("CREATE VIEW info_schema_space.v_info AS SELECT * FROM INFORMATION_SCHEMA.\"tables\"");
+    runSqlAsAdmin(
+        "CREATE VIEW info_schema_space.v_info AS SELECT * FROM INFORMATION_SCHEMA.\"tables\"");
     grantSelectOnVds("info_schema_space.v_info");
     runSql("SELECT * FROM info_schema_space.v_info", USER);
   }
@@ -558,8 +549,7 @@ public class TestRbacIntegration extends BaseTestServer {
 
     // Cleanup: revoke the grant
     try {
-      runSqlAsAdmin(
-          "REVOKE SELECT ON PDS \"cp\".\"tpch/nation.parquet\" FROM ROLE " + USER_ROLE);
+      runSqlAsAdmin("REVOKE SELECT ON PDS \"cp\".\"tpch/nation.parquet\" FROM ROLE " + USER_ROLE);
     } catch (Exception e) {
       // Best-effort cleanup
     }
