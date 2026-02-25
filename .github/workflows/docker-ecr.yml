@@ -14,6 +14,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,21 +38,45 @@ jobs:
       - name: Verify tarball exists
         run: ls -lh distribution/server/target/dremio-community-*.tar.gz
 
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dremio-tarball
+          path: distribution/server/target/dremio-community-*.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout Dockerfile only
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: distribution/docker/Dockerfile
+          sparse-checkout-cone-mode: false
+
+      - name: Download tarball artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dremio-tarball
+          path: docker-context
+
+      - name: Stage Docker context
+        run: |
+          mv docker-context/dremio-community-*.tar.gz docker-context/dremio.tar.gz
+          cp distribution/docker/Dockerfile docker-context/Dockerfile
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       # --- ECR Authentication and Push ---
       # Required GitHub Secrets:
       #   AWS_ACCESS_KEY_ID     - IAM user access key with ECR push permissions
       #   AWS_SECRET_ACCESS_KEY - IAM user secret key
       #   AWS_REGION            - AWS region of the ECR repository (e.g., eu-west-1)
       #   ECR_REPOSITORY        - ECR repository name (not the full URI)
-
-      - name: Stage Docker context
-        run: |
-          mkdir docker-context
-          cp distribution/server/target/dremio-community-*.tar.gz docker-context/dremio.tar.gz
-          cp distribution/docker/Dockerfile docker-context/Dockerfile
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -69,5 +96,5 @@ jobs:
           file: docker-context/Dockerfile
           push: true
           tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${{ steps.version.outputs.VERSION }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${{ needs.build.outputs.version }}
             ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
