@@ -841,7 +841,9 @@ public class TestSourceService {
         mock(BufferAllocatorFactory.class),
         mock(OptionManager.class),
         () -> mock(Orphanage.Factory.class),
-        catalogService);
+        catalogService,
+        null,
+        null);
   }
 
   private void complexMockSetup() throws NamespaceException {
