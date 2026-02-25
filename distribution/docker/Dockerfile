@@ -14,6 +14,7 @@
 # limitations under the License.
 #
 ARG TARBALL_PATH=dremio.tar.gz
+ARG JAVA_IMAGE="eclipse-temurin:17-jre-jammy"
 FROM busybox AS extractor
 ARG TARBALL_PATH
 COPY ${TARBALL_PATH} /tmp/dremio.tar.gz
@@ -21,7 +22,6 @@ RUN mkdir -p /opt/dremio \
     && tar xzf /tmp/dremio.tar.gz -C /opt/dremio --strip-components=1 \
     && rm /tmp/dremio.tar.gz
 
-ARG JAVA_IMAGE="eclipse-temurin:17-jre-jammy"
 FROM ${JAVA_IMAGE} AS runtime
 
 LABEL maintainer=Dremio
