@@ -11,7 +11,7 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 
 Milestone: v1.2 GitHub Actions Docker Distribution — SHIPPED 2026-02-21
 Status: All milestones complete (v1.0, v1.1, v1.2). No active milestone.
-Last activity: 2026-02-21 — v1.2 milestone archived
+Last activity: 2026-02-25 - Completed quick task 2: Split docker-ecr workflow into build and docker jobs
 
 ## Performance Metrics
 
@@ -46,8 +46,15 @@ None.
 - [Build]: Maven build requires Java 21 (enforcer [21,22) range); only Java 11/17 available locally. CI uses setup-java to install Java 21.
 - [AWS]: ECR repository, IAM user, and GitHub Secrets must be configured before first workflow run.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 1 | Fix Github Actions docker build ARG JAVA_IMAGE scope | 2026-02-25 | 7fd637779 | [1-fix-github-actions-docker-build-arg-java](./quick/1-fix-github-actions-docker-build-arg-java/) |
+| 2 | Split docker-ecr workflow into build and docker jobs | 2026-02-25 | 92f7bfccf | [2-split-docker-ecr-workflow-into-build-and](./quick/2-split-docker-ecr-workflow-into-build-and/) |
+
 ## Session Continuity
 
-Last session: 2026-02-21
-Stopped at: v1.2 milestone completed and archived
+Last session: 2026-02-25
+Stopped at: Completed quick task 2: Split docker-ecr workflow into build and docker jobs
 Resume file: None
