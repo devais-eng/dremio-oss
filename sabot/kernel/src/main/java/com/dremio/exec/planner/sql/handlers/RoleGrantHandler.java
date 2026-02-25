@@ -21,6 +21,8 @@ import com.dremio.exec.planner.sql.handlers.direct.SimpleCommandResult;
 import com.dremio.exec.planner.sql.handlers.direct.SimpleDirectHandler;
 import com.dremio.exec.planner.sql.handlers.direct.SqlNodeUtil;
 import com.dremio.exec.planner.sql.parser.SqlGrantRole;
+import com.dremio.exec.rbac.RbacEntityAlreadyExistsException;
+import com.dremio.exec.rbac.RbacEntityNotFoundException;
 import com.dremio.exec.rbac.RbacService;
 import java.util.Collections;
 import java.util.List;
@@ -50,7 +52,17 @@ public class RoleGrantHandler extends SimpleDirectHandler {
           .buildSilently();
     }
 
-    rbacService.addMembership(granteeName, roleName, userName);
+    try {
+      rbacService.addMembership(granteeName, roleName, userName);
+    } catch (RbacEntityNotFoundException e) {
+      throw UserException.validationError()
+          .message("Role '%s' not found.", roleName)
+          .buildSilently();
+    } catch (RbacEntityAlreadyExistsException e) {
+      throw UserException.validationError()
+          .message("User '%s' is already a member of role '%s'.", granteeName, roleName)
+          .buildSilently();
+    }
     return Collections.singletonList(
         SimpleCommandResult.successful("Role '%s' granted to user '%s'.", roleName, granteeName));
   }
