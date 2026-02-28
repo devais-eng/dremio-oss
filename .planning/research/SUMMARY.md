@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-This milestone adds a single GitHub Actions workflow that builds the Dremio OSS distribution from Maven source and pushes a Docker image to a private AWS ECR repository whenever a `v*` tag is pushed. The pattern is well-understood and all required actions are official, stable, and verified against live APIs. Exactly two files change: `.github/workflows/docker-ecr.yml` (new) and `distribution/docker/Dockerfile` (modified). No application source code changes are required.
+This milestone adds a single GitHub Actions workflow that builds the Dremio OSS distribution from Maven source and pushes a Docker image to a private AWS ECR repository whenever a `v*` tag is pushed. The pattern is well-understood and all required actions are official, stable, and verified against live APIs. Exactly two files change: `.github/workflows/docker-ghcr.yml` (new) and `distribution/docker/Dockerfile` (modified). No application source code changes are required.
 
 The recommended approach is a single-job sequential workflow: checkout, Java 21 setup with built-in Maven cache, Maven package build (`-pl distribution/server -am -DskipTests -Drevision={version}`), Dockerfile adaptation from `wget`-based download to `COPY`-based local artifact, AWS credential configuration, ECR login, and Docker build + push using official actions. The git tag (e.g., `v1.2`) drives both the Maven revision (`-Drevision=1.2`) and the Docker image tag (`1.2`), keeping versions consistent throughout. The Docker image uses `eclipse-temurin:17-jre-jammy` as the runtime base, replacing the existing `eclipse-temurin:11-jdk` with a production-appropriate JRE on a supported Java LTS version.
 
