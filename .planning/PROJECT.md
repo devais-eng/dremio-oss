@@ -67,7 +67,7 @@ Make Dremio OSS a production-capable data lakehouse query engine by closing crit
 
 **v1.1 Iceberg REST Catalog:** `@SourceType(value="RESTCATALOG")` added to `RestIcebergCatalogPluginConfig`, `restcatalog-layout.json` created with 3-tab UI form, `RESTCATALOG.svg` icon at classpath root. 120 LOC across 3 files. Validated against Lakekeeper and Nessie. Static `fs.s3a.*` credentials needed as workaround for credential vending gap.
 
-**v1.2 GitHub Actions Docker Distribution:** CI/CD pipeline: `.github/workflows/docker-ecr.yml` (72 lines) triggers on `v*` tag push, builds tarball via Maven (Java 21), stages into Docker context, builds multi-stage image (busybox extractor + eclipse-temurin:17-jre-jammy runtime), authenticates to AWS ECR, and pushes with versioned + latest tags. 86 insertions across 3 files. Requires AWS ECR repo + IAM user + 4 GitHub Secrets.
+**v1.2 GitHub Actions Docker Distribution:** CI/CD pipeline: `.github/workflows/docker-ghcr.yml` (≈72 lines) triggers on `v*` tag push, builds tarball via Maven (Java 21), stages into Docker context, builds multi-stage image (busybox extractor + eclipse-temurin:17-jre-jammy runtime), authenticates to GitHub Container Registry (GHCR) via `GITHUB_TOKEN`, and pushes with versioned + latest tags. 86 insertions across 3 files. Requires GHCR repository/namespace and appropriate `GITHUB_TOKEN` permissions (no AWS-specific secrets).
 
 Build caveat: Maven build requires Java 21 (enforcer [21,22) range).
 
