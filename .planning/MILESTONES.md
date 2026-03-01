@@ -57,7 +57,35 @@
 ---
 
 
-## v1.2 Privilege Context & Enforcement (Shipped: 2026-02-24)
+## v1.2 GitHub Actions Docker Distribution (Shipped: 2026-02-21)
+
+**Phases completed:** 3 phases, 3 plans, 6 tasks
+**Files affected:** 3 (1 created, 2 modified)
+**Lines of code:** 86 insertions, 13 deletions (YAML + Dockerfile)
+**Timeline:** 1 day (2026-02-20)
+**Git range:** 35e40373b..fbc5a0b4e (5 commits on develop branch)
+
+**Delivered:** End-to-end GitHub Actions CI/CD pipeline that builds Docker images of the custom Dremio OSS fork and pushes them to GitHub Container Registry (GHCR) on git tag pushes. (Originally targeted AWS ECR; switched to GHCR via quick tasks 1-3.)
+
+**Key accomplishments:**
+- GitHub Actions workflow triggered on `v*` tag pushes with version extraction, Java 21 setup, and Maven cache
+- Maven build producing `distribution/server/target/dremio-community-{version}.tar.gz` with all build flags
+- Multi-stage Dockerfile rewrite: busybox extractor + eclipse-temurin:17-jre-jammy runtime (replacing wget + Java 11 JDK)
+- Staging directory pattern isolating Docker build context (tarball + Dockerfile only) from full repo
+- GHCR authentication via `GITHUB_TOKEN` — no AWS credentials required
+- Dual Docker image tagging: versioned tag from git tag + `latest` tag on every push
+
+**Quick task follow-ups (post-milestone):**
+- Quick-1: Fix ARG JAVA_IMAGE scope in Dockerfile (2026-02-25)
+- Quick-2: Split docker-ecr workflow into separate build and docker jobs (2026-02-25)
+- Quick-3: Switch push target from ECR to GHCR (2026-02-28)
+
+**Archives:** `milestones/v1.2-ROADMAP.md`, `milestones/v1.2-REQUIREMENTS.md`, `milestones/v1.2-MILESTONE-AUDIT.md`
+
+---
+
+
+## v1.3 Privilege Context & Enforcement (Shipped: 2026-02-24)
 
 **Phases completed:** 9 phases, 17 plans, 30 tasks
 **Files affected:** 114 files
@@ -82,7 +110,7 @@
 - UI search for promoted PDS blocked for non-admin users (guard applies to all source types)
 - Container visibility tested via SQL proxy only, not REST API listing endpoints
 
-**Archives:** `milestones/v1.2-ROADMAP.md`, `milestones/v1.2-REQUIREMENTS.md`, `milestones/v1.2-MILESTONE-AUDIT.md`
+**Archives:** `milestones/v1.3-ROADMAP.md`, `milestones/v1.3-REQUIREMENTS.md`, `milestones/v1.3-MILESTONE-AUDIT.md`
 
 ---
 
