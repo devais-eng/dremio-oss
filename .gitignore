@@ -2,6 +2,7 @@
 .*/
 !.mvn/
 !.github/
+!.planning/
 .buildpath
 .checkstyle
 .classpath

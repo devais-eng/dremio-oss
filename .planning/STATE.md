@@ -11,7 +11,7 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 Milestone: All milestones complete. Next milestone TBD.
 Status: All milestones complete (v1.0, v1.1, v1.2, v1.3). No active milestone.
-Last activity: 2026-03-01 — merged develop into rbac, aligned planning directory
+Last activity: 2026-03-01 - Completed quick task 4: merge develop and align .planning directory.
 
 ## Shipped Milestones
 
@@ -26,6 +26,12 @@ Last activity: 2026-03-01 — merged develop into rbac, aligned planning directo
 - **Guard applies to all source types**: File browse/promote guards block non-admin access for ALL source types, including database/catalog sources where there are no files to browse.
 - **bulkGetTables() PDS performance**: One listGrantsByObject() call per table in batch — needs profiling at scale.
 - **Credential vending gap (v1.1)**: DremioFileIO discards vended credentials from Iceberg loadTable(); static fs.s3a.* workaround works for long-lived creds but fails for IAM/STS short-lived tokens.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 4 | merge develop and align .planning directory. | 2026-03-01 | da7cb6b2c | [4-merge-develop-and-align-planning-directo](./quick/4-merge-develop-and-align-planning-directo/) |
 
 ## Session Continuity
 
