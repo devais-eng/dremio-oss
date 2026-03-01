@@ -13,19 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-ARG JAVA_IMAGE="eclipse-temurin:11-jdk"
-FROM ${JAVA_IMAGE} as base
+ARG TARBALL_PATH=dremio.tar.gz
+ARG JAVA_IMAGE="eclipse-temurin:17-jre-jammy"
+FROM busybox AS extractor
+ARG TARBALL_PATH
+COPY ${TARBALL_PATH} /tmp/dremio.tar.gz
+RUN mkdir -p /opt/dremio \
+    && tar xzf /tmp/dremio.tar.gz -C /opt/dremio --strip-components=1 \
+    && rm /tmp/dremio.tar.gz
+
+FROM ${JAVA_IMAGE} AS runtime
 
 LABEL maintainer=Dremio
 
-ARG DOWNLOAD_URL
-
 RUN \
-  apt-get update \
-  && apt-get install wget -y \
-  && rm -rf /var/lib/apt/lists/* \
-  \
-  && mkdir -p /opt/dremio \
+  mkdir -p /opt/dremio \
   && mkdir -p /var/lib/dremio \
   && mkdir -p /var/run/dremio \
   && mkdir -p /var/log/dremio \
@@ -36,10 +38,9 @@ RUN \
   && chown -R dremio:dremio /opt/dremio/data \
   && chown -R dremio:dremio /var/run/dremio \
   && chown -R dremio:dremio /var/log/dremio \
-  && chown -R dremio:dremio /var/lib/dremio \
-  && wget -q "${DOWNLOAD_URL}" -O dremio.tar.gz \
-  && tar vxfz dremio.tar.gz -C /opt/dremio --strip-components=1 \
-  && rm -rf dremio.tar.gz
+  && chown -R dremio:dremio /var/lib/dremio
+
+COPY --from=extractor --chown=dremio:dremio /opt/dremio /opt/dremio
 
 EXPOSE 9047/tcp
 EXPOSE 31010/tcp
