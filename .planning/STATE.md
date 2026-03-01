@@ -11,7 +11,7 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 Milestone: All milestones complete. Next milestone TBD.
 Status: All milestones complete (v1.0, v1.1, v1.2, v1.3). No active milestone.
-Last activity: 2026-03-01 - Completed quick task 4: merge develop and align .planning directory.
+Last activity: 2026-03-01 - Completed quick task 5: remove .planning from .gitignore.
 
 ## Shipped Milestones
 
@@ -32,8 +32,9 @@ Last activity: 2026-03-01 - Completed quick task 4: merge develop and align .pla
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 4 | merge develop and align .planning directory. | 2026-03-01 | da7cb6b2c | [4-merge-develop-and-align-planning-directo](./quick/4-merge-develop-and-align-planning-directo/) |
+| 5 | remove .planning from .gitignore | 2026-03-01 | 6ca527087 | [5-remove-planning-from-gitignore](./quick/5-remove-planning-from-gitignore/) |
 
 ## Session Continuity
 
 Last session: 2026-03-01
-Stopped at: Quick task 4 complete — develop merged into rbac, planning directory aligned.
+Stopped at: Quick task 5 complete — .planning/ untracked from .gitignore and committed to history.
