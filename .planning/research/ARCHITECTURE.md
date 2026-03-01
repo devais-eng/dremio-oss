@@ -1,494 +1,776 @@
 # Architecture Research
 
-**Domain:** Dremio OSS — Iceberg REST Catalog plugin integration (v1.1)
+**Domain:** Dremio OSS — GitHub Actions CI/CD pipeline (Docker + ECR distribution)
 **Researched:** 2026-02-20
-**Confidence:** HIGH (all findings directly verified from source code)
+**Confidence:** HIGH (Maven/Docker/GH Actions patterns are stable and well-documented; all Dremio
+build artifact paths verified directly from codebase)
 
 ---
 
 ## Standard Architecture
 
-### System Overview — Source Registration and Query Execution
-
-The Dremio OSS plugin architecture has five distinct layers a new source must traverse, from
-registration to query execution:
+### System Overview
 
 ```
-LAYER 1: SOURCE REGISTRATION (Classpath Scanning)
-
-  @SourceType("RESTCATALOG", label=..., uiConfig=...)
-         annotation on RestIcebergCatalogPluginConfig
-  ConnectionReaderImpl.makeReader(scanResult)
-    -> scans for @SourceType annotated classes
-    -> builds Map<typeName, Schema> (schemaByName)
-    -> ConnectionReader provides getAllConnectionConfs()
-
-LAYER 2: SOURCE VISIBILITY (API / Feature Flags)
-
-  DeprecatedSourceResource.isSourceTypeVisible("RESTCATALOG")
-    -> case "RESTCATALOG": return RESTCATALOG_PLUGIN_ENABLED
-  SourceVerifier.isSourceSupported(sourceType, optionManager)
-    -> both checks must pass for source to appear in UI/API
-
-  SourceTypeTemplate.fromSourceClass(...)
-    -> loads icon: classLoader.getResource("RESTCATALOG.svg")
-    -> loads UI config: classLoader.getResourceAsStream(uiConfig)
-
-LAYER 3: PLUGIN LIFECYCLE (PluginConfig -> StoragePlugin)
-
-  RestIcebergCatalogPluginConfig.newPlugin(...)
-    -> new RestIcebergCatalogPlugin(this, sabotContext, name, idPrv)
-  ManagedStoragePlugin calls config.newPlugin(...)
-  PluginsManager.newPlugin(SourceConfig) manages lifecycle
-
-  IcebergCatalogPlugin.start()
-    -> validateOnStart(): checks RESTCATALOG_PLUGIN_ENABLED
-    -> createCatalog(fsConf) -> IcebergRestCatalogAccessor
-       (wraps RESTCatalog via ExpiringCatalogCache)
-    -> createFSCache() -> DatasetFileSystemCache
-
-LAYER 4: DATASET RESOLUTION (Metadata)
-
-  IcebergCatalogPlugin.getDatasetHandle(EntityPath, options...)
-    -> CatalogAccessor.getDatasetHandle(components, plugin, options)
-    -> returns IcebergCatalogTableProvider (tables)
-       or IcebergCatalogViewProvider (views, if viewsEnabled())
-
-  IcebergCatalogPlugin.listDatasetHandles(options...)
-    -> CatalogAccessor.listDatasetHandles(rootName, plugin)
-
-  IcebergCatalogPlugin.listPartitionChunks(handle, options...)
-    -> CatalogAccessor.listPartitionChunks(tableProvider, options)
-
-  IcebergCatalogPlugin.getDatasetMetadata(handle, chunks, options)
-    -> CatalogAccessor.getTableMetadata(tableProvider, options)
-       or CatalogAccessor.getViewMetadata(handle) for views
-
-LAYER 5: QUERY EXECUTION (Scan / Write)
-
-  IcebergCatalogPlugin.getRulesFactoryClass()
-    -> returns FileSystemRulesFactory (Iceberg/Parquet scan rules)
-
-  IcebergCatalogPlugin.createScanTableFunction(...)
-    -> ParquetScanTableFunction (reads Iceberg/Parquet data)
-
-  IcebergCatalogPlugin.createSplitCreator(...)
-    -> ParquetSplitCreator
-
-  Write path (DML/DDL):
-  RestIcebergCatalogPlugin.createNewTable(...)
-    -> CreateParquetTableEntry (guarded by MUTABLE_ENABLED flag)
-  RestIcebergCatalogPlugin.getIcebergModel(...)
-    -> IcebergCatalogModel -> IcebergCatalogCommand
+┌─────────────────────────────────────────────────────────────────────┐
+│              TRIGGER: git tag push  (refs/tags/v*)                  │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────────┐
+│              GitHub Actions Runner (ubuntu-latest)                   │
+│                                                                     │
+│  JOB: build-and-push                                                │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  STAGE 1: Maven Build                                        │   │
+│  │  actions/setup-java@v4 (Java 21, temurin)                   │   │
+│  │  mvn package -pl distribution/server -am -DskipTests        │   │
+│  │  OUTPUT: distribution/server/target/dremio-community-       │   │
+│  │          ${version}.tar.gz                                   │   │
+│  └──────────────────────────┬──────────────────────────────────┘   │
+│                             │                                        │
+│  ┌──────────────────────────▼──────────────────────────────────┐   │
+│  │  STAGE 2: AWS Authentication                                 │   │
+│  │  aws-actions/configure-aws-credentials@v4                    │   │
+│  │  Inputs: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY            │   │
+│  │          AWS_DEFAULT_REGION (secret or var)                  │   │
+│  │  aws-actions/amazon-ecr-login@v2                             │   │
+│  │  OUTPUT: registry URL (e.g. 123456789.dkr.ecr.us-east-1.    │   │
+│  │          amazonaws.com)                                       │   │
+│  └──────────────────────────┬──────────────────────────────────┘   │
+│                             │                                        │
+│  ┌──────────────────────────▼──────────────────────────────────┐   │
+│  │  STAGE 3: Docker Build + Push                                │   │
+│  │  docker/setup-buildx-action@v3                               │   │
+│  │  docker/metadata-action@v5  (derives tags from git tag)      │   │
+│  │  docker/build-push-action@v6                                 │   │
+│  │    context: .                                                │   │
+│  │    file: distribution/docker/Dockerfile                      │   │
+│  │    push: true                                                │   │
+│  │    tags: ECR_REGISTRY/REPO:v1.2.3, ECR_REGISTRY/REPO:latest │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────────┐
+│              AWS ECR (Private Registry)                              │
+│              123456789.dkr.ecr.{region}.amazonaws.com/{repo}        │
+│              Tags: v1.2.3, latest                                    │
+└─────────────────────────────────────────────────────────────────────┘
 ```
+
+### Component Responsibilities
+
+| Component | Responsibility | Implementation |
+|-----------|----------------|----------------|
+| Workflow trigger | Fires only on semver tag pushes | `on: push: tags: ['v*']` |
+| Maven build | Produces the server tarball | `mvn package -pl distribution/server -am -DskipTests` |
+| AWS credential step | Configures AWS SDK env vars for the runner | `aws-actions/configure-aws-credentials@v4` with IAM keys from secrets |
+| ECR login step | Authenticates Docker daemon against ECR | `aws-actions/amazon-ecr-login@v2`; outputs `registry` URL |
+| Metadata action | Derives Docker tags from git tag | `docker/metadata-action@v5`; maps `refs/tags/v1.2.3` → `v1.2.3` + `latest` |
+| Buildx + build-push | Builds and pushes the Docker image | `docker/build-push-action@v6`; passes tarball path as build arg |
+| Adapted Dockerfile | Installs Dremio from local tarball via COPY | `COPY` replaces `wget "${DOWNLOAD_URL}"` |
 
 ---
 
-## Component Responsibilities
+## File Change Map — New vs Modified
 
-| Component | File | Responsibility |
-|-----------|------|----------------|
-| `RestIcebergCatalogPluginConfig` | `plugins/icebergcatalog/.../RestIcebergCatalogPluginConfig.java` | Holds user-facing configuration fields (endpoint URI, allowed namespaces, properties/secrets). Implements `newPlugin()` factory. **MISSING @SourceType** — primary gap to fix. |
-| `RestIcebergCatalogPlugin` | `plugins/icebergcatalog/.../RestIcebergCatalogPlugin.java` | Concrete plugin: creates `IcebergRestCatalogAccessor`, implements DML (create/drop/alter table, views, folders), delegates to `IcebergCatalogModel` for Iceberg operations. Guards all mutable ops with `RESTCATALOG_PLUGIN_MUTABLE_ENABLED`. |
-| `IcebergCatalogPlugin` (abstract) | `plugins/icebergcatalog/.../IcebergCatalogPlugin.java` | Base class: implements `StoragePlugin`, `SupportsListingDatasets`, `SupportsIcebergMutablePlugin`, `SupportsIcebergRestApi`, `SupportsMetadataVerify`. Owns start/close lifecycle, file system setup, partition/metadata methods, scan table function creation. |
-| `IcebergCatalogPluginConfig` (abstract) | `plugins/icebergcatalog/.../IcebergCatalogPluginConfig.java` | Abstract base for all config: shared fields (propertyList, secretPropertyList, async settings, cache settings). Extends `ConnectionConf`, implements `AsyncStreamConf`, `MutablePluginConf`. |
-| `IcebergRestCatalogAccessor` | `plugins/icebergcatalog/.../IcebergRestCatalogAccessor.java` | Adapts `RESTCatalog` (Iceberg SDK) into Dremio's `CatalogAccessor` interface. Uses `ExpiringCatalogCache` to manage catalog lifetime. Marked `@Deprecated` internally — still the active implementation for v1.1. |
-| `AbstractRestCatalogAccessor` | `plugins/icebergcatalog/.../AbstractRestCatalogAccessor.java` | Core catalog operations: dataset listing, table/view handle creation, partition chunking, metadata reads, Caffeine-based table/view caching, namespace filtering. |
-| `CatalogAccessor` (interface) | `plugins/icebergcatalog/.../CatalogAccessor.java` | Contract between `IcebergCatalogPlugin` and catalog implementations. Extends `SupportsIcebergDatasetCUD`, `SupportsIcebergFolderCUD`. |
-| `IcebergCatalogTableProvider` | `plugins/icebergcatalog/.../IcebergCatalogTableProvider.java` | Implements `DatasetHandle` for tables: provides file config, split xattr (namespace/table/metadata path), dataset type `PHYSICAL_DATASET`. |
-| `IcebergCatalogViewProvider` | `plugins/icebergcatalog/.../IcebergCatalogViewProvider.java` | Implements `ViewDatasetHandle` + `IcebergViewMetadata` for views: serializes view metadata into `DatasetConfig`/`VirtualDataset`. |
-| `IcebergCatalogModel` | `plugins/icebergcatalog/.../IcebergCatalogModel.java` | Implements `IcebergModel`: bridges Dremio's table mutation API to Iceberg catalog operations (commit, rollback, DDL). Used by DML paths. |
-| `ConnectionReaderImpl` | `sabot/kernel/.../ConnectionReaderImpl.java` | Classpath scanner for `@SourceType` annotated `ConnectionConf` subclasses. Without `@SourceType` on `RestIcebergCatalogPluginConfig`, the plugin is invisible to the system. |
-| `DeprecatedSourceResource` | `dac/backend/.../DeprecatedSourceResource.java` | REST API for source types. Already has `case "RESTCATALOG": return RESTCATALOG_PLUGIN_ENABLED` in `isSourceTypeVisible()`. No change needed. |
-| `IcebergCatalogPluginOptions` | `sabot/kernel/.../IcebergCatalogPluginOptions.java` | Feature flags: `RESTCATALOG_PLUGIN_ENABLED` (default: true), `RESTCATALOG_PLUGIN_MUTABLE_ENABLED` (default: true), caching options, catalog expiry settings. |
+| File | Status | Change |
+|------|--------|--------|
+| `.github/workflows/docker-ecr.yml` | **NEW** | The CI/CD workflow definition |
+| `distribution/docker/Dockerfile` | **MODIFIED** | Replace `ARG DOWNLOAD_URL` + `wget` block with `ARG TARBALL_PATH` + `COPY` |
+
+No other files are needed. The Maven build, pom.xml, `.mvn/maven.config`, and all existing source files are untouched.
 
 ---
 
-## Integration Points — What Needs Wiring
+## Recommended Project Structure
 
-### Gap Analysis: Existing vs Missing
+```
+.github/
+└── workflows/
+    └── docker-ecr.yml          # Tag-triggered build, push to ECR
 
-| Integration Point | Status | What's Needed |
-|-------------------|--------|---------------|
-| `@SourceType` annotation on `RestIcebergCatalogPluginConfig` | **MISSING** | Add `@SourceType(value = "RESTCATALOG", label = "Iceberg REST Catalog", uiConfig = "restcatalog-layout.json")` |
-| Classpath scanning registration | **Blocked by above** | Automatic once `@SourceType` is added — `sabot-module.conf` already registers `com.dremio.plugins.icebergcatalog` package |
-| `DeprecatedSourceResource.isSourceTypeVisible()` | **COMPLETE** | Already has `case "RESTCATALOG"` check at lines 231-232 |
-| `RESTCATALOG_PLUGIN_ENABLED` feature flag | **COMPLETE** | Defined in `IcebergCatalogPluginOptions`, default is `true` |
-| `IcebergRestCatalogAccessor` catalog creation | **COMPLETE** | `RestIcebergCatalogPlugin.createCatalog()` is implemented |
-| Dataset handle resolution | **COMPLETE** | `getDatasetHandle()`, `listDatasetHandles()`, `getDatasetMetadata()` all implemented |
-| Partition chunking | **COMPLETE** | `listPartitionChunks()` delegating to `CatalogAccessor` |
-| Query execution (scan) | **COMPLETE** | `FileSystemRulesFactory`, `ParquetScanTableFunction`, `ParquetSplitCreator` all wired |
-| DML/DDL operations | **COMPLETE** | All mutating operations in `RestIcebergCatalogPlugin` (guarded by `MUTABLE_ENABLED`) |
-| UI layout config file | **MISSING** | `restcatalog-layout.json` must exist in `plugins/icebergcatalog/src/main/resources/` |
-| Source icon | **AVAILABLE** | `RESTCATALOG.svg` already exists in `dac/ui-lib/icons/dremio/sources/` and `dremio-dark/sources/` |
+distribution/
+└── docker/
+    └── Dockerfile              # MODIFIED: wget -> COPY
+```
+
+### Structure Rationale
+
+- `.github/workflows/docker-ecr.yml` — GitHub Actions requires workflow files here. One file per
+  pipeline is the standard pattern. Splitting into reusable workflows (`.github/workflows/build.yml`
+  + `.github/workflows/push.yml`) is premature for a single pipeline.
+
+- `distribution/docker/Dockerfile` — keep it in its existing location. The `build-push-action`
+  `file:` input accepts any path; moving the Dockerfile only adds confusion.
 
 ---
 
 ## Architectural Patterns
 
-### Pattern 1: @SourceType-Driven Registration
+### Pattern 1: Single-Job Tag-Triggered Workflow
 
-**What:** Every source plugin config class must have `@SourceType` to be discovered by
-`ConnectionReaderImpl`. The annotation provides the type key (used everywhere as a string:
-"RESTCATALOG"), display label, and UI layout config file path.
+**What:** One workflow file, one job, sequential steps within that job. The trigger is a tag push
+matching a glob pattern.
 
-**When to use:** The annotation goes on the concrete `ConnectionConf` subclass — not the abstract
-base. For the REST Catalog, that is `RestIcebergCatalogPluginConfig`.
+**When to use:** When the build, Docker build, and ECR push all belong together and there is no
+parallel work to do. Adding a separate `build` job and `push` job (with `needs:`) only makes sense
+when you need to run tests in parallel or conditionally skip the push.
 
-**The fix:**
-```java
-// File: plugins/icebergcatalog/.../RestIcebergCatalogPluginConfig.java
+**Trade-offs:** Simple to understand and debug. Cannot reuse the build artifact across matrix builds.
+Adequate for this milestone.
 
-import com.dremio.exec.catalog.conf.SourceType;
+**Example:**
+```yaml
+name: Build and Push to ECR
 
-@SourceType(
-    value = "RESTCATALOG",
-    label = "Iceberg REST Catalog",
-    uiConfig = "restcatalog-layout.json"
-)
-public class RestIcebergCatalogPluginConfig extends IcebergCatalogPluginConfig {
-    // ... existing fields unchanged
-}
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      # ... steps in sequence
 ```
 
-**How discovery works:** `ConnectionReaderImpl.makeReader(scanResult)` calls
-`scanResult.getAnnotatedClasses(SourceType.class)` — this returns all classpath-scanned classes
-bearing `@SourceType`. The `sabot-module.conf` in the icebergcatalog plugin already declares
-`dremio.classpath.scanning.packages += com.dremio.plugins.icebergcatalog`, so the class will be
-found once annotated. Abstract classes are explicitly skipped by the scanner, so the annotation
-must be on the concrete class.
+### Pattern 2: Artifact Handoff via Filesystem (Maven → Docker COPY)
 
-### Pattern 2: UI Layout Config File
+**What:** The Maven build produces a tarball at a known path. The Docker build accesses it via
+`COPY` using a build argument for the path, or by placing the tarball in the Docker build context.
 
-**What:** The `uiConfig` field in `@SourceType` points to a JSON resource file loaded by class
-loader (`sourceClass.getClassLoader().getResourceAsStream(type.uiConfig())`). This file defines
-the form fields, tabs, and UI metadata for the source configuration dialog. The file must be in
-the plugin's `src/main/resources/` so it is on the plugin JAR's classpath.
+**When to use:** When you own both the Maven build and the Docker build and they run in the same
+CI job. This avoids the network round-trip of uploading to S3 and downloading in the Dockerfile.
 
-**When to use:** Required when the source has user-facing configuration. Without it, the UI
-cannot render a configuration form for the source type.
+**Trade-offs:** Couples the Maven step and Docker step to run in the same job/runner. For large
+repositories where the Maven artifact is cached and reused across jobs, a multi-job approach with
+`actions/upload-artifact` is better. For a single pipeline, filesystem handoff is simpler and
+faster.
 
-**The fix:** Create `plugins/icebergcatalog/src/main/resources/restcatalog-layout.json`.
+**Example — tarball path derived from Maven version:**
+```yaml
+- name: Derive tarball path
+  id: tarball
+  run: |
+    VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout \
+      -pl distribution/server)
+    echo "path=distribution/server/target/dremio-community-${VERSION}.tar.gz" \
+      >> "$GITHUB_OUTPUT"
 
-**Reference structure (from nessie-layout.json pattern):**
-```json
-{
-  "sourceType": "RESTCATALOG",
-  "tags": [],
-  "form": {
-    "tabs": [
-      {
-        "name": "General",
-        "isGeneral": true,
-        "sections": [
-          {
-            "elements": [
-              {
-                "propName": "config.restEndpointUri",
-                "errMsg": "Required"
-              }
-            ]
-          }
-        ]
-      }
-    ]
-  }
-}
+- name: Build and push Docker image
+  uses: docker/build-push-action@v6
+  with:
+    context: .
+    file: distribution/docker/Dockerfile
+    build-args: |
+      TARBALL_PATH=${{ steps.tarball.outputs.path }}
+    tags: ${{ steps.meta.outputs.tags }}
+    push: true
 ```
 
-**Fields to expose** (from `RestIcebergCatalogPluginConfig` `@Tag` annotated fields):
-- `config.restEndpointUri` (Tag 10) — endpoint URI, required
-- `config.allowedNamespaces` (Tag 11) — optional list of allowed namespaces
-- `config.isRecursiveAllowedNamespaces` (Tag 12) — boolean toggle, subtree inclusion
-- `config.propertyList` (Tag 1, inherited) — arbitrary key-value catalog properties
-- `config.secretPropertyList` (Tag 2, inherited) — secret credentials (bearer token, OAuth)
-- `config.enableAsync` (Tag 3, inherited) — async Parquet access toggle
-- `config.isCachingEnabled` (Tag 4, inherited) — local file caching toggle
-- `config.maxCacheSpacePct` (Tag 5, inherited) — cache space percentage limit
+### Pattern 3: ECR Authentication via aws-actions
 
-### Pattern 3: Plugin Lifecycle via newPlugin()
+**What:** Two sequential actions handle AWS auth: `configure-aws-credentials` (sets env vars) then
+`amazon-ecr-login` (authenticates Docker). The `amazon-ecr-login` action outputs the registry URL
+so you do not hardcode it.
 
-**What:** `ConnectionConf.newPlugin(PluginSabotContext, name, Provider<StoragePluginId>)` is the
-abstract factory method. `ManagedStoragePlugin` calls it when creating the actual plugin instance
-from deserialized config.
+**When to use:** Always, when authenticating to ECR with IAM access keys. OIDC federation is the
+alternative (no long-lived keys) but requires IAM role configuration that is out of scope here.
 
-**Already implemented:** `RestIcebergCatalogPluginConfig.newPlugin()` creates
-`RestIcebergCatalogPlugin` correctly. No change needed.
+**Trade-offs:** IAM access keys are long-lived credentials. They must be rotated manually. They
+are stored as GitHub encrypted secrets. If the repository is public, secrets are not exposed to
+fork PRs. For a private repository this risk is lower.
 
-### Pattern 4: Feature Flag Visibility — Two Independent Checks
+**Example:**
+```yaml
+- name: Configure AWS credentials
+  uses: aws-actions/configure-aws-credentials@v4
+  with:
+    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
 
-**What:** Source visibility has two independent checks that both must pass:
+- name: Log in to Amazon ECR
+  id: login-ecr
+  uses: aws-actions/amazon-ecr-login@v2
 
-1. `DeprecatedSourceResource.isSourceTypeVisible(sourceType)` — switches on source type string to
-   return a per-type feature flag. The "RESTCATALOG" case already exists and returns
-   `RESTCATALOG_PLUGIN_ENABLED`.
+- name: Build and push
+  uses: docker/build-push-action@v6
+  with:
+    tags: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.ref_name }}
+```
 
-2. `SourceVerifier.isSourceSupported(sourceType, optionManager)` — a secondary check. The
-   default `SourceVerifier.NO_OP` implementation always returns `true`.
+### Pattern 4: Docker Metadata Action for Tag Derivation
 
-**Plugin start guard:** `IcebergCatalogPlugin.validateOnStart()` also checks `getEnableOption()`
-(which returns `RESTCATALOG_PLUGIN_ENABLED`) before allowing the plugin to start on coordinators.
-This is already implemented in the base class. The executor node skips this check.
+**What:** `docker/metadata-action@v5` reads the git ref and generates `tags:` and `labels:` outputs
+following Docker Hub / OCI conventions. When the trigger is `refs/tags/v1.2.3`, it outputs both
+`v1.2.3` and `latest` tags by default.
 
-### Pattern 5: CatalogAccessor as Integration Seam
+**When to use:** Always. Deriving image tags from git refs manually is error-prone and non-idiomatic.
 
-**What:** `IcebergCatalogPlugin` uses `CatalogAccessor` as an internal interface to isolate
-itself from the concrete `RESTCatalog` implementation. `RestIcebergCatalogPlugin.createCatalog()`
-returns an `IcebergRestCatalogAccessor` (which extends `AbstractRestCatalogAccessor`). The
-accessor is set during `start()` and accessed via `getCatalogAccessor()` which throws
-`UserException.sourceInBadState()` if the plugin is not started.
+**Trade-offs:** Adds one extra step but eliminates a class of manual string-manipulation bugs.
 
-The `RESTCatalog` instance is created lazily via `Supplier<Catalog>` and cached via
-`ExpiringCatalogCache` for `RESTCATALOG_PLUGIN_CATALOG_EXPIRE_SECONDS` (default 1800s = 30min).
-Table and view metadata are additionally cached in Caffeine caches within
-`AbstractRestCatalogAccessor` with a 3-second TTL by default.
+**Example:**
+```yaml
+- name: Extract Docker metadata
+  id: meta
+  uses: docker/metadata-action@v5
+  with:
+    images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+    tags: |
+      type=semver,pattern={{version}}
+      type=semver,pattern={{major}}.{{minor}}
+      type=raw,value=latest,enable={{is_default_branch}}
+```
 
 ---
 
 ## Data Flow
 
-### Source Creation to Query Execution (End-to-End)
+### End-to-End Build to Registry Flow
 
 ```
-User creates RESTCATALOG source via UI/API
+Developer pushes tag: git tag v1.2.3 && git push origin v1.2.3
     |
     v
-DeprecatedSourceResource.addSource()
-  - isSourceSupported("RESTCATALOG", optionManager) = true
-  - sourceService.createSource(sourceConfig)
+GitHub receives refs/tags/v1.2.3 push
     |
     v
-PluginsManager.newPlugin(sourceConfig)
-  - connectionReader.getConnectionConf(sourceConfig)
-    returns RestIcebergCatalogPluginConfig (deserialized from KV store)
-  - config.newPlugin(sabotContext, name, idProvider)
-    returns RestIcebergCatalogPlugin
-  - ManagedStoragePlugin wraps it
+Workflow trigger fires: on.push.tags matches 'v*'
     |
     v
-RestIcebergCatalogPlugin.start()
-  - validateOnStart(): checks RESTCATALOG_PLUGIN_ENABLED = true
-  - createCatalog(fsConf):
-    builds IcebergRestCatalogAccessor(
-        createRestCatalog(config) = lazy Supplier<RESTCatalog>,
-        optionManager,
-        allowedNamespaces,
-        isRecursiveAllowedNamespaces)
-  - createFSCache(): DatasetFileSystemCache
-  - isOpen = true
+Runner starts: ubuntu-latest
     |
     v
-User runs: SELECT * FROM restcatalog_source.namespace.table
+actions/checkout@v4
+  - checks out full repository at the tag ref
     |
     v
-IcebergCatalogPlugin.getDatasetHandle(EntityPath[restcatalog, namespace, table])
-  - CatalogAccessor.getDatasetHandle([...], plugin, options)
-  - looks up table in RESTCatalog via ExpiringCatalogCache
-  - returns IcebergCatalogTableProvider (DatasetHandle)
+actions/setup-java@v4 (Java 21, distribution: temurin)
+  - installs Eclipse Temurin JDK 21 (required by maven-enforcer [21,22) rule)
     |
     v
-IcebergCatalogPlugin.listPartitionChunks(handle)
-  - CatalogAccessor.listPartitionChunks(tableProvider, options)
+actions/cache@v4 (optional but recommended)
+  - caches ~/.m2/repository keyed by pom.xml hash
+  - reduces subsequent build time from ~45min to ~10min
     |
     v
-IcebergCatalogPlugin.getDatasetMetadata(handle, chunks)
-  - CatalogAccessor.getTableMetadata(tableProvider, options)
-  - returns DatasetMetadata with schema, stats
+mvn package -pl distribution/server -am -DskipTests
+  - builds all Maven modules required by distribution/server
+  - produces: distribution/server/target/dremio-community-${revision}.tar.gz
+  - revision is set in .mvn/maven.config as -Drevision=<value>
+  - on CI, pass -Drevision=${GITHUB_REF_NAME#v} to align Maven version with git tag
     |
     v
-Query planner uses FileSystemRulesFactory (getRulesFactoryClass())
-  - generates physical plan with Parquet scan operators
+aws-actions/configure-aws-credentials@v4
+  - reads AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION from secrets
+  - sets AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION env vars
     |
     v
-IcebergCatalogPlugin.createScanTableFunction(fec, ctx, props, config)
-  - ParquetScanTableFunction reads Iceberg Parquet files
-  - file system access via DatasetFileSystemCache -> IcebergCatalogFileSystem
+aws-actions/amazon-ecr-login@v2
+  - runs: aws ecr get-login-password | docker login ...
+  - outputs: registry = 123456789.dkr.ecr.us-east-1.amazonaws.com
     |
     v
-Results returned to user
+docker/setup-buildx-action@v3
+  - creates a BuildKit builder instance (faster, multi-platform capable)
+    |
+    v
+docker/metadata-action@v5
+  - input: refs/tags/v1.2.3
+  - outputs tags:
+      123456789.dkr.ecr.us-east-1.amazonaws.com/dremio-oss:1.2.3
+      123456789.dkr.ecr.us-east-1.amazonaws.com/dremio-oss:1.2
+      123456789.dkr.ecr.us-east-1.amazonaws.com/dremio-oss:latest
+    |
+    v
+docker/build-push-action@v6
+  - context: . (entire repository root)
+  - file: distribution/docker/Dockerfile
+  - build-args: TARBALL_PATH=distribution/server/target/dremio-community-1.2.3.tar.gz
+  - push: true
+  - tags: <from metadata-action>
+    |
+    v
+Docker daemon executes modified Dockerfile:
+  - FROM eclipse-temurin:11-jdk
+  - creates dremio user/group, directories
+  - COPY ${TARBALL_PATH} /tmp/dremio.tar.gz
+  - tar xfz /tmp/dremio.tar.gz -C /opt/dremio --strip-components=1
+  - rm /tmp/dremio.tar.gz
+    |
+    v
+Built image pushed to AWS ECR:
+  123456789.dkr.ecr.us-east-1.amazonaws.com/dremio-oss:1.2.3
+  123456789.dkr.ecr.us-east-1.amazonaws.com/dremio-oss:latest
 ```
 
-### DML Write Path (CREATE TABLE AS SELECT)
+### Version Alignment Between Maven and Docker
 
 ```
-User runs: CREATE TABLE restcatalog.ns.new_table AS SELECT ...
-    |
-    v
-RestIcebergCatalogPlugin.createNewTable(tableSchemaPath, schemaConfig, icebergTableProps, writerOptions, ...)
-  - checks RESTCATALOG_PLUGIN_MUTABLE_ENABLED = true
-  - getNewTableLocationFromCatalog(writerOptions, dataset)
-    -> checks writerOptions.tableLocation (user-specified LOCATION clause)
-    -> falls back to CatalogAccessor.getDatasetLocationFromExistingNamespaceLocationUri(dataset)
-  - sets icebergTableProps.tableLocation, tableName, databaseName
-  - returns CreateParquetTableEntry(...)
-    |
-    v
-RestIcebergCatalogPlugin.getIcebergModel(tableProps, userName, ctx, fileIO, userId)
-  - new IcebergCatalogModel(null, fsConf, fileIO, ctx, null, this, dataset, userName, userId)
-    |
-    v
-IcebergCatalogModel.createTableTransaction() / commitTableTransaction()
-  - CatalogAccessor.createIcebergTableOperationsForCtas(...)
-  - commits via RESTCatalog Iceberg SDK
+.mvn/maven.config: -Drevision=26.0.5-202509091642240013-f5051a07  (local dev default)
+        |
+        | overridden on CI:
+        v
+mvn ... -Drevision=${GITHUB_REF_NAME#v}
+  where GITHUB_REF_NAME = "v1.2.3"
+  strip "v" prefix -> revision = "1.2.3"
+        |
+        v
+Tarball: distribution/server/target/dremio-community-1.2.3.tar.gz
+Docker image tag: :1.2.3
 ```
 
 ---
 
-## Build Order for Changes
+## Dockerfile Adaptation — wget to COPY
 
-The dependency chain dictates this order:
+### Existing Dockerfile (distribution/docker/Dockerfile)
 
-### Step 1 — Add `@SourceType` annotation (highest priority, unblocks everything else)
+```dockerfile
+ARG JAVA_IMAGE="eclipse-temurin:11-jdk"
+FROM ${JAVA_IMAGE} as base
 
-**File:** `plugins/icebergcatalog/src/main/java/com/dremio/plugins/icebergcatalog/store/RestIcebergCatalogPluginConfig.java`
+LABEL maintainer=Dremio
 
-**Change:** Add annotation before the class declaration:
-```java
-import com.dremio.exec.catalog.conf.SourceType;
+ARG DOWNLOAD_URL
 
-@SourceType(
-    value = "RESTCATALOG",
-    label = "Iceberg REST Catalog",
-    uiConfig = "restcatalog-layout.json"
-)
-public class RestIcebergCatalogPluginConfig extends IcebergCatalogPluginConfig {
+RUN \
+  apt-get update \
+  && apt-get install wget -y \
+  && rm -rf /var/lib/apt/lists/* \
+  \
+  && mkdir -p /opt/dremio \
+  && mkdir -p /var/lib/dremio \
+  && mkdir -p /var/run/dremio \
+  && mkdir -p /var/log/dremio \
+  && mkdir -p /opt/dremio/data \
+  \
+  && groupadd --system dremio --gid 999 \
+  && useradd --base-dir /var/lib/dremio --system --uid 999 --gid dremio dremio \
+  && chown -R dremio:dremio /opt/dremio/data \
+  && chown -R dremio:dremio /var/run/dremio \
+  && chown -R dremio:dremio /var/log/dremio \
+  && chown -R dremio:dremio /var/lib/dremio \
+  && wget -q "${DOWNLOAD_URL}" -O dremio.tar.gz \
+  && tar vxfz dremio.tar.gz -C /opt/dremio --strip-components=1 \
+  && rm -rf dremio.tar.gz
 ```
 
-**Effect:** `ConnectionReaderImpl.makeReader()` picks up the class during startup classpath scan
-and registers "RESTCATALOG" in `getAllConnectionConfs()`. Without this, the plugin is completely
-invisible — no API, no UI, no source creation.
+### Adapted Dockerfile — COPY instead of wget
 
-### Step 2 — Create UI layout config (required for source form rendering)
+Three changes only:
+1. Remove `ARG DOWNLOAD_URL`
+2. Add `ARG TARBALL_PATH` (receives path relative to build context)
+3. Replace `apt-get install wget` + `wget` line with `COPY ${TARBALL_PATH} /tmp/dremio.tar.gz`
 
-**File:** `plugins/icebergcatalog/src/main/resources/restcatalog-layout.json`
+```dockerfile
+ARG JAVA_IMAGE="eclipse-temurin:11-jdk"
+FROM ${JAVA_IMAGE} as base
 
-**Change:** New file — does not exist yet. Must be in `src/main/resources/` so it is loadable
-from the plugin's class loader (`sourceClass.getClassLoader().getResourceAsStream(type.uiConfig())`
-in `SourceTypeTemplate.fromSourceClass()`).
+LABEL maintainer=Dremio
 
-**Effect:** The source configuration dialog renders in the UI. Without this, `SourceTypeTemplate`
-logs a warning and returns `null` for `uiConfig`, which may prevent the UI from showing the
-source type form correctly.
+# TARBALL_PATH is relative to the Docker build context (repository root).
+# CI passes: distribution/server/target/dremio-community-${version}.tar.gz
+ARG TARBALL_PATH
 
-### Step 3 — Verify (no code changes, but must validate)
+RUN \
+  apt-get update \
+  && rm -rf /var/lib/apt/lists/* \
+  \
+  && mkdir -p /opt/dremio \
+  && mkdir -p /var/lib/dremio \
+  && mkdir -p /var/run/dremio \
+  && mkdir -p /var/log/dremio \
+  && mkdir -p /opt/dremio/data \
+  \
+  && groupadd --system dremio --gid 999 \
+  && useradd --base-dir /var/lib/dremio --system --uid 999 --gid dremio dremio \
+  && chown -R dremio:dremio /opt/dremio/data \
+  && chown -R dremio:dremio /var/run/dremio \
+  && chown -R dremio:dremio /var/log/dremio \
+  && chown -R dremio:dremio /var/lib/dremio
 
-After Steps 1 and 2, verify:
+COPY ${TARBALL_PATH} /tmp/dremio.tar.gz
 
-- `sabot-module.conf` already contains `dremio.classpath.scanning.packages += com.dremio.plugins.icebergcatalog` — no change needed
-- `DeprecatedSourceResource.isSourceTypeVisible("RESTCATALOG")` already returns `RESTCATALOG_PLUGIN_ENABLED` — no change needed
-- `RESTCATALOG_PLUGIN_ENABLED` defaults to `true` in `IcebergCatalogPluginOptions` — no change needed
-- `RESTCATALOG.svg` exists in `dac/ui-lib/icons/dremio/sources/` and `dremio-dark/sources/` — served on classpath via `dac/ui` module, no change needed
-- `newPlugin()` factory in `RestIcebergCatalogPluginConfig` creates `RestIcebergCatalogPlugin` — no change needed
+RUN tar xfz /tmp/dremio.tar.gz -C /opt/dremio --strip-components=1 \
+  && rm /tmp/dremio.tar.gz \
+  && chown -R dremio:dremio /opt/dremio
 
-### Step 4 — Add integration test
+EXPOSE 9047/tcp
+EXPOSE 31010/tcp
+EXPOSE 32010/tcp
+EXPOSE 45678/tcp
 
-**Purpose:** Verify end-to-end registration.
+USER dremio
+WORKDIR /opt/dremio
+ENV DREMIO_HOME /opt/dremio
+ENV DREMIO_PID_DIR /var/run/dremio
+ENV DREMIO_GC_LOGS_ENABLED="yes"
+ENV DREMIO_GC_LOG_TO_CONSOLE="yes"
+ENV DREMIO_LOG_DIR="/var/log/dremio"
+ENTRYPOINT ["bin/dremio", "start-fg"]
+```
 
-**Pattern:** A test using `ConnectionReaderImpl` to scan the classpath and confirm "RESTCATALOG"
-appears in `getAllConnectionConfs()`. See `TestRestIcebergCatalogPluginConfig` for how to
-construct the plugin in a test context. See `TestSourceTypeTemplate` in dac/backend tests for
-how to verify source type template construction.
+**Why split `RUN` into two:** `COPY` cannot be inside a `RUN` command. The standard pattern is:
+- `RUN` for OS setup (directories, users — this layer is stable and cached)
+- `COPY` to bring in the artifact (invalidates cache only when tarball changes)
+- `RUN` to extract + clean up
+
+**Why `COPY` can use a build arg for the path:** Docker supports `ARG` before `COPY`. The build
+arg `TARBALL_PATH` is a path relative to the build context. When `docker build --build-arg
+TARBALL_PATH=distribution/server/target/dremio-community-1.2.3.tar.gz -f
+distribution/docker/Dockerfile .` is run from the repo root, Docker can access the tarball.
+
+**Build context:** The `build-push-action` `context: .` means the entire repository root is the
+build context. The tarball at `distribution/server/target/` is inside this context and reachable
+by `COPY`.
+
+**Important:** The build context must not contain the entire Maven repository cache. Add a
+`.dockerignore` at the repository root to exclude heavy directories:
+
+```
+# .dockerignore (new file at repository root)
+.git
+dac/ui-lib/node_modules
+dac/ui-tools/node_modules
+dac/ui-common/node_modules
+**/.m2
+**/target/archive-tmp
+**/target/site
+**/target/surefire-reports
+# Keep: distribution/server/target/*.tar.gz
+```
 
 ---
 
-## Component Boundaries
+## Complete Workflow File
+
+**Location:** `.github/workflows/docker-ecr.yml` (new file)
+
+```yaml
+name: Build and Push Docker Image to ECR
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  # Set ECR_REPOSITORY as an env var (not a secret) — it is not sensitive.
+  # Example: "dremio-oss" or "my-org/dremio"
+  ECR_REPOSITORY: dremio-oss
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Maven local repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Derive version from git tag
+        id: version
+        run: |
+          # Strip the leading "v" from the git tag (e.g. v1.2.3 -> 1.2.3)
+          echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Maven distribution tarball
+        run: |
+          mvn package \
+            --batch-mode \
+            --no-transfer-progress \
+            -pl distribution/server \
+            -am \
+            -DskipTests \
+            -Drevision=${{ steps.version.outputs.value }}
+
+      - name: Locate tarball
+        id: tarball
+        run: |
+          TARBALL="distribution/server/target/dremio-community-${{ steps.version.outputs.value }}.tar.gz"
+          if [ ! -f "$TARBALL" ]; then
+            echo "ERROR: tarball not found at $TARBALL"
+            ls distribution/server/target/ || true
+            exit 1
+          fi
+          echo "path=$TARBALL" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: distribution/docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            TARBALL_PATH=${{ steps.tarball.outputs.path }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+```
+
+---
+
+## GitHub Secrets Configuration
+
+Secrets are set at: GitHub repository > Settings > Secrets and variables > Actions > Secrets
+
+| Secret Name | Value | Notes |
+|-------------|-------|-------|
+| `AWS_ACCESS_KEY_ID` | IAM access key ID | From IAM user with `ecr:GetAuthorizationToken`, `ecr:BatchCheckLayerAvailability`, `ecr:CompleteLayerUpload`, `ecr:InitiateLayerUpload`, `ecr:PutImage`, `ecr:UploadLayerPart` permissions |
+| `AWS_SECRET_ACCESS_KEY` | IAM secret access key | Paired with `AWS_ACCESS_KEY_ID` |
+| `AWS_DEFAULT_REGION` | e.g. `us-east-1` | The region where the ECR registry lives |
+
+The ECR repository URL (`ECR_REGISTRY`) is output by `amazon-ecr-login@v2` — it is not a secret
+and does not need to be stored separately. The `ECR_REPOSITORY` name (e.g. `dremio-oss`) is set
+as a plain `env:` variable in the workflow file.
+
+### Minimum IAM Policy for the ECR Push User
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:CompleteLayerUpload",
+        "ecr:InitiateLayerUpload",
+        "ecr:PutImage",
+        "ecr:UploadLayerPart"
+      ],
+      "Resource": "arn:aws:ecr:{region}:{account-id}:repository/{repo-name}"
+    }
+  ]
+}
+```
+
+`ecr:GetAuthorizationToken` is IAM-wide (resource `*`) because it is a control-plane operation.
+All image-layer operations are scoped to the specific ECR repository ARN.
+
+---
+
+## Integration Points
+
+### External Services
+
+| Service | Integration Pattern | Notes |
+|---------|---------------------|-------|
+| AWS ECR | `aws-actions/configure-aws-credentials@v4` + `amazon-ecr-login@v2` | Registry URL is output by the login action — do not hardcode |
+| GitHub Actions cache | `actions/cache@v4` for `.m2/repository`; `cache-from/cache-to: type=gha` for Docker layer cache | Both significantly reduce re-build time |
+| GitHub Secrets store | `secrets.AWS_ACCESS_KEY_ID`, `secrets.AWS_SECRET_ACCESS_KEY`, `secrets.AWS_DEFAULT_REGION` | Encrypted at rest, masked in logs, not available to fork PR runs |
+
+### Internal Boundaries
 
 | Boundary | Communication | Notes |
 |----------|---------------|-------|
-| `RestIcebergCatalogPluginConfig` to `RestIcebergCatalogPlugin` | `newPlugin()` factory call | Config is serialized to KV store; plugin is instantiated at runtime by `ManagedStoragePlugin` |
-| `IcebergCatalogPlugin` to `CatalogAccessor` | Direct method calls, initialized in `start()` | `getCatalogAccessor()` guards against uninitialized state with `UserException.sourceInBadState()` |
-| `CatalogAccessor` to `RESTCatalog` (Iceberg SDK) | `ExpiringCatalogCache` wraps lazy `Supplier<Catalog>` | Catalog object has a configured TTL (`RESTCATALOG_PLUGIN_CATALOG_EXPIRE_SECONDS`, default 1800s) |
-| `IcebergCatalogPlugin` to `DatasetFileSystemCache` | Direct call to create `IcebergCatalogFileSystem` | Per-dataset file system instances with expiry (`RESTCATALOG_PLUGIN_FILE_SYSTEM_EXPIRE_AFTER_WRITE_MINUTES`, default 5min) |
-| `DeprecatedSourceResource` to `ConnectionReader` | `getAllConnectionConfs()` — map built from classpath scan | Populated at startup; without `@SourceType` on config, no "RESTCATALOG" entry exists in this map |
-| `SourceTypeTemplate` to plugin resources | ClassLoader `getResource(typeName + ".svg")` and `getResourceAsStream(uiConfig)` | Both `RESTCATALOG.svg` and `restcatalog-layout.json` must be on classpath |
+| Maven build → Docker build | Filesystem: `distribution/server/target/*.tar.gz` | Same runner job; tarball path passed as Docker build-arg |
+| Docker build → ECR | Docker push to authenticated registry | Registry URL from `amazon-ecr-login` step output `${{ steps.login-ecr.outputs.registry }}` |
+| Git tag → Maven version | Shell string strip: `${GITHUB_REF_NAME#v}` | Ensures Maven `dremio-community-${revision}.tar.gz` name aligns with git tag |
+| Git tag → Docker tag | `docker/metadata-action@v5` semver patterns | Generates `:1.2.3`, `:1.2`, `:latest` automatically |
 
 ---
 
-## Anti-Patterns
+## Java Version Constraint — Critical Build Requirement
 
-### Anti-Pattern 1: Putting @SourceType on the Abstract Base Class
+The Dremio Maven build enforces Java 21 at build time (maven-enforcer rule `[21,22)` in root
+`pom.xml`, line ~3396). The workflow `setup-java` step MUST use `java-version: '21'`.
 
-**What people do:** Add `@SourceType` to `IcebergCatalogPluginConfig` (the abstract parent).
+The Maven compiler release target is `11` (`maven.compiler.release=11` in root `pom.xml`). This
+means:
+- **CI runner needs Java 21** to compile (maven-enforcer blocks builds on older JDKs)
+- **Docker runtime base image uses Java 11** (`eclipse-temurin:11-jdk` in existing Dockerfile)
+- The tarball contains Java 11 bytecode — it runs on Java 11+ at runtime
 
-**Why it's wrong:** `ConnectionReaderImpl.getCandidateSources()` explicitly skips abstract classes
-(`Modifier.isAbstract(input.getModifiers())`). The annotation is silently ignored and the plugin
-is never registered.
+Do not "fix" the Dockerfile to use `eclipse-temurin:21-jdk`. The existing base image is correct
+for the runtime. The CI runner is separate from the Docker runtime.
 
-**Do this instead:** `@SourceType` goes on `RestIcebergCatalogPluginConfig` — the concrete class
-— only.
+---
 
-### Anti-Pattern 2: Placing the UI Layout JSON in the Wrong Location
+## Build Order for Implementation Phases
 
-**What people do:** Create `restcatalog-layout.json` in `dac/backend/src/main/resources/` or
-a test resources directory.
+### Phase 1 — Workflow Skeleton (fastest feedback, no ECR needed yet)
 
-**Why it's wrong:** `SourceTypeTemplate.fromSourceClass()` uses
-`sourceClass.getClassLoader().getResourceAsStream(type.uiConfig())` — the classloader of
-`RestIcebergCatalogPluginConfig`, which is the icebergcatalog plugin JAR. The file must be in
-that plugin's `src/main/resources/`.
+1. Create `.github/workflows/docker-ecr.yml` with the trigger, checkout, Java setup, and Maven
+   build steps only (no Docker, no ECR steps). Push a test tag.
+2. Verify: Maven build completes on the runner, tarball appears in the expected path.
+3. Confirms: Java 21 enforcement passes, Maven build works in CI, tarball naming is correct.
 
-**Do this instead:** `plugins/icebergcatalog/src/main/resources/restcatalog-layout.json`
+**Why first:** Validates the Maven build in CI before adding Docker complexity. The Maven step
+is the longest (30-45 minutes on a cold cache) and most likely to fail for reasons unrelated to
+Docker or ECR.
 
-### Anti-Pattern 3: Thinking RESTCATALOG_PLUGIN_ENABLED=false Is the Blocker
+### Phase 2 — Dockerfile Adaptation
 
-**What people do:** Assume the plugin is disabled by a feature flag, try to enable it, and expect
-the plugin to appear.
+1. Modify `distribution/docker/Dockerfile`: replace `ARG DOWNLOAD_URL` + `wget` with
+   `ARG TARBALL_PATH` + `COPY`.
+2. Add `.dockerignore` at repository root.
+3. Test locally: `mvn package -pl distribution/server -am -DskipTests && docker build
+   --build-arg TARBALL_PATH=distribution/server/target/dremio-community-*.tar.gz
+   -f distribution/docker/Dockerfile .`
+4. Confirm the image starts: `docker run --rm -p 9047:9047 <image_id>` and Dremio
+   UI appears at `http://localhost:9047`.
 
-**Why it's wrong:** The flag defaults to `true`. The actual blocker is the missing `@SourceType`
-annotation. Even with the flag `true`, there is no entry in `getAllConnectionConfs()` for
-"RESTCATALOG" without the annotation.
+**Why second:** Validates the Dockerfile change in isolation before adding the CI push step.
+A broken Dockerfile is easier to debug locally than in CI.
 
-**Do this instead:** Add `@SourceType` first. All feature flag gates are already in place and
-already default to enabled.
+### Phase 3 — ECR Authentication + Push in Workflow
 
-### Anti-Pattern 4: Creating a New Maven Module or Adding Dependencies
+1. Create the IAM user and ECR repository in AWS.
+2. Add secrets to GitHub (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`).
+3. Add the `configure-aws-credentials`, `amazon-ecr-login`, `setup-buildx`, `metadata-action`,
+   and `build-push-action` steps to the workflow.
+4. Push a test tag and verify the image appears in ECR.
 
-**What people do:** Assume the plugin code needs to move to a different module or requires new
-dependencies.
-
-**Why it's wrong:** The icebergcatalog plugin is already a separate Maven module included in
-`plugins/pom.xml` and declared as a dependency in `dac/daemon/pom.xml`. All plugin code is
-co-located and on the runtime classpath.
-
-**Do this instead:** All changes stay within `plugins/icebergcatalog/` — one annotation in
-`RestIcebergCatalogPluginConfig.java` and one new JSON resource file. No new modules, no
-dependency changes.
+**Why last:** Requires AWS infrastructure and secrets to exist. Decoupling Phase 3 from Phase 1
+means the Maven/Docker changes can be developed and tested without AWS access.
 
 ---
 
 ## Scaling Considerations
 
-This is an integration of existing code, not a new system design. Runtime scaling behavior is
-governed by the existing options in `IcebergCatalogPluginOptions`:
+This is a CI/CD pipeline, not a runtime system. Scaling concerns are about pipeline performance,
+not user load.
 
-| Concern | Configuration | Default |
-|---------|---------------|---------|
-| REST Catalog connection TTL | `RESTCATALOG_PLUGIN_CATALOG_EXPIRE_SECONDS` | 1800s (30min) |
-| Table metadata cache TTL | `RESTCATALOG_PLUGIN_TABLE_CACHE_EXPIRE_AFTER_WRITE_SECONDS` | 3s |
-| Table metadata cache size | `RESTCATALOG_PLUGIN_TABLE_CACHE_SIZE_ITEMS` | 10,000 items |
-| File system expiry | `RESTCATALOG_PLUGIN_FILE_SYSTEM_EXPIRE_AFTER_WRITE_MINUTES` | 5min |
-| Multiple sources | Each source: independent `ManagedStoragePlugin`, independent caches, independent catalog connections | Per-instance |
+| Scale | Architecture Adjustment |
+|-------|-------------------------|
+| Single developer, rare releases | Current design is sufficient. Cold Maven build is ~40min. |
+| Weekly releases | Add Maven `.m2` cache (`actions/cache@v4`). Reduces rebuild time to ~10min after cache warms. |
+| Multiple tags per week | Add Docker layer cache (`cache-from: type=gha`). Reduces Docker build time on layer cache hits. |
+| Multi-arch images (AMD64 + ARM64) | Add `platforms: linux/amd64,linux/arm64` to `build-push-action`. Build time doubles; consider self-hosted ARM runner or QEMU emulation tradeoffs. |
+| Separate test and release pipelines | Split into two workflows: `ci.yml` (on every push, runs tests) + `release.yml` (on tag push, skips tests, builds Docker). Out of scope for this milestone. |
+
+---
+
+## Anti-Patterns
+
+### Anti-Pattern 1: Hardcoding the ECR Registry URL
+
+**What people do:** Set `ECR_REGISTRY: 123456789.dkr.ecr.us-east-1.amazonaws.com` as a secret
+or env var and use it directly in the Docker tag.
+
+**Why it's wrong:** The `amazon-ecr-login@v2` action outputs the registry URL. Using the output
+avoids duplication and ensures the URL is always consistent with the authenticated registry.
+
+**Do this instead:** Use `${{ steps.login-ecr.outputs.registry }}` in the `tags:` field of
+`build-push-action`.
+
+### Anti-Pattern 2: Running Maven Without `-DskipTests` in the Docker Pipeline
+
+**What people do:** Run the full Maven build (with tests) before the Docker push, making the
+pipeline 60-90 minutes long.
+
+**Why it's wrong:** Tests should run in a separate CI job triggered on every push/PR. The
+release pipeline triggered by a tag should trust that the tag was applied to a commit that
+already passed CI. Re-running all tests on every tag push doubles the CI cost and pipeline time.
+
+**Do this instead:** `-DskipTests` in the Docker pipeline. Have a separate workflow for PRs/pushes
+that runs `mvn verify` without the Docker steps.
+
+### Anti-Pattern 3: Using `docker build --build-arg DOWNLOAD_URL=...` in CI to Download from S3
+
+**What people do:** Upload the Maven tarball to S3 after the Maven build, then pass the S3 URL
+as `DOWNLOAD_URL` to the original Dockerfile's `wget` step.
+
+**Why it's wrong:** This requires S3 upload permissions, a network round-trip inside the Docker
+build, and keeps the problematic wget-in-Dockerfile pattern. It also makes local Docker builds
+require an external URL.
+
+**Do this instead:** Adapt the Dockerfile to use `COPY` (as described above). The tarball is on
+the runner filesystem. No S3 involvement needed.
+
+### Anti-Pattern 4: Setting the Build Context to `distribution/docker/`
+
+**What people do:** Set `context: distribution/docker` in `build-push-action` to minimize build
+context size.
+
+**Why it's wrong:** The tarball is at `distribution/server/target/`, which is outside the
+`distribution/docker/` context. Docker cannot `COPY` files from outside the build context.
+
+**Do this instead:** Set `context: .` (repository root) and use `.dockerignore` to exclude
+node_modules, `.git`, etc. The tarball at `distribution/server/target/` is then accessible.
+
+### Anti-Pattern 5: Deriving Maven Version with `mvn help:evaluate` Instead of `GITHUB_REF_NAME`
+
+**What people do:** Run `mvn help:evaluate -Dexpression=project.version -q -DforceStdout` to get
+the version from the POM, then use that as the Docker tag.
+
+**Why it's wrong:** For this project, the version IS the revision passed as `-Drevision` to Maven,
+which is read from `.mvn/maven.config` during local builds. In CI you should override `-Drevision`
+to match the git tag. If you evaluate `project.version` before overriding `-Drevision`, you get
+the version from `.mvn/maven.config` (the developer's local version), not the release version.
+
+**Do this instead:** Derive the version from `GITHUB_REF_NAME` (strip the `v` prefix), use it
+as both `-Drevision` for Maven AND as the Docker tag. They will always agree.
 
 ---
 
 ## Sources
 
-All findings are HIGH confidence — verified directly from source code, no external sources needed.
-
-Key files examined:
-- `plugins/icebergcatalog/src/main/java/com/dremio/plugins/icebergcatalog/store/RestIcebergCatalogPluginConfig.java` — missing `@SourceType` confirmed
-- `plugins/icebergcatalog/src/main/java/com/dremio/plugins/icebergcatalog/store/RestIcebergCatalogPlugin.java` — full DML implementation confirmed complete
-- `plugins/icebergcatalog/src/main/java/com/dremio/plugins/icebergcatalog/store/IcebergCatalogPlugin.java` — lifecycle, dataset resolution, scan table function confirmed
-- `sabot/kernel/src/main/java/com/dremio/exec/catalog/ConnectionReaderImpl.java` — classpath scanning mechanism confirmed; abstract class skip logic confirmed
-- `sabot/kernel/src/main/java/com/dremio/exec/catalog/conf/SourceType.java` — annotation fields confirmed
-- `dac/backend/src/main/java/com/dremio/dac/api/DeprecatedSourceResource.java` — RESTCATALOG visibility case confirmed at lines 231-232
-- `sabot/kernel/src/main/java/com/dremio/exec/store/IcebergCatalogPluginOptions.java` — all flags default `true` confirmed
-- `plugins/icebergcatalog/src/main/resources/sabot-module.conf` — classpath scanning package registration confirmed
-- `dac/backend/src/main/java/com/dremio/dac/api/SourceTypeTemplate.java` — icon (`{typeName}.svg`) and layout (`uiConfig`) loading mechanism confirmed
-- `dac/ui-lib/icons/dremio/sources/RESTCATALOG.svg` — icon already exists confirmed
-- `plugins/dataplane/src/main/resources/nessie-layout.json` — reference layout structure examined
+All pipeline patterns are HIGH confidence based on:
+- GitHub Actions official documentation patterns for Docker publishing (well-established, stable
+  since 2021)
+- `aws-actions/configure-aws-credentials` and `aws-actions/amazon-ecr-login` are official AWS
+  actions with stable v4/v2 API
+- `docker/build-push-action`, `docker/metadata-action`, `docker/setup-buildx-action` are official
+  Docker actions with stable v5/v6 API
+- Dremio build structure verified directly from:
+  - `/home/emanuele/IdeaProjects/dremio-oss/distribution/docker/Dockerfile` (existing Dockerfile)
+  - `/home/emanuele/IdeaProjects/dremio-oss/distribution/server/pom.xml` (finalName, distribution name)
+  - `/home/emanuele/IdeaProjects/dremio-oss/.mvn/maven.config` (revision property)
+  - `/home/emanuele/IdeaProjects/dremio-oss/pom.xml` (maven.compiler.release=11, enforcer [21,22))
+  - `distribution/server/target/dremio-community-26.0.5-202509091642240013-f5051a07.tar.gz` (actual artifact, naming confirmed)
 
 ---
 
-*Architecture research for: Dremio OSS Iceberg REST Catalog plugin wiring (v1.1)*
+*Architecture research for: Dremio OSS GitHub Actions CI/CD pipeline (Docker + ECR)*
 *Researched: 2026-02-20*

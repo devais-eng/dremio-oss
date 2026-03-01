@@ -4,6 +4,7 @@
 
 - ✅ **v1.0 Naive RBAC** — Phases 1-6 (shipped 2026-02-19)
 - ✅ **v1.1 Enable Iceberg REST Catalog** — Phases 7-8 (shipped 2026-02-20)
+- ✅ **v1.2 GitHub Actions Docker Distribution** — Phases 9-11 (shipped 2026-02-21)
 
 ## Phases
 
@@ -31,6 +32,17 @@ See `milestones/v1.1-ROADMAP.md` for full phase details.
 
 </details>
 
+<details>
+<summary>✅ v1.2 GitHub Actions Docker Distribution (Phases 9-11) — SHIPPED 2026-02-21</summary>
+
+- [x] Phase 9: Maven Build in CI (1/1 plans) — completed 2026-02-20
+- [x] Phase 10: Dockerfile Adaptation (1/1 plans) — completed 2026-02-20
+- [x] Phase 11: ECR Authentication and Push (1/1 plans) — completed 2026-02-20
+
+See `milestones/v1.2-ROADMAP.md` for full phase details.
+
+</details>
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -43,3 +55,6 @@ See `milestones/v1.1-ROADMAP.md` for full phase details.
 | 6. REST API and Access Path Hardening | v1.0 | 3/3 | Complete | 2026-02-18 |
 | 7. Plugin Wiring | v1.1 | 1/1 | Complete | 2026-02-20 |
 | 8. End-to-End Validation | v1.1 | 2/2 | Complete | 2026-02-20 |
+| 9. Maven Build in CI | v1.2 | 1/1 | Complete | 2026-02-20 |
+| 10. Dockerfile Adaptation | v1.2 | 1/1 | Complete | 2026-02-20 |
+| 11. ECR Authentication and Push | v1.2 | 1/1 | Complete | 2026-02-20 |

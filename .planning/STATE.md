@@ -2,19 +2,16 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-20)
+See: .planning/PROJECT.md (updated 2026-02-21)
 
-**Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control and catalog connectivity.
+**Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
 **Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: All phases complete
-Plan: N/A
-Status: v1.1 shipped — milestone archived
-Last activity: 2026-02-20 — v1.1 Enable Iceberg REST Catalog milestone completed
-
-Progress: [██████████] 100% (v1.0 + v1.1 complete)
+Milestone: v1.2 GitHub Actions Docker Distribution — SHIPPED 2026-02-21
+Status: All milestones complete (v1.0, v1.1, v1.2). No active milestone.
+Last activity: 2026-02-28 - Completed quick task 3: Switch Docker push from ECR to GHCR
 
 ## Performance Metrics
 
@@ -28,11 +25,17 @@ Progress: [██████████] 100% (v1.0 + v1.1 complete)
 - Average duration: ~15 min
 - Total execution time: ~45 min
 
+**Velocity (v1.2):**
+- Total plans completed: 3
+- Average duration: ~2 min
+- Total execution time: ~6 min
+
 ## Accumulated Context
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
+v1.2 decisions archived to milestones/v1.2-ROADMAP.md.
 
 ### Pending Todos
 
@@ -40,10 +43,19 @@ None.
 
 ### Blockers/Concerns
 
-- [Build]: Maven build requires Java 21 (enforcer [21,22) range); only Java 11/17 available.
+- [Build]: Maven build requires Java 21 (enforcer [21,22) range); only Java 11/17 available locally. CI uses setup-java to install Java 21.
+- [AWS]: Resolved by quick task 3 — workflow now uses GHCR, no AWS credentials required.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 1 | Fix Github Actions docker build ARG JAVA_IMAGE scope | 2026-02-25 | 7fd637779 | [1-fix-github-actions-docker-build-arg-java](./quick/1-fix-github-actions-docker-build-arg-java/) |
+| 2 | Split docker-ecr workflow into build and docker jobs | 2026-02-25 | 92f7bfccf | [2-split-docker-ecr-workflow-into-build-and](./quick/2-split-docker-ecr-workflow-into-build-and/) |
+| 3 | Switch Docker push from ECR to GHCR (GitHub Container Registry) | 2026-02-28 | 70a2c7808 | [3-change-ecr-action-switch-to-ghcr-github-](./quick/3-change-ecr-action-switch-to-ghcr-github-/) |
 
 ## Session Continuity
 
-Last session: 2026-02-20
-Stopped at: v1.1 milestone shipped and archived.
+Last session: 2026-02-28
+Stopped at: Completed quick task 3: Switch Docker push from ECR to GHCR
 Resume file: None
