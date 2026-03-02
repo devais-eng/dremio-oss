@@ -11,7 +11,7 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 Milestone: All milestones complete. Next milestone TBD.
 Status: All milestones complete (v1.0, v1.1, v1.2, v1.3). No active milestone.
-Last activity: 2026-03-02 - Completed quick task 6: Read the opened pull requests and evaluate the comments of copilot.
+Last activity: 2026-03-02 - Completed quick task 7: Apply all actionable Copilot review items (RbacService O(1) fixes + semicolon injection block).
 
 ## Shipped Milestones
 
@@ -34,8 +34,9 @@ Last activity: 2026-03-02 - Completed quick task 6: Read the opened pull request
 | 4 | merge develop and align .planning directory. | 2026-03-01 | da7cb6b2c | [4-merge-develop-and-align-planning-directo](./quick/4-merge-develop-and-align-planning-directo/) |
 | 5 | remove .planning from .gitignore | 2026-03-01 | 6ca527087 | [5-remove-planning-from-gitignore](./quick/5-remove-planning-from-gitignore/) |
 | 6 | Read the opened pull requests and evaluate the comments of copilot. | 2026-03-02 | — | [6-read-the-opened-pull-requests-and-evalua](./quick/6-read-the-opened-pull-requests-and-evalua/) |
+| 7 | Apply all actionable Copilot review items (O(1) roleIds, precomputed-path overload, semicolon injection block). | 2026-03-02 | 246251057 | [7-apply-all-actionable-copilot-review-item](./quick/7-apply-all-actionable-copilot-review-item/) |
 
 ## Session Continuity
 
 Last session: 2026-03-02
-Stopped at: Quick task 6 complete — PR #4 Copilot review evaluated: 4 actionable comments found (RbacService List→Set, JobsResource filter injection).
+Stopped at: Quick task 7 complete — Applied 4 Copilot PR review items: RbacService List→Set O(1) roleIds, precomputed-path overload + 4 caller updates, semicolon injection block in validateUsername.
