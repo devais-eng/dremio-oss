@@ -44,7 +44,7 @@ jobs:
           cache: 'maven'
 
       - name: Build distribution tarball
-        run: ./mvnw package -DskipTests -Pdremio.no-lint -pl distribution/server -am -Drevision=${{ steps.version.outputs.VERSION }}
+        run: ./mvnw package -DskipTests -Pdremio.no-lint -pl distribution/server -am
 
       - name: Verify tarball exists
         run: ls -lh distribution/server/target/dremio-community-*.tar.gz
