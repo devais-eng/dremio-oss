@@ -44,6 +44,7 @@ import com.dremio.service.namespace.space.proto.FolderConfig;
 import java.util.Arrays;
 import java.util.ConcurrentModificationException;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import javax.annotation.security.RolesAllowed;
@@ -194,6 +195,7 @@ public class SpaceFolderResource {
     if (rbacService.isAdminMember(userName)) {
       return children;
     }
+    Set<String> accessiblePaths = rbacService.getAccessibleObjectPaths(userName);
     return children.stream()
         .filter(
             c -> {
@@ -211,7 +213,7 @@ public class SpaceFolderResource {
               }
               if (c.getType() == NameSpaceContainer.Type.FOLDER) {
                 String folderPath = String.join(".", c.getFullPathList());
-                return rbacService.hasAccessibleChildUnderPath(userName, folderPath);
+                return rbacService.hasAccessibleChildUnderPath(accessiblePaths, folderPath);
               }
               return true; // other containers at child level
             })
