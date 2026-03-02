@@ -17,18 +17,22 @@ package com.dremio.dac.resource;
 
 import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
 
+import com.dremio.config.DremioConfig;
 import com.dremio.dac.annotations.RestResource;
 import com.dremio.dac.annotations.Secured;
 import com.dremio.dac.model.sources.SourceUI;
 import com.dremio.dac.model.sources.Sources;
 import com.dremio.dac.service.source.SourceService;
 import com.dremio.exec.catalog.ConnectionReader;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.store.CatalogService;
 import com.dremio.service.namespace.BoundedDatasetCount;
 import com.dremio.service.namespace.NamespaceKey;
 import com.dremio.service.namespace.NamespaceService;
 import com.dremio.service.namespace.SourceState;
 import com.dremio.service.namespace.source.proto.SourceConfig;
+import java.util.Set;
+import javax.annotation.Nullable;
 import javax.annotation.security.RolesAllowed;
 import javax.inject.Inject;
 import javax.ws.rs.Consumes;
@@ -38,7 +42,9 @@ import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.SecurityContext;
 
 /** Resource for information about sources. */
 @RestResource
@@ -52,17 +58,26 @@ public class SourcesResource {
   private final SourceService sourceService;
   private final ConnectionReader connectionReader;
   private final CatalogService catalogService;
+  private final SecurityContext securityContext;
+  @Nullable private final RbacService rbacService;
+  @Nullable private final DremioConfig dremioConfig;
 
   @Inject
   public SourcesResource(
       NamespaceService namespaceService,
       SourceService sourceService,
       ConnectionReader connectionReader,
-      CatalogService catalogService) {
+      CatalogService catalogService,
+      @Context SecurityContext securityContext,
+      @Nullable RbacService rbacService,
+      @Nullable DremioConfig dremioConfig) {
     this.namespaceService = namespaceService;
     this.sourceService = sourceService;
     this.connectionReader = connectionReader;
     this.catalogService = catalogService;
+    this.securityContext = securityContext;
+    this.rbacService = rbacService;
+    this.dremioConfig = dremioConfig;
   }
 
   @GET
@@ -70,7 +85,15 @@ public class SourcesResource {
       @QueryParam("includeDatasetCount") @DefaultValue("true") boolean includeDatasetCount)
       throws Exception {
     final Sources sources = new Sources();
+    Set<String> accessiblePaths = getUserAccessiblePaths();
     for (SourceConfig sourceConfig : sourceService.getSources()) {
+      if (accessiblePaths != null) {
+        String prefix = sourceConfig.getName() + ".";
+        if (accessiblePaths.stream().noneMatch(p -> p.startsWith(prefix))) {
+          continue;
+        }
+      }
+
       SourceUI source = newSource(sourceConfig);
 
       if (includeDatasetCount) {
@@ -91,6 +114,20 @@ public class SourcesResource {
       sources.add(source);
     }
     return sources;
+  }
+
+  @Nullable
+  private Set<String> getUserAccessiblePaths() {
+    if (rbacService == null
+        || dremioConfig == null
+        || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return null;
+    }
+    String userName = securityContext.getUserPrincipal().getName();
+    if (rbacService.isAdminMember(userName)) {
+      return null;
+    }
+    return rbacService.getAccessibleObjectPaths(userName);
   }
 
   /** Response class for metadata impacting requests */

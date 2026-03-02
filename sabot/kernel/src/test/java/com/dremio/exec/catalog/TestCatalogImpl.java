@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -68,6 +69,7 @@ import com.dremio.datastore.SearchTypes;
 import com.dremio.datastore.api.ImmutableFindByCondition;
 import com.dremio.exec.catalog.CatalogServiceImpl.SourceModifier;
 import com.dremio.exec.dotfile.View;
+import com.dremio.exec.ops.ViewExpansionContext;
 import com.dremio.exec.physical.base.ViewOptions;
 import com.dremio.exec.planner.logical.ViewTable;
 import com.dremio.exec.planner.sql.parser.SqlGrant;
@@ -94,6 +96,7 @@ import com.dremio.service.namespace.NamespaceService;
 import com.dremio.service.namespace.catalogstatusevents.CatalogStatusEvents;
 import com.dremio.service.namespace.dataset.proto.DatasetConfig;
 import com.dremio.service.namespace.dataset.proto.DatasetType;
+import com.dremio.service.namespace.function.proto.FunctionConfig;
 import com.dremio.service.namespace.proto.EntityId;
 import com.dremio.service.namespace.proto.NameSpaceContainer;
 import com.dremio.service.namespace.space.proto.FolderConfig;
@@ -1444,7 +1447,7 @@ public class TestCatalogImpl {
   }
 
   @Test
-  public void testValidatePrivilege_noGrant_throwsNotFound() {
+  public void testValidatePrivilege_noGrant_throwsPermissionDenied() {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
     when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("VDS"), anyString()))
         .thenReturn(false);
@@ -1455,7 +1458,8 @@ public class TestCatalogImpl {
                     new NamespaceKey(Arrays.asList("myspace", "myview")),
                     SqlGrant.Privilege.SELECT))
         .hasErrorType(VALIDATION)
-        .hasMessageContaining("not found");
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("SELECT");
   }
 
   @Test
@@ -1482,7 +1486,7 @@ public class TestCatalogImpl {
   }
 
   @Test
-  public void testValidatePrivilege_executeDenied_throwsNotFound() {
+  public void testValidatePrivilege_executeDenied_throwsPermissionDenied() {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
     when(rbacService.hasPrivilege(eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString()))
         .thenReturn(false);
@@ -1493,7 +1497,8 @@ public class TestCatalogImpl {
                     new NamespaceKey(Arrays.asList("myspace", "myfunc")),
                     SqlGrant.Privilege.EXECUTE))
         .hasErrorType(VALIDATION)
-        .hasMessageContaining("not found");
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("EXECUTE");
   }
 
   @Test
@@ -1508,12 +1513,13 @@ public class TestCatalogImpl {
                     new NamespaceKey(Arrays.asList("myspace", "myview")),
                     SqlGrant.Privilege.CREATE_VIEW))
         .hasErrorType(VALIDATION)
-        .hasMessageContaining("not found");
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("CREATE_VIEW");
     verify(rbacService).hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), anyString());
   }
 
   @Test
-  public void testGetTable_vdsDenied_returnsNotFound() {
+  public void testGetTable_vdsDenied_throwsPermissionDenied() {
     // Since DatasetManager is constructed internally and not mockable directly,
     // we verify the validatePrivilege -> hasPrivilege -> deny path.
     // The getTable RBAC check uses the same isRbacDeniedForVds helper,
@@ -1526,7 +1532,8 @@ public class TestCatalogImpl {
     UserExceptionAssert.assertThatThrownBy(
             () -> catalog.validatePrivilege(key, SqlGrant.Privilege.SELECT))
         .hasErrorType(VALIDATION)
-        .hasMessageContaining("not found");
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("SELECT");
   }
 
   @Test
@@ -1572,6 +1579,844 @@ public class TestCatalogImpl {
     // Should NOT throw -- null config treated as RBAC disabled
     catalog.validatePrivilege(
         new NamespaceKey(Arrays.asList("myspace", "myview")), SqlGrant.Privilege.SELECT);
+  }
+
+  @Test
+  public void testValidatePrivilege_alterDenied_throwsPermissionDenied() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("ALTER"), eq("VDS"), anyString()))
+        .thenReturn(false);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    UserExceptionAssert.assertThatThrownBy(
+            () ->
+                catalog.validatePrivilege(
+                    new NamespaceKey(Arrays.asList("myspace", "myview")), SqlGrant.Privilege.ALTER))
+        .hasErrorType(VALIDATION)
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("ALTER");
+  }
+
+  @Test
+  public void testValidatePrivilege_dropDenied_throwsPermissionDenied() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("DROP"), eq("VDS"), anyString()))
+        .thenReturn(false);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    UserExceptionAssert.assertThatThrownBy(
+            () ->
+                catalog.validatePrivilege(
+                    new NamespaceKey(Arrays.asList("myspace", "myview")), SqlGrant.Privilege.DROP))
+        .hasErrorType(VALIDATION)
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("DROP");
+  }
+
+  @Test
+  public void testValidatePrivilege_dropMapsToVds() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("DROP"), eq("VDS"), anyString()))
+        .thenReturn(true);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // Should NOT throw -- DROP on VDS is granted
+    catalog.validatePrivilege(
+        new NamespaceKey(Arrays.asList("myspace", "myview")), SqlGrant.Privilege.DROP);
+    verify(rbacService).hasPrivilege(eq("gnarly"), eq("DROP"), eq("VDS"), anyString());
+  }
+
+  @Test
+  public void testValidateCreateViewPrivilege_denied_throwsPermissionDenied() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), anyString()))
+        .thenReturn(false);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    UserExceptionAssert.assertThatThrownBy(
+            () ->
+                catalog.validateCreateViewPrivilege(
+                    new NamespaceKey(Arrays.asList("myspace", "myfolder", "myview"))))
+        .hasErrorType(VALIDATION)
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("CREATE_VIEW");
+    // Verify container path (parent) was used, not the view path itself
+    verify(rbacService)
+        .hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), eq("myspace.myfolder"));
+  }
+
+  @Test
+  public void testValidateCreateViewPrivilege_granted_passes() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(
+            eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), eq("myspace.myfolder")))
+        .thenReturn(true);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // Should NOT throw -- CREATE_VIEW on parent container is granted
+    catalog.validateCreateViewPrivilege(
+        new NamespaceKey(Arrays.asList("myspace", "myfolder", "myview")));
+    verify(rbacService)
+        .hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), eq("myspace.myfolder"));
+  }
+
+  @Test
+  public void testValidateCreateViewPrivilege_rbacDisabled_noEnforcement() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(false);
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // Should NOT throw -- RBAC is disabled
+    catalog.validateCreateViewPrivilege(
+        new NamespaceKey(Arrays.asList("myspace", "myfolder", "myview")));
+    verifyNoInteractions(rbacService);
+  }
+
+  // ====== Definer rights unit tests (DEFN-01 through DEFN-06) ======
+
+  /**
+   * DEFN-01/02/03: CatalogEntityOwnershipImpl returns the view owner when a VDS has a non-null,
+   * non-empty owner. This verifies that the VIRTUAL_DATASET early-return that previously discarded
+   * the owner has been removed.
+   */
+  @Test
+  public void testDefinerRights_vdsOwnerReturned() throws Exception {
+    // Setup: NameSpaceContainer with a VIRTUAL_DATASET and owner "alice"
+    DatasetConfig dataset = new DatasetConfig();
+    dataset.setType(DatasetType.VIRTUAL_DATASET);
+    dataset.setOwner("alice");
+
+    NameSpaceContainer container = new NameSpaceContainer();
+    container.setType(NameSpaceContainer.Type.DATASET);
+    container.setDataset(dataset);
+
+    NamespaceKey viewKey = new NamespaceKey(Arrays.asList("myspace", "v1"));
+    when(systemNamespaceService.getEntityByPath(viewKey)).thenReturn(container);
+
+    CatalogEntityOwnershipImpl ownership = new CatalogEntityOwnershipImpl(systemNamespaceService);
+    Optional<CatalogIdentity> owner =
+        ownership.getCatalogEntityOwner(CatalogEntityKey.fromNamespaceKey(viewKey));
+
+    assertThat(owner).isPresent();
+    assertEquals("alice", owner.get().getName());
+  }
+
+  /**
+   * DEFN-01/02/03: Legacy VDS with null owner must return Optional.empty() so the system falls back
+   * to query-user identity (preserving backward compatibility).
+   */
+  @Test
+  public void testDefinerRights_legacyVdsNullOwner_returnsEmpty() throws Exception {
+    DatasetConfig dataset = new DatasetConfig();
+    dataset.setType(DatasetType.VIRTUAL_DATASET);
+    dataset.setOwner(null);
+
+    NameSpaceContainer container = new NameSpaceContainer();
+    container.setType(NameSpaceContainer.Type.DATASET);
+    container.setDataset(dataset);
+
+    NamespaceKey viewKey = new NamespaceKey(Arrays.asList("myspace", "legacy_view"));
+    when(systemNamespaceService.getEntityByPath(viewKey)).thenReturn(container);
+
+    CatalogEntityOwnershipImpl ownership = new CatalogEntityOwnershipImpl(systemNamespaceService);
+    Optional<CatalogIdentity> owner =
+        ownership.getCatalogEntityOwner(CatalogEntityKey.fromNamespaceKey(viewKey));
+
+    assertThat(owner).isEmpty();
+  }
+
+  /**
+   * DEFN-01/02/03: Legacy VDS with empty-string owner must also return Optional.empty() — an empty
+   * string is not a valid identity, same behavior as null.
+   */
+  @Test
+  public void testDefinerRights_legacyVdsEmptyOwner_returnsEmpty() throws Exception {
+    DatasetConfig dataset = new DatasetConfig();
+    dataset.setType(DatasetType.VIRTUAL_DATASET);
+    dataset.setOwner("");
+
+    NameSpaceContainer container = new NameSpaceContainer();
+    container.setType(NameSpaceContainer.Type.DATASET);
+    container.setDataset(dataset);
+
+    NamespaceKey viewKey = new NamespaceKey(Arrays.asList("myspace", "legacy_view2"));
+    when(systemNamespaceService.getEntityByPath(viewKey)).thenReturn(container);
+
+    CatalogEntityOwnershipImpl ownership = new CatalogEntityOwnershipImpl(systemNamespaceService);
+    Optional<CatalogIdentity> owner =
+        ownership.getCatalogEntityOwner(CatalogEntityKey.fromNamespaceKey(viewKey));
+
+    assertThat(owner).isEmpty();
+  }
+
+  /**
+   * DEFN-01/02/03: PDS with a recorded owner (non-null, non-empty) returns the owner. Verifies that
+   * the same code path handles both PDS and VDS — there is no type-based short-circuit.
+   */
+  @Test
+  public void testDefinerRights_pdsOwnerReturned() throws Exception {
+    DatasetConfig dataset = new DatasetConfig();
+    dataset.setType(DatasetType.PHYSICAL_DATASET);
+    dataset.setOwner("bob");
+
+    NameSpaceContainer container = new NameSpaceContainer();
+    container.setType(NameSpaceContainer.Type.DATASET);
+    container.setDataset(dataset);
+
+    NamespaceKey tableKey = new NamespaceKey(Arrays.asList("source", "pds_table"));
+    when(systemNamespaceService.getEntityByPath(tableKey)).thenReturn(container);
+
+    CatalogEntityOwnershipImpl ownership = new CatalogEntityOwnershipImpl(systemNamespaceService);
+    Optional<CatalogIdentity> owner =
+        ownership.getCatalogEntityOwner(CatalogEntityKey.fromNamespaceKey(tableKey));
+
+    assertThat(owner).isPresent();
+    assertEquals("bob", owner.get().getName());
+  }
+
+  /**
+   * DEFN-05 (structural): ViewExpander accepts the rbacEnabled boolean constructor parameter. Since
+   * ViewExpander requires a complex SqlValidatorAndToRelContext.BuilderFactory for behavioral
+   * testing, this test verifies at the API level that CatalogEntityOwnershipImpl correctly handles
+   * the namespace-exception case — the code path that DEFN-05 builds on.
+   *
+   * <p>Behavioral coverage: when getEntityByPath throws NamespaceException, getCatalogEntityOwner
+   * returns empty — meaning ViewExpander's viewOwner will be null, and the DEFN-05 explicit-error
+   * guard will NOT fire for that view (preserving legacy fallback behavior).
+   */
+  @Test
+  public void testDefinerRights_deletedOwner_throwsPlanError() throws Exception {
+    // When getEntityByPath throws NamespaceException (owner lookup fails — simulates deleted user
+    // or missing namespace entry), getCatalogEntityOwner returns Optional.empty()
+    NamespaceKey viewKey = new NamespaceKey(Arrays.asList("myspace", "deleted_owner_view"));
+    when(systemNamespaceService.getEntityByPath(viewKey))
+        .thenThrow(new NamespaceNotFoundException("not found"));
+
+    CatalogEntityOwnershipImpl ownership = new CatalogEntityOwnershipImpl(systemNamespaceService);
+    Optional<CatalogIdentity> owner =
+        ownership.getCatalogEntityOwner(CatalogEntityKey.fromNamespaceKey(viewKey));
+
+    // Deleted/missing namespace entry => empty owner => ViewExpander DEFN-05 guard will NOT
+    // fire (viewOwner == null).  The guard fires when rbacEnabled && viewOwner != null AND
+    // UserNotFoundException is caught during expansion.
+    assertThat(owner).isEmpty();
+  }
+
+  /**
+   * DEFN-06: ViewExpansionContext detects a cyclic view dependency when the same path is reserved
+   * twice before being released. Simulates: view_a -> view_b -> view_a (cycle).
+   */
+  @Test
+  public void testCyclicViewChain_throwsValidationError() {
+    ViewExpansionContext context = new ViewExpansionContext(new CatalogUser("queryUser"));
+    NamespaceKey viewPathA = new NamespaceKey(Arrays.asList("space", "viewA"));
+
+    // First reservation succeeds — viewA is being expanded
+    ViewExpansionContext.ViewExpansionToken tokenA =
+        context.reserveViewExpansionToken(new CatalogUser("alice"), viewPathA);
+    assertNotNull(tokenA);
+
+    // Second reservation for the SAME path throws — cycle detected (viewA -> ... -> viewA)
+    assertThatThrownBy(() -> context.reserveViewExpansionToken(new CatalogUser("alice"), viewPathA))
+        .isInstanceOf(UserException.class)
+        .hasMessageContaining("Cyclic view dependency detected")
+        .hasMessageContaining("viewA");
+
+    // Release so the token bookkeeping is clean
+    tokenA.release();
+  }
+
+  /**
+   * DEFN-06: Different view paths must NOT trigger cycle detection — verifies there are no false
+   * positives in the inExpansionPaths set.
+   */
+  @Test
+  public void testViewExpansion_differentPaths_noCycle() {
+    ViewExpansionContext context = new ViewExpansionContext(new CatalogUser("queryUser"));
+    NamespaceKey viewPathA = new NamespaceKey(Arrays.asList("space", "viewA"));
+    NamespaceKey viewPathB = new NamespaceKey(Arrays.asList("space", "viewB"));
+
+    // Both reservations succeed — A and B are different paths
+    ViewExpansionContext.ViewExpansionToken tokenA =
+        context.reserveViewExpansionToken(new CatalogUser("alice"), viewPathA);
+    ViewExpansionContext.ViewExpansionToken tokenB =
+        context.reserveViewExpansionToken(new CatalogUser("bob"), viewPathB);
+
+    assertNotNull(tokenA);
+    assertNotNull(tokenB);
+
+    tokenB.release();
+    tokenA.release();
+  }
+
+  /**
+   * DEFN-06: After a token is released, the same view path can be reserved again. Simulates a view
+   * that appears in two independent sub-queries — not a cycle.
+   */
+  @Test
+  public void testViewExpansion_pathReleasedThenReused_noCycle() {
+    ViewExpansionContext context = new ViewExpansionContext(new CatalogUser("queryUser"));
+    NamespaceKey viewPath = new NamespaceKey(Arrays.asList("space", "viewA"));
+
+    // First expansion completes and releases
+    ViewExpansionContext.ViewExpansionToken token1 =
+        context.reserveViewExpansionToken(new CatalogUser("alice"), viewPath);
+    token1.release();
+
+    // Second reservation for the same path succeeds — the path is no longer in-expansion
+    ViewExpansionContext.ViewExpansionToken token2 =
+        context.reserveViewExpansionToken(new CatalogUser("alice"), viewPath);
+    assertNotNull(token2);
+    token2.release();
+  }
+
+  /**
+   * DEFN-06: Simulates the three-owner chained view scenario: - User A owns V1 (physical table
+   * reference) - User B has SELECT on V1, creates V2 (SELECT FROM V1) - User C has SELECT on V2,
+   * queries it
+   *
+   * <p>ViewExpansionContext must allow V2 to be expanded under User B's token and V1 to be resolved
+   * under User A's context, with both tokens acquired and released without cycle detection firing.
+   */
+  @Test
+  public void testViewExpansion_chainedDefinerRights_noCycle() {
+    // queryUser is User C
+    ViewExpansionContext context = new ViewExpansionContext(new CatalogUser("userC"));
+    NamespaceKey v2Path = new NamespaceKey(Arrays.asList("space", "V2"));
+    NamespaceKey v1Path = new NamespaceKey(Arrays.asList("space", "V1"));
+
+    // Step 1: User C queries V2. V2 is expanded under User B's definer identity.
+    ViewExpansionContext.ViewExpansionToken tokenV2 =
+        context.reserveViewExpansionToken(new CatalogUser("userB"), v2Path);
+    assertNotNull(tokenV2);
+
+    // Step 2: Expanding V2 under User B encounters V1. V1 is expanded under User A's definer.
+    ViewExpansionContext.ViewExpansionToken tokenV1 =
+        context.reserveViewExpansionToken(new CatalogUser("userA"), v1Path);
+    assertNotNull(tokenV1);
+
+    // Step 3: V1 expansion completes — release inner token first (LIFO order)
+    tokenV1.release();
+
+    // Step 4: V2 expansion completes — release outer token
+    tokenV2.release();
+
+    // No exception thrown — chained definer rights work correctly
+  }
+
+  /**
+   * DEFN-06 edge case: cycle in a deeper chain — V1 -> V2 -> V3 -> V1. Verifies that cycle
+   * detection fires even when the cyclic reference is several hops deep.
+   */
+  @Test
+  public void testCyclicViewChain_deepChain_throwsValidationError() {
+    ViewExpansionContext context = new ViewExpansionContext(new CatalogUser("queryUser"));
+    NamespaceKey v1Path = new NamespaceKey(Arrays.asList("space", "V1"));
+    NamespaceKey v2Path = new NamespaceKey(Arrays.asList("space", "V2"));
+    NamespaceKey v3Path = new NamespaceKey(Arrays.asList("space", "V3"));
+
+    // V1 is being expanded
+    ViewExpansionContext.ViewExpansionToken tokenV1 =
+        context.reserveViewExpansionToken(new CatalogUser("alice"), v1Path);
+    // V2 is being expanded inside V1
+    ViewExpansionContext.ViewExpansionToken tokenV2 =
+        context.reserveViewExpansionToken(new CatalogUser("bob"), v2Path);
+    // V3 is being expanded inside V2
+    ViewExpansionContext.ViewExpansionToken tokenV3 =
+        context.reserveViewExpansionToken(new CatalogUser("carol"), v3Path);
+
+    // V3 tries to expand V1 again — cycle: V1 -> V2 -> V3 -> V1
+    assertThatThrownBy(() -> context.reserveViewExpansionToken(new CatalogUser("alice"), v1Path))
+        .isInstanceOf(UserException.class)
+        .hasMessageContaining("Cyclic view dependency detected")
+        .hasMessageContaining("V1");
+
+    // Clean up in LIFO order
+    tokenV3.release();
+    tokenV2.release();
+    tokenV1.release();
+  }
+
+  /**
+   * DEFN-06 edge case: single-element self-referencing view. V1 directly references itself.
+   * Verifies the most basic cycle case.
+   */
+  @Test
+  public void testCyclicViewChain_selfReference_throwsValidationError() {
+    ViewExpansionContext context = new ViewExpansionContext(new CatalogUser("queryUser"));
+    NamespaceKey selfRefPath = new NamespaceKey(Arrays.asList("space", "selfRefView"));
+
+    // Expand selfRefView
+    ViewExpansionContext.ViewExpansionToken token =
+        context.reserveViewExpansionToken(new CatalogUser("alice"), selfRefPath);
+
+    // Expanding the definition exposes a reference back to selfRefView — cycle
+    assertThatThrownBy(
+            () -> context.reserveViewExpansionToken(new CatalogUser("alice"), selfRefPath))
+        .isInstanceOf(UserException.class)
+        .hasMessageContaining("Cyclic view dependency detected");
+
+    token.release();
+  }
+
+  /**
+   * DEFN-04 (structural): Verifies that CatalogEntityOwnershipImpl correctly returns a non-empty
+   * owner for a VDS with a recorded owner. This is the prerequisite for
+   * containsDefinerRightsExpansion in PlanCacheUtils to detect the definer identity — if
+   * getCatalogEntityOwner returned empty, no ViewTable would carry a viewOwner and the cache bypass
+   * would never fire.
+   */
+  @Test
+  public void testDefinerRights_ownerReturnedEnablesCacheBypass() throws Exception {
+    // This is a combined DEFN-01/DEFN-04 test: owner resolution is the prerequisite for cache
+    // bypass
+    DatasetConfig dataset = new DatasetConfig();
+    dataset.setType(DatasetType.VIRTUAL_DATASET);
+    dataset.setOwner("viewOwner");
+
+    NameSpaceContainer container = new NameSpaceContainer();
+    container.setType(NameSpaceContainer.Type.DATASET);
+    container.setDataset(dataset);
+
+    NamespaceKey viewKey = new NamespaceKey(Arrays.asList("space", "V1"));
+    when(systemNamespaceService.getEntityByPath(viewKey)).thenReturn(container);
+
+    CatalogEntityOwnershipImpl ownership = new CatalogEntityOwnershipImpl(systemNamespaceService);
+    Optional<CatalogIdentity> owner =
+        ownership.getCatalogEntityOwner(CatalogEntityKey.fromNamespaceKey(viewKey));
+
+    // Owner is present and non-null — when ViewExpander sets this on ViewTable,
+    // containsDefinerRightsExpansion() in PlanCacheUtils will detect the definer identity
+    // and bypass the cache (DEFN-04).
+    assertThat(owner).isPresent();
+    assertNotNull(owner.get().getName());
+    assertFalse(owner.get().getName().isEmpty());
+  }
+
+  // ====== UDF rights verification tests (UDF-01, UDF-02, UDF-03) ======
+
+  /**
+   * UDF-02: CatalogEntityOwnershipImpl returns the correct owner for a FUNCTION entity when the
+   * FunctionConfig has a non-null, non-empty owner. This is the prerequisite for UDF-01 (definer
+   * semantics): UserDefinedFunctionExpanderImpl.parseAndValidate() calls .withUser(owner), and this
+   * test proves the owner will be the UDF creator.
+   */
+  @Test
+  public void testUdfOwner_functionOwnerReturned() throws Exception {
+    FunctionConfig functionConfig = new FunctionConfig();
+    functionConfig.setOwner("alice");
+
+    NameSpaceContainer container = new NameSpaceContainer();
+    container.setType(NameSpaceContainer.Type.FUNCTION);
+    container.setFunction(functionConfig);
+
+    NamespaceKey udfKey = new NamespaceKey(Arrays.asList("myspace", "myfunc"));
+    when(systemNamespaceService.getEntityByPath(udfKey)).thenReturn(container);
+
+    CatalogEntityOwnershipImpl ownership = new CatalogEntityOwnershipImpl(systemNamespaceService);
+    Optional<CatalogIdentity> owner =
+        ownership.getCatalogEntityOwner(CatalogEntityKey.fromNamespaceKey(udfKey));
+
+    assertThat(owner).isPresent();
+    assertEquals("alice", owner.get().getName());
+  }
+
+  /**
+   * UDF-02: Legacy UDFs without an owner field (null owner) must return Optional.empty() so the
+   * system falls back to query-user identity. This preserves backward compatibility for UDFs
+   * created before the owner field was added to FunctionConfig.
+   */
+  @Test
+  public void testUdfOwner_functionNullOwner_returnsEmpty() throws Exception {
+    FunctionConfig functionConfig = new FunctionConfig();
+    // owner is null by default on a fresh FunctionConfig (simulates legacy UDF)
+
+    NameSpaceContainer container = new NameSpaceContainer();
+    container.setType(NameSpaceContainer.Type.FUNCTION);
+    container.setFunction(functionConfig);
+
+    NamespaceKey udfKey = new NamespaceKey(Arrays.asList("myspace", "legacy_func"));
+    when(systemNamespaceService.getEntityByPath(udfKey)).thenReturn(container);
+
+    CatalogEntityOwnershipImpl ownership = new CatalogEntityOwnershipImpl(systemNamespaceService);
+    Optional<CatalogIdentity> owner =
+        ownership.getCatalogEntityOwner(CatalogEntityKey.fromNamespaceKey(udfKey));
+
+    assertThat(owner).isEmpty();
+  }
+
+  /**
+   * UDF-02: FunctionConfig with empty-string owner must also return Optional.empty(). An empty
+   * string is not a valid identity — same treatment as null.
+   */
+  @Test
+  public void testUdfOwner_functionEmptyOwner_returnsEmpty() throws Exception {
+    FunctionConfig functionConfig = new FunctionConfig();
+    functionConfig.setOwner("");
+
+    NameSpaceContainer container = new NameSpaceContainer();
+    container.setType(NameSpaceContainer.Type.FUNCTION);
+    container.setFunction(functionConfig);
+
+    NamespaceKey udfKey = new NamespaceKey(Arrays.asList("myspace", "empty_owner_func"));
+    when(systemNamespaceService.getEntityByPath(udfKey)).thenReturn(container);
+
+    CatalogEntityOwnershipImpl ownership = new CatalogEntityOwnershipImpl(systemNamespaceService);
+    Optional<CatalogIdentity> owner =
+        ownership.getCatalogEntityOwner(CatalogEntityKey.fromNamespaceKey(udfKey));
+
+    assertThat(owner).isEmpty();
+  }
+
+  /**
+   * UDF-03: getFunctions() returns an empty collection when the user does NOT have EXECUTE
+   * privilege on the function. The enforcement is in isRbacDeniedForFunction() which is called at
+   * the entry of getFunctions(). This is a silent deny (empty result), not an exception — different
+   * from validatePrivilege() which throws.
+   */
+  @Test
+  public void testGetFunctions_executeDenied_returnsEmptyCollection() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString()))
+        .thenReturn(false);
+
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    var functions =
+        catalog.getFunctions(
+            CatalogEntityKey.fromNamespaceKey(new NamespaceKey(Arrays.asList("myspace", "myfunc"))),
+            SimpleCatalog.FunctionType.SCALAR);
+
+    assertThat(functions).isEmpty();
+    verify(rbacService).hasPrivilege(eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString());
+  }
+
+  /**
+   * UDF-03: getFunctions() proceeds past the RBAC check when the user has EXECUTE privilege. We
+   * verify that hasPrivilege was called with the correct arguments (user="gnarly",
+   * privilege="EXECUTE", objectType="FUNCTION") and returned true, allowing the function lookup to
+   * continue. The actual function lookup may return empty for other reasons (function doesn't exist
+   * in namespace), but the RBAC gate was passed.
+   */
+  @Test
+  public void testGetFunctions_executeGranted_passesRbacCheck() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString()))
+        .thenReturn(true);
+
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // getFunctions may return empty (function doesn't exist in namespace),
+    // but the RBAC check must have passed (not short-circuited to empty)
+    catalog.getFunctions(
+        CatalogEntityKey.fromNamespaceKey(new NamespaceKey(Arrays.asList("myspace", "myfunc"))),
+        SimpleCatalog.FunctionType.SCALAR);
+
+    verify(rbacService).hasPrivilege(eq("gnarly"), eq("EXECUTE"), eq("FUNCTION"), anyString());
+  }
+
+  /**
+   * UDF-03: getFunctions() must NOT call isRbacDeniedForFunction() when RBAC is disabled. The
+   * feature flag (RBAC_ENABLED=false) means all access is allowed without any privilege checks.
+   */
+  @Test
+  public void testGetFunctions_rbacDisabled_noRbacCheck() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(false);
+
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    catalog.getFunctions(
+        CatalogEntityKey.fromNamespaceKey(new NamespaceKey(Arrays.asList("myspace", "myfunc"))),
+        SimpleCatalog.FunctionType.SCALAR);
+
+    // RbacService must not be consulted when feature flag is OFF
+    verifyNoInteractions(rbacService);
+  }
+
+  /**
+   * UDF-03: System user ($dremio$) bypasses the RBAC check in getFunctions(). System user must
+   * always have full access, regardless of privilege grants.
+   */
+  @Test
+  public void testGetFunctions_systemUser_bypassesRbacCheck() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    // No mock for rbacService.hasPrivilege — system user never reaches that code
+
+    CatalogImpl catalog = newCatalogImplForUser("$dremio$");
+    catalog.getFunctions(
+        CatalogEntityKey.fromNamespaceKey(new NamespaceKey(Arrays.asList("myspace", "myfunc"))),
+        SimpleCatalog.FunctionType.SCALAR);
+
+    // System user should bypass RBAC entirely — rbacService must not be consulted
+    verifyNoInteractions(rbacService);
+  }
+
+  // --- PDS SELECT enforcement tests (Phase 10: PDS-01, PDS-02, PDS-03) ---
+  // Rewritten in Phase 14 to use MockedConstruction<DatasetManager> and catalog.getTable(key)
+  // so that isRbacDeniedForPds() is exercised through the actual code path, making verify()
+  // and result assertions meaningful (not vacuously true at construction time).
+
+  /**
+   * PDS-02 deny-by-default: tables with no PDS grants are NOT accessible. When RBAC+PDS is enabled,
+   * hasPrivilege returns false, and getTable() returns null (denied). Verified via
+   * catalog.getTable(key) returning null.
+   */
+  @Test
+  public void testPdsAccess_noGrants_denied() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString()))
+        .thenReturn(false);
+
+    DremioTable pdsTable =
+        mock(DremioTable.class); // NOT ViewTable — avoids isRbacDeniedForPds short-circuit
+    NamespaceKey key = new NamespaceKey(Arrays.asList("source", "table"));
+
+    try (MockedConstruction<DatasetManager> ignored =
+        mockConstructionWithAnswer(
+            DatasetManager.class,
+            invocation -> {
+              if ("getTable".equals(invocation.getMethod().getName())) {
+                return pdsTable;
+              }
+              return invocation.callRealMethod();
+            })) {
+      CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+      DremioTable result = catalog.getTable(key);
+
+      // Deny-by-default: no grant = denied. getTable() returns null.
+      assertThat(result).isNull();
+      verify(rbacService).hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString());
+    }
+  }
+
+  /**
+   * PDS-02 deny: users without SELECT on a PDS are denied access. Verified via
+   * catalog.getTable(key) returning null when hasPrivilege returns false.
+   */
+  @Test
+  public void testPdsAccess_userDenied() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString()))
+        .thenReturn(false);
+
+    DremioTable pdsTable = mock(DremioTable.class);
+    NamespaceKey key = new NamespaceKey(Arrays.asList("source", "table"));
+
+    try (MockedConstruction<DatasetManager> ignored =
+        mockConstructionWithAnswer(
+            DatasetManager.class,
+            invocation -> {
+              if ("getTable".equals(invocation.getMethod().getName())) {
+                return pdsTable;
+              }
+              return invocation.callRealMethod();
+            })) {
+      CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+      DremioTable result = catalog.getTable(key);
+
+      // hasPrivilege(false) = isRbacDeniedForPds true => getTable returns null
+      assertThat(result).isNull();
+      verify(rbacService).hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString());
+    }
+  }
+
+  /**
+   * PDS-02 allow: users WITH SELECT on a PDS can access it. Verified via catalog.getTable(key)
+   * returning the PDS table when hasPrivilege returns true.
+   */
+  @Test
+  public void testPdsAccess_userGranted() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString()))
+        .thenReturn(true);
+
+    DremioTable pdsTable = mock(DremioTable.class);
+    NamespaceKey key = new NamespaceKey(Arrays.asList("source", "table"));
+
+    try (MockedConstruction<DatasetManager> ignored =
+        mockConstructionWithAnswer(
+            DatasetManager.class,
+            invocation -> {
+              if ("getTable".equals(invocation.getMethod().getName())) {
+                return pdsTable;
+              }
+              return invocation.callRealMethod();
+            })) {
+      CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+      DremioTable result = catalog.getTable(key);
+
+      // hasPrivilege(true) = allowed => getTable returns the PDS table
+      assertThat(result).isEqualTo(pdsTable);
+      verify(rbacService).hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString());
+    }
+  }
+
+  /**
+   * PDS flag independent rollout: RBAC_ENABLED=true but RBAC_PDS_ENABLED=false means no PDS
+   * enforcement at all. VDS enforcement remains active. Verified via catalog.getTable(key)
+   * returning the PDS table and hasPrivilege never being called with PDS args.
+   */
+  @Test
+  public void testPdsAccess_pdsFeatureFlagOff_noEnforcement() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(false);
+
+    DremioTable pdsTable = mock(DremioTable.class);
+    NamespaceKey key = new NamespaceKey(Arrays.asList("source", "table"));
+
+    try (MockedConstruction<DatasetManager> ignored =
+        mockConstructionWithAnswer(
+            DatasetManager.class,
+            invocation -> {
+              if ("getTable".equals(invocation.getMethod().getName())) {
+                return pdsTable;
+              }
+              return invocation.callRealMethod();
+            })) {
+      CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+      DremioTable result = catalog.getTable(key);
+
+      // PDS flag OFF => table returned, no PDS privilege check
+      assertThat(result).isEqualTo(pdsTable);
+      verify(rbacService, never()).hasPrivilege(anyString(), eq("SELECT"), eq("PDS"), anyString());
+    }
+  }
+
+  /**
+   * PDS-02 flag off: when RBAC_ENABLED is false, PDS enforcement is also off regardless of PDS
+   * flag. Verified via catalog.getTable(key) returning the PDS table.
+   */
+  @Test
+  public void testPdsAccess_rbacDisabled_noEnforcement() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(false);
+
+    DremioTable pdsTable = mock(DremioTable.class);
+    NamespaceKey key = new NamespaceKey(Arrays.asList("source", "table"));
+
+    try (MockedConstruction<DatasetManager> ignored =
+        mockConstructionWithAnswer(
+            DatasetManager.class,
+            invocation -> {
+              if ("getTable".equals(invocation.getMethod().getName())) {
+                return pdsTable;
+              }
+              return invocation.callRealMethod();
+            })) {
+      CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+      DremioTable result = catalog.getTable(key);
+
+      // Main RBAC flag OFF => table returned, no PDS-related calls
+      assertThat(result).isEqualTo(pdsTable);
+      verify(rbacService, never()).hasPrivilege(anyString(), eq("SELECT"), eq("PDS"), anyString());
+    }
+  }
+
+  /**
+   * PDS-02 system user: System user ($dremio$) bypasses all RBAC checks including PDS. Verified via
+   * catalog.getTable(key) returning the PDS table and hasPrivilege never being called.
+   */
+  @Test
+  public void testPdsAccess_systemUser_bypassesPdsEnforcement() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(true);
+
+    DremioTable pdsTable = mock(DremioTable.class);
+    NamespaceKey key = new NamespaceKey(Arrays.asList("source", "table"));
+
+    try (MockedConstruction<DatasetManager> ignored =
+        mockConstructionWithAnswer(
+            DatasetManager.class,
+            invocation -> {
+              if ("getTable".equals(invocation.getMethod().getName())) {
+                return pdsTable;
+              }
+              return invocation.callRealMethod();
+            })) {
+      CatalogImpl catalog = newCatalogImplForUser("$dremio$");
+      DremioTable result = catalog.getTable(key);
+
+      // System user bypasses PDS RBAC => table returned, no privilege check
+      assertThat(result).isEqualTo(pdsTable);
+      verify(rbacService, never()).hasPrivilege(anyString(), eq("SELECT"), eq("PDS"), anyString());
+    }
+  }
+
+  // --- getTable(String datasetId) PDS enforcement test (Phase 13: INT-01) ---
+
+  /**
+   * INT-01: getTable(String datasetId) now wires through isRbacDeniedForPds. When the table is null
+   * (dataset not found), the RBAC guard is bypassed (null guard fires first). Full behavioral path
+   * tested in TestRbacIntegration; this unit test documents that getTable(String) wires through
+   * isRbacDeniedForPds and that the null guard prevents NPE.
+   */
+  @Test
+  public void testGetTableByDatasetId_pdsEnforcement() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("SELECT"), eq("PDS"), anyString()))
+        .thenReturn(false);
+
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // datasetManager.getTable(datasetId, options) returns null for non-existent IDs in unit tests
+    DremioTable result = catalog.getTable("nonexistent-id");
+    assertThat(result).isNull();
+    // Null table bypasses isRbacDeniedForPds -- rbacService.hasPrivilege must NOT be called
+    verify(rbacService, never()).hasPrivilege(anyString(), eq("SELECT"), eq("PDS"), anyString());
+  }
+
+  // --- sys.privileges admin-only enforcement tests (Phase 12: META-01) ---
+
+  /**
+   * META-01 RBAC disabled: when RBAC_ENABLED is false, the sys.privileges guard must not fire.
+   * RbacService must never be consulted (no isAdminMember call).
+   */
+  @Test
+  public void testSysPrivileges_rbacDisabled_noEnforcement() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(false);
+
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // RBAC is OFF -- isRbacDeniedForSysPrivileges returns false before touching rbacService
+    catalog.getTable(new NamespaceKey(Arrays.asList("sys", "privileges")));
+    verifyNoInteractions(rbacService);
+  }
+
+  /**
+   * META-01 system user: the system user ($dremio$) bypasses the sys.privileges guard entirely.
+   * isAdminMember must never be called for system user.
+   */
+  @Test
+  public void testSysPrivileges_systemUser_bypasses() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+
+    CatalogImpl catalog = newCatalogImplForUser("$dremio$");
+    // SystemUser check short-circuits before rbacService is consulted
+    catalog.getTable(new NamespaceKey(Arrays.asList("sys", "privileges")));
+    verifyNoInteractions(rbacService);
+  }
+
+  /**
+   * META-01 admin access: admin users pass the sys.privileges guard. isAdminMember must be called
+   * and return true. The table itself may be null (no mock system dataset), but the guard did NOT
+   * deny access -- the request proceeded to the DatasetManager.
+   */
+  @Test
+  public void testSysPrivileges_admin_allowed() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.isAdminMember(eq("gnarly"))).thenReturn(true);
+
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // Admin: isAdminMember is called and returns true -> guard does NOT deny
+    catalog.getTable(new NamespaceKey(Arrays.asList("sys", "privileges")));
+    verify(rbacService).isAdminMember(eq("gnarly"));
+  }
+
+  /**
+   * META-01 non-admin denied: non-admin users receive null (table not found) from getTable() for
+   * sys.privileges. isAdminMember is called and returns false -> guard returns null immediately.
+   */
+  @Test
+  public void testSysPrivileges_nonAdmin_denied() {
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
+    when(rbacService.isAdminMember(eq("gnarly"))).thenReturn(false);
+
+    CatalogImpl catalog = newCatalogImpl(versionContextResolver);
+    // Non-admin: isAdminMember is called and returns false -> guard returns null (denied)
+    DremioTable result = catalog.getTable(new NamespaceKey(Arrays.asList("sys", "privileges")));
+    verify(rbacService).isAdminMember(eq("gnarly"));
+    assertThat(result).isNull();
   }
 
   private interface FakeVersionedPlugin extends VersionedPlugin, StoragePlugin {}

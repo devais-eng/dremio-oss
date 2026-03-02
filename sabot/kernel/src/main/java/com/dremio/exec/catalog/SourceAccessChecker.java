@@ -727,6 +727,11 @@ final class SourceAccessChecker implements Catalog {
   }
 
   @Override
+  public void validateCreateViewPrivilege(NamespaceKey viewKey) {
+    delegate.validateCreateViewPrivilege(viewKey);
+  }
+
+  @Override
   public void validateOwnership(CatalogEntityKey key) {
     delegate.validateOwnership(key);
   }

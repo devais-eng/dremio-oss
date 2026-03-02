@@ -95,6 +95,7 @@ import com.dremio.exec.physical.base.ViewOptions;
 import com.dremio.exec.planner.logical.ViewTable;
 import com.dremio.exec.planner.sql.CalciteArrowHelper;
 import com.dremio.exec.planner.sql.parser.ParserUtil;
+import com.dremio.exec.planner.sql.parser.SqlGrant;
 import com.dremio.exec.proto.UserBitShared;
 import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.record.BatchSchema;
@@ -362,12 +363,19 @@ public class CatalogServiceHelper {
           "Failed to find home space for user [{}]", securityContext.getUserPrincipal().getName());
     }
 
+    String userName = securityContext.getUserPrincipal().getName();
+    Set<String> accessiblePaths = getUserAccessibleObjectPaths(userName);
+
     for (SpaceConfig spaceConfig : namespaceService.getSpaces()) {
-      topLevelItems.add(CatalogItem.fromSpaceConfig(spaceConfig));
+      if (accessiblePaths == null || hasChildUnder(accessiblePaths, spaceConfig.getName())) {
+        topLevelItems.add(CatalogItem.fromSpaceConfig(spaceConfig));
+      }
     }
 
     for (SourceConfig sourceConfig : sourceService.getSources()) {
-      topLevelItems.add(CatalogItem.fromSourceConfig(sourceConfig));
+      if (accessiblePaths == null || hasChildUnder(accessiblePaths, sourceConfig.getName())) {
+        topLevelItems.add(CatalogItem.fromSourceConfig(sourceConfig));
+      }
     }
 
     for (FunctionConfig functionConfig : namespaceService.getTopLevelFunctions()) {
@@ -461,6 +469,16 @@ public class CatalogServiceHelper {
   private @NotNull Optional<CatalogEntity> getCatalogEntityFromNonPromotedFileOrFolder(
       List<String> path, @Nullable CatalogPageToken pageToken, Integer maxChildren)
       throws NamespaceException {
+    if (rbacService != null
+        && dremioConfig != null
+        && dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      String userName = securityContext.getUserPrincipal().getName();
+      if (!rbacService.isAdminMember(userName)) {
+        throw UserException.validationError()
+            .message("Permission denied: only administrators can browse source files.")
+            .buildSilently();
+      }
+    }
     Optional<CatalogItem> internalItem = getInternalItemByPath(path);
     if (internalItem.isEmpty()) {
       return Optional.empty();
@@ -805,6 +823,16 @@ public class CatalogServiceHelper {
   private Optional<CatalogEntity> getCatalogEntityFromCatalogItem(
       CatalogItem catalogItem, @Nullable CatalogPageToken pageToken, Integer maxChildren)
       throws NamespaceException {
+    if (rbacService != null
+        && dremioConfig != null
+        && dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      String userName = securityContext.getUserPrincipal().getName();
+      if (!rbacService.isAdminMember(userName)) {
+        throw UserException.validationError()
+            .message("Permission denied: only administrators can browse source files.")
+            .buildSilently();
+      }
+    }
     // can either be a folder or a file
     if (catalogItem.getContainerType() == CatalogItem.ContainerSubType.FOLDER) {
       CatalogListingResult listingResult =
@@ -1290,6 +1318,9 @@ public class CatalogServiceHelper {
         rootEntity != null,
         String.format("Could not find the entity with name [%s].", topLevelKey));
 
+    // RBAC: enforce CREATE_VIEW privilege on parent container
+    catalogSupplier.get().validateCreateViewPrivilege(namespaceKey);
+
     sabotContext
         .getViewCreatorFactoryProvider()
         .get()
@@ -1322,6 +1353,16 @@ public class CatalogServiceHelper {
   @WithSpan
   public Dataset promoteToDataset(String targetId, Dataset dataset)
       throws NamespaceException, UnsupportedOperationException {
+    if (rbacService != null
+        && dremioConfig != null
+        && dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      String userName = securityContext.getUserPrincipal().getName();
+      if (!rbacService.isAdminMember(userName)) {
+        throw UserException.validationError()
+            .message("Permission denied: only administrators can promote datasets.")
+            .buildSilently();
+      }
+    }
     Preconditions.checkArgument(
         dataset.getType() == Dataset.DatasetType.PHYSICAL_DATASET,
         "Promoting can only create physical datasets.");
@@ -1467,6 +1508,8 @@ public class CatalogServiceHelper {
             .icebergViewVersion(optionManager)
             .build();
 
+    // RBAC: enforce ALTER privilege on the view being updated
+    catalogSupplier.get().validatePrivilege(namespaceKey, SqlGrant.Privilege.ALTER);
     catalogSupplier.get().updateView(namespaceKey, view, viewOptions);
     catalogSupplier.get().clearDatasetCache(namespaceKey, currentView.getVersionContext());
   }
@@ -1688,6 +1731,8 @@ public class CatalogServiceHelper {
               .batchSchema(getBatchSchema(dataset))
               .actionType(ViewOptions.ActionType.UPDATE_VIEW)
               .build();
+      // RBAC: enforce ALTER privilege on the view being updated
+      catalogSupplier.get().validatePrivilege(namespaceKey, SqlGrant.Privilege.ALTER);
       catalogSupplier
           .get()
           .updateView(
@@ -1730,6 +1775,11 @@ public class CatalogServiceHelper {
 
       case VIRTUAL_DATASET:
         {
+          // RBAC: enforce DROP privilege on the view being deleted
+          catalogSupplier
+              .get()
+              .validatePrivilege(
+                  new NamespaceKey(config.getFullPathList()), SqlGrant.Privilege.DROP);
           namespaceService.deleteDataset(new NamespaceKey(config.getFullPathList()), version);
           break;
         }
@@ -1833,6 +1883,18 @@ public class CatalogServiceHelper {
   private CatalogEntity createSource(
       Source source, SourceRefreshOption sourceRefreshOption, NamespaceAttribute... attributes)
       throws NamespaceException, ExecutionSetupException {
+    // Phase 13 Finding 4: enforce admin-only before existence check to prevent metadata leak.
+    // Non-admin users must see "Permission denied" not "Source already exists".
+    if (rbacService != null
+        && dremioConfig != null
+        && dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      String userName = securityContext.getUserPrincipal().getName();
+      if (!rbacService.isAdminMember(userName)) {
+        throw UserException.validationError()
+            .message("Permission denied: only administrators can create sources.")
+            .buildSilently();
+      }
+    }
     SourceConfig sourceConfig =
         sourceService.createSource(source.toSourceConfig(), sourceRefreshOption, attributes);
     // TODO: Use NamespaceService::getSourceById
@@ -2044,6 +2106,8 @@ public class CatalogServiceHelper {
       VersionedDatasetId id) {
     ViewOptions viewOptions =
         new ViewOptions.ViewOptionsBuilder().version(resolvedVersionContext).build();
+    // RBAC: enforce DROP privilege on the versioned view being deleted
+    catalogSupplier.get().validatePrivilege(namespaceKey, SqlGrant.Privilege.DROP);
     try {
       catalogSupplier.get().dropView(namespaceKey, viewOptions);
     } catch (IOException e) {
@@ -3108,6 +3172,32 @@ public class CatalogServiceHelper {
   }
 
   /**
+   * Returns the set of object paths accessible to the given user (from any of their role grants).
+   * Used for container visibility filtering in top-level listings. Returns null if RBAC is disabled
+   * or user is admin (caller should treat null as "show all").
+   */
+  @Nullable
+  private Set<String> getUserAccessibleObjectPaths(String userName) {
+    if (rbacService == null
+        || dremioConfig == null
+        || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return null; // RBAC disabled -- show everything
+    }
+    if (rbacService.isAdminMember(userName)) {
+      return null; // admin -- show everything
+    }
+    return rbacService.getAccessibleObjectPaths(userName);
+  }
+
+  /**
+   * Returns true if any path in the accessible set starts with the container name followed by a dot
+   * separator. Used for in-memory prefix matching after a single batch grant scan.
+   */
+  private static boolean hasChildUnder(Set<String> accessiblePaths, String containerName) {
+    return accessiblePaths.stream().anyMatch(p -> p.startsWith(containerName + "."));
+  }
+
+  /**
    * Filters namespace children by visibility based on RBAC grants. Admin users and RBAC-disabled
    * mode see everything. Non-admin users see only VDS/FUNCTION items they have grants on.
    * Containers (FOLDER, SPACE, SOURCE, HOME) and physical datasets are always visible.
@@ -3132,14 +3222,22 @@ public class CatalogServiceHelper {
         String objectPath = String.join(".", container.getFullPathList());
         return rbacService.hasPrivilege(userName, "SELECT", "VDS", objectPath);
       }
-      // Physical datasets (promoted, PDS) are always visible.
+      // When PDS enforcement is enabled, check SELECT grant on PDS
+      if (dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)) {
+        String objectPath = String.join(".", container.getFullPathList());
+        return rbacService.hasPrivilege(userName, "SELECT", "PDS", objectPath);
+      }
       return true;
     }
     if (container.getType() == NameSpaceContainer.Type.FUNCTION) {
       String objectPath = String.join(".", container.getFullPathList());
       return rbacService.hasPrivilege(userName, "EXECUTE", "FUNCTION", objectPath);
     }
-    // FOLDER, SPACE, SOURCE, HOME are always visible (containers).
+    if (container.getType() == NameSpaceContainer.Type.FOLDER) {
+      String folderPath = String.join(".", container.getFullPathList());
+      return rbacService.hasAccessibleChildUnderPath(userName, folderPath);
+    }
+    // SPACE, SOURCE, HOME at child level -- keep visible (top-level filtering handles spaces)
     return true;
   }
 

@@ -18,6 +18,7 @@ package com.dremio.dac.resource;
 import static com.dremio.service.namespace.proto.NameSpaceContainer.Type.SOURCE;
 
 import com.dremio.common.exceptions.UserException;
+import com.dremio.config.DremioConfig;
 import com.dremio.dac.annotations.RestResource;
 import com.dremio.dac.annotations.Secured;
 import com.dremio.dac.model.folder.FolderPath;
@@ -30,6 +31,7 @@ import com.dremio.dac.service.source.ImmutableResourceTreeListResponse;
 import com.dremio.dac.service.source.ResourceTreeListResponse;
 import com.dremio.dac.service.source.SourceService;
 import com.dremio.exec.catalog.ConnectionReader;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.store.CatalogService;
 import com.dremio.service.namespace.NamespaceException;
 import com.dremio.service.namespace.NamespaceKey;
@@ -42,6 +44,7 @@ import com.dremio.service.namespace.space.proto.SpaceConfig;
 import com.google.common.collect.Lists;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
+import java.util.Set;
 import javax.annotation.Nullable;
 import javax.annotation.security.RolesAllowed;
 import javax.inject.Inject;
@@ -68,6 +71,8 @@ public class ResourceTreeResource {
   private final SourceService sourceService;
   private final ConnectionReader connectionReader;
   private final CatalogService catalogService;
+  @Nullable private final RbacService rbacService;
+  @Nullable private final DremioConfig dremioConfig;
 
   @Inject
   public ResourceTreeResource(
@@ -75,12 +80,16 @@ public class ResourceTreeResource {
       @Context SecurityContext securityContext,
       SourceService sourceService,
       ConnectionReader connectionReader,
-      CatalogService catalogService) {
+      CatalogService catalogService,
+      @Nullable RbacService rbacService,
+      @Nullable DremioConfig dremioConfig) {
     this.namespaceService = namespaceService;
     this.securityContext = securityContext;
     this.sourceService = sourceService;
     this.connectionReader = connectionReader;
     this.catalogService = catalogService;
+    this.rbacService = rbacService;
+    this.dremioConfig = dremioConfig;
   }
 
   // TODO: DX-94503 showing UDFs in SQL Runner left side panel
@@ -304,11 +313,36 @@ public class ResourceTreeResource {
     }
   }
 
+  @Nullable
+  private Set<String> getUserAccessiblePaths() {
+    if (rbacService == null
+        || dremioConfig == null
+        || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return null;
+    }
+    String userName = securityContext.getUserPrincipal().getName();
+    if (rbacService.isAdminMember(userName)) {
+      return null;
+    }
+    return rbacService.getAccessibleObjectPaths(userName);
+  }
+
+  private boolean isContainerVisible(String containerName, Set<String> accessiblePaths) {
+    if (accessiblePaths == null) {
+      return true;
+    }
+    String prefix = containerName + ".";
+    return accessiblePaths.stream().anyMatch(p -> p.startsWith(prefix));
+  }
+
   public List<ResourceTreeEntity> getSpaces()
       throws NamespaceException, UnsupportedEncodingException {
     final List<ResourceTreeEntity> resources = Lists.newArrayList();
+    Set<String> accessiblePaths = getUserAccessiblePaths();
     for (SpaceConfig spaceConfig : namespaceService.get().getSpaces()) {
-      resources.add(new ResourceTreeEntity(spaceConfig));
+      if (isContainerVisible(spaceConfig.getName(), accessiblePaths)) {
+        resources.add(new ResourceTreeEntity(spaceConfig));
+      }
     }
     return resources;
   }
@@ -336,10 +370,13 @@ public class ResourceTreeResource {
   public List<ResourceTreeEntity> getSources()
       throws NamespaceException, UnsupportedEncodingException {
     final List<ResourceTreeEntity> resources = Lists.newArrayList();
+    Set<String> accessiblePaths = getUserAccessiblePaths();
     for (SourceConfig sourceConfig : sourceService.getSources()) {
-      resources.add(
-          new ResourceTreeSourceEntity(
-              sourceConfig, catalogService.getSourceState(sourceConfig.getName())));
+      if (isContainerVisible(sourceConfig.getName(), accessiblePaths)) {
+        resources.add(
+            new ResourceTreeSourceEntity(
+                sourceConfig, catalogService.getSourceState(sourceConfig.getName())));
+      }
     }
     return resources;
   }

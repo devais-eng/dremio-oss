@@ -21,6 +21,7 @@ import com.dremio.exec.planner.sql.handlers.direct.SimpleCommandResult;
 import com.dremio.exec.planner.sql.handlers.direct.SimpleDirectHandler;
 import com.dremio.exec.planner.sql.handlers.direct.SqlNodeUtil;
 import com.dremio.exec.planner.sql.parser.SqlRevokeRole;
+import com.dremio.exec.rbac.RbacEntityNotFoundException;
 import com.dremio.exec.rbac.RbacService;
 import java.util.Collections;
 import java.util.List;
@@ -51,7 +52,13 @@ public class RoleRevokeHandler extends SimpleDirectHandler {
           .buildSilently();
     }
 
-    rbacService.removeMembership(revokeeName, roleName);
+    try {
+      rbacService.removeMembership(revokeeName, roleName);
+    } catch (RbacEntityNotFoundException e) {
+      throw UserException.validationError()
+          .message("User '%s' is not a member of role '%s'.", revokeeName, roleName)
+          .buildSilently();
+    }
     return Collections.singletonList(
         SimpleCommandResult.successful("Role '%s' revoked from user '%s'.", roleName, revokeeName));
   }

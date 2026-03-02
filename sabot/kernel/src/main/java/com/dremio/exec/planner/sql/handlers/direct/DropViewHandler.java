@@ -52,7 +52,10 @@ public class DropViewHandler implements SqlDirectHandler<SimpleCommandResult> {
   public List<SimpleCommandResult> toResult(String sql, SqlNode sqlNode) throws Exception {
     final SqlDropView dropView = SqlNodeUtil.unwrap(sqlNode, SqlDropView.class);
     NamespaceKey path = catalog.resolveSingle(dropView.getPath());
-    catalog.validatePrivilege(path, SqlGrant.Privilege.ALTER);
+    catalog.validatePrivilege(path, SqlGrant.Privilege.DROP);
+    // LIFE-02: SELECT is required to resolve the view before dropping it.
+    // Without this check, DROP-only users get "Unknown view" instead of "Permission denied".
+    catalog.validatePrivilege(path, SqlGrant.Privilege.SELECT);
 
     final DremioTable table;
     final String sourceName = path.getRoot();

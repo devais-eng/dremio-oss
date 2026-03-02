@@ -102,7 +102,7 @@ public class CreateOrUpdateViewHandler extends SimpleDirectHandler {
         validateTablesAndVersionContext(
             createView.getQuery(), resolvedViewPath, statementSourceVersion.orElse(sessionVersion));
     validateNonCyclicView(convertedRelNode, resolvedViewPath);
-    catalog.validatePrivilege(resolvedViewPath, SqlGrant.Privilege.CREATE_VIEW);
+    catalog.validateCreateViewPrivilege(resolvedViewPath);
     if (isVersioned(resolvedViewPath)) {
       return createVersionedView(createView, formattedViewSql, convertedRelNode, resolvedViewPath);
     }
@@ -145,6 +145,9 @@ public class CreateOrUpdateViewHandler extends SimpleDirectHandler {
             .build();
     boolean exists = checkViewExistence(newViewName, isUpdate, catalogEntityKey);
     isUpdate &= exists;
+    if (isUpdate) {
+      catalog.validatePrivilege(viewPath, SqlGrant.Privilege.ALTER);
+    }
     final ViewOptions viewOptions = getViewOptions(isUpdate, resolvedVersionContext);
     CatalogUtil.validateResolvedVersionIsBranch(viewOptions.getVersion());
     if (isUpdate) {
@@ -172,6 +175,9 @@ public class CreateOrUpdateViewHandler extends SimpleDirectHandler {
     boolean exists =
         checkViewExistence(newViewName, isUpdate, CatalogEntityKey.fromNamespaceKey(viewPath));
     isUpdate &= exists;
+    if (isUpdate) {
+      catalog.validatePrivilege(viewPath, SqlGrant.Privilege.ALTER);
+    }
     final View view = getView(createView, sql, exists, convertedRelNode);
     ViewOptions viewOptions =
         new ViewOptions.ViewOptionsBuilder()

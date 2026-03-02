@@ -21,6 +21,7 @@ import com.dremio.exec.planner.sql.handlers.direct.SimpleCommandResult;
 import com.dremio.exec.planner.sql.handlers.direct.SimpleDirectHandler;
 import com.dremio.exec.planner.sql.handlers.direct.SqlNodeUtil;
 import com.dremio.exec.planner.sql.parser.SqlDropRole;
+import com.dremio.exec.rbac.RbacEntityNotFoundException;
 import com.dremio.exec.rbac.RbacService;
 import java.util.Collections;
 import java.util.List;
@@ -47,7 +48,13 @@ public class RoleDropHandler extends SimpleDirectHandler {
           .buildSilently();
     }
 
-    rbacService.deleteRole(roleName);
+    try {
+      rbacService.deleteRole(roleName);
+    } catch (RbacEntityNotFoundException e) {
+      throw UserException.validationError()
+          .message("Role '%s' not found.", roleName)
+          .buildSilently();
+    }
     return Collections.singletonList(
         SimpleCommandResult.successful("Role '%s' dropped.", roleName));
   }
