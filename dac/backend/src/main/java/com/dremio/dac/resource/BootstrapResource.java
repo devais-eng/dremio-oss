@@ -24,6 +24,7 @@ import com.dremio.dac.model.usergroup.UserForm;
 import com.dremio.dac.model.usergroup.UserName;
 import com.dremio.dac.model.usergroup.UserResourcePath;
 import com.dremio.dac.model.usergroup.UserUI;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.server.SabotContext;
 import com.dremio.service.namespace.NamespaceException;
 import com.dremio.service.namespace.space.proto.HomeConfig;
@@ -85,6 +86,10 @@ public class BootstrapResource {
               .setActive(true)
               .build();
       newUser = userService.createUser(newUser, userForm.getPassword());
+      RbacService rbacService = dContext.getRbacService();
+      if (rbacService != null) {
+        rbacService.assignBootstrapAdmin(userName.getName());
+      }
       dContext
           .getNamespaceService(SystemUser.SYSTEM_USERNAME)
           .addOrUpdateHome(

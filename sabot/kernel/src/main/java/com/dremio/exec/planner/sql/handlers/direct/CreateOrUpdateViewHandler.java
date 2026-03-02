@@ -102,7 +102,7 @@ public class CreateOrUpdateViewHandler extends SimpleDirectHandler {
         validateTablesAndVersionContext(
             createView.getQuery(), resolvedViewPath, statementSourceVersion.orElse(sessionVersion));
     validateNonCyclicView(convertedRelNode, resolvedViewPath);
-    catalog.validatePrivilege(resolvedViewPath, SqlGrant.Privilege.ALTER);
+    catalog.validatePrivilege(resolvedViewPath, SqlGrant.Privilege.CREATE_VIEW);
     if (isVersioned(resolvedViewPath)) {
       return createVersionedView(createView, formattedViewSql, convertedRelNode, resolvedViewPath);
     }

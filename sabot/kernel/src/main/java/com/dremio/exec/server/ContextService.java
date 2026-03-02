@@ -37,6 +37,7 @@ import com.dremio.exec.planner.PhysicalPlanReader;
 import com.dremio.exec.planner.cost.RelMetadataQuerySupplier;
 import com.dremio.exec.planner.observer.QueryObserverFactory;
 import com.dremio.exec.proto.CoordinationProtos.NodeEndpoint;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.store.CatalogService;
 import com.dremio.exec.store.dfs.FileSystemWrapper;
 import com.dremio.exec.store.dfs.LoggedFileSystemWrapper;
@@ -133,6 +134,7 @@ public class ContextService implements Service, Provider<SabotContext> {
   private final Provider<SecretsCreator> secretsCreatorProvider;
   private final Provider<ForemenWorkManager> foremenWorkManagerProvider;
   private final Provider<MetadataIOPool> metadataIOPoolProvider;
+  private final Provider<RbacService> rbacServiceProvider;
 
   private SabotContext context;
 
@@ -181,7 +183,8 @@ public class ContextService implements Service, Provider<SabotContext> {
       Provider<SourceVerifier> sourceVerifierProvider,
       Provider<SecretsCreator> secretsCreatorProvider,
       Provider<ForemenWorkManager> foremenWorkManagerProvider,
-      Provider<MetadataIOPool> metadataIOPoolProvider) {
+      Provider<MetadataIOPool> metadataIOPoolProvider,
+      Provider<RbacService> rbacServiceProvider) {
     this.bootstrapContext = bootstrapContext;
     this.workStats = workStats;
     this.kvStoreProvider = kvStoreProvider;
@@ -227,6 +230,7 @@ public class ContextService implements Service, Provider<SabotContext> {
     this.secretsCreatorProvider = secretsCreatorProvider;
     this.foremenWorkManagerProvider = foremenWorkManagerProvider;
     this.metadataIOPoolProvider = metadataIOPoolProvider;
+    this.rbacServiceProvider = rbacServiceProvider;
   }
 
   @Override
@@ -371,7 +375,8 @@ public class ContextService implements Service, Provider<SabotContext> {
         sourceVerifierProvider,
         secretsCreatorProvider,
         foremenWorkManagerProvider,
-        metadataIOPoolProvider);
+        metadataIOPoolProvider,
+        rbacServiceProvider);
   }
 
   @Override

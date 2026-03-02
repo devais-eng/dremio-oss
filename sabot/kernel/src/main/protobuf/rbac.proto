@@ -1,0 +1,62 @@
+/*
+ * Copyright (C) 2017-2019 Dremio Corporation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+syntax = "proto3";
+
+option java_package = "com.dremio.exec.rbac.proto";
+option java_outer_classname = "RbacProto";
+option optimize_for = SPEED;
+
+package com.dremio.exec.rbac.proto;
+
+// KV Store Key Format Specification
+//
+// oss_rbac_roles   — key: role_id (slugified role name, e.g. "analyst")
+// oss_rbac_grants  — key: composite pipe-delimited string:
+//                    "{role_id}|{object_type}|{object_path}|{privilege}"
+//                    e.g. "analyst|VDS|schemas.my_view|SELECT"
+//                    Pipe separator is safe: not present in slugified role IDs,
+//                    dot-paths, or privilege names.
+//                    Use Format.ofString() -- NOT Format.ofCompoundFormat() --
+//                    to preserve human-readable key inspection.
+// oss_rbac_memberships — key: composite pipe-delimited string:
+//                         "{user_name}|{role_id}"
+//                         e.g. "alice|analyst"
+//
+// ADMIN and PUBLIC are synthetic constants -- never written to any KV store.
+// hasPrivilege() checks for them directly in code.
+
+message Role {
+  string role_id = 1;    // slugified role name, immutable identity key
+  string role_name = 2;  // human-readable role name (same value for Phase 1; rename requires DROP+CREATE)
+  string created_by = 3; // username of creator
+  uint64 created_at = 4; // epoch millis
+}
+
+message Grant {
+  string role_id = 1;      // which role holds this grant
+  string object_type = 2;  // stored as plain string: "VDS", "FUNCTION" (NOT a proto enum)
+  string object_path = 3;  // dot-delimited path, e.g. "schemas.my_view"
+  string privilege = 4;    // stored as plain string: "SELECT", "EXECUTE", "CREATE_VIEW" (NOT a proto enum)
+  string granted_by = 5;   // username of granter
+  uint64 granted_at = 6;   // epoch millis
+}
+
+message Membership {
+  string user_name = 1;  // username of the member
+  string role_id = 2;    // which role this membership belongs to
+  string granted_by = 3; // username of granter
+  uint64 granted_at = 4; // epoch millis
+}

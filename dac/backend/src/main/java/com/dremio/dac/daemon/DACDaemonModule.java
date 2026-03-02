@@ -109,6 +109,10 @@ import com.dremio.exec.planner.observer.QueryObserverFactory;
 import com.dremio.exec.planner.plancache.CacheRefresherService;
 import com.dremio.exec.planner.plancache.CacheRefresherServiceImpl;
 import com.dremio.exec.proto.CoordinationProtos.NodeEndpoint;
+import com.dremio.exec.rbac.GrantStore;
+import com.dremio.exec.rbac.MembershipStore;
+import com.dremio.exec.rbac.RbacService;
+import com.dremio.exec.rbac.RoleStore;
 import com.dremio.exec.rpc.RpcConstants;
 import com.dremio.exec.rpc.ssl.SSLConfigurator;
 import com.dremio.exec.server.BootStrapContext;
@@ -805,7 +809,8 @@ public class DACDaemonModule implements DACModule {
             registry.provider(SourceVerifier.class),
             registry.provider(SecretsCreator.class),
             registry.provider(ForemenWorkManager.class),
-            registry.provider(MetadataIOPool.class));
+            registry.provider(MetadataIOPool.class),
+            registry.provider(RbacService.class));
 
     registry.bind(SysFlightChannelProvider.class, SysFlightChannelProvider.NO_OP);
 
@@ -1022,6 +1027,14 @@ public class DACDaemonModule implements DACModule {
     CatalogStatusEvents catalogStatusEvents = new CatalogStatusEventsImpl();
     registry.bind(CatalogStatusEvents.class, catalogStatusEvents);
 
+    // RBAC service -- always created regardless of feature flag (stores are lazy-initialized)
+    Provider<KVStoreProvider> kvStoreProviderForRbac = registry.provider(KVStoreProvider.class);
+    RoleStore roleStore = new RoleStore(kvStoreProviderForRbac);
+    GrantStore grantStore = new GrantStore(kvStoreProviderForRbac);
+    MembershipStore membershipStore = new MembershipStore(kvStoreProviderForRbac);
+    RbacService rbacServiceInstance = new RbacService(roleStore, grantStore, membershipStore);
+    registry.bind(RbacService.class, rbacServiceInstance);
+
     registry.bind(
         CatalogService.class,
         new CatalogServiceImpl(
@@ -1045,7 +1058,8 @@ public class DACDaemonModule implements DACModule {
             registry.provider(CatalogStatusEvents.class),
             registry.provider(java.util.concurrent.ExecutorService.class),
             registry.provider(NamespaceService.Factory.class),
-            registry.provider(UserService.class)));
+            registry.provider(UserService.class),
+            registry.provider(RbacService.class)));
 
     registry.bind(CatalogSupplier.class, CatalogFactory.class);
 

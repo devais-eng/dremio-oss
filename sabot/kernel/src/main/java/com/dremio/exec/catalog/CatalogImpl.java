@@ -53,6 +53,7 @@ import com.dremio.common.concurrent.bulk.ValueTransformer;
 import com.dremio.common.exceptions.ExecutionSetupException;
 import com.dremio.common.exceptions.UserException;
 import com.dremio.common.expression.CompleteType;
+import com.dremio.config.DremioConfig;
 import com.dremio.connector.ConnectorException;
 import com.dremio.connector.metadata.AttributeValue;
 import com.dremio.connector.metadata.DatasetHandle;
@@ -78,6 +79,7 @@ import com.dremio.exec.physical.base.WriterOptions;
 import com.dremio.exec.planner.logical.CreateTableEntry;
 import com.dremio.exec.planner.logical.ViewTable;
 import com.dremio.exec.planner.sql.parser.SqlGrant;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.record.BatchSchema;
 import com.dremio.exec.store.ColumnExtendedProperty;
 import com.dremio.exec.store.DatasetRetrievalOptions;
@@ -153,6 +155,7 @@ import com.dremio.service.namespace.space.proto.FolderConfig;
 import com.dremio.service.namespace.space.proto.HomeConfig;
 import com.dremio.service.namespace.space.proto.SpaceConfig;
 import com.dremio.service.orphanage.Orphanage;
+import com.dremio.service.users.SystemUser;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -215,6 +218,8 @@ public class CatalogImpl implements Catalog {
   private final MetadataIOPool metadataIOPool;
   private final CatalogEntityOwnership catalogEntityOwnership;
   private final UserOrRoleResolver userOrRoleResolver;
+  @Nullable private final RbacService rbacService;
+  private final DremioConfig dremioConfig;
 
   CatalogImpl(
       MetadataRequestOptions options,
@@ -232,7 +237,9 @@ public class CatalogImpl implements Catalog {
       VersionedDatasetAdapterFactory versionedDatasetAdapterFactory,
       MetadataIOPool metadataIOPool,
       CatalogEntityOwnership catalogEntityOwnership,
-      UserOrRoleResolver userOrRoleResolver) {
+      UserOrRoleResolver userOrRoleResolver,
+      @Nullable RbacService rbacService,
+      DremioConfig dremioConfig) {
     this.options = options;
     this.pluginRetriever = pluginRetriever;
     this.sourceModifier = sourceModifier;
@@ -255,6 +262,8 @@ public class CatalogImpl implements Catalog {
     this.metadataIOPool = metadataIOPool;
     this.catalogEntityOwnership = catalogEntityOwnership;
     this.userOrRoleResolver = userOrRoleResolver;
+    this.rbacService = rbacService;
+    this.dremioConfig = dremioConfig;
     this.datasetManager =
         new DatasetManager(
             pluginRetriever,
@@ -277,12 +286,20 @@ public class CatalogImpl implements Catalog {
 
   @Override
   public DremioTable getTableNoResolve(NamespaceKey key) {
-    return datasetManager.getTable(key, options, false);
+    final DremioTable table = datasetManager.getTable(key, options, false);
+    if (table != null && isRbacDeniedForVds(table, key)) {
+      return null; // RBAC denied -- appear as "not found"
+    }
+    return table;
   }
 
   @Override
   public DremioTable getTableNoColumnCount(NamespaceKey key) {
-    return datasetManager.getTable(key, options, true);
+    final DremioTable table = datasetManager.getTable(key, options, true);
+    if (table != null && isRbacDeniedForVds(table, key)) {
+      return null; // RBAC denied -- appear as "not found"
+    }
+    return table;
   }
 
   @Override
@@ -292,11 +309,18 @@ public class CatalogImpl implements Catalog {
     if (resolvedKey != null) {
       final DremioTable table = getTableHelper(resolvedKey);
       if (table != null) {
+        if (isRbacDeniedForVds(table, resolvedKey)) {
+          return null; // RBAC denied -- appear as "not found"
+        }
         return table;
       }
     }
 
-    return getTableHelper(key);
+    final DremioTable table = getTableHelper(key);
+    if (table != null && isRbacDeniedForVds(table, key)) {
+      return null; // RBAC denied -- appear as "not found"
+    }
+    return table;
   }
 
   @Override
@@ -304,7 +328,11 @@ public class CatalogImpl implements Catalog {
     NamespaceKey namespaceKey = catalogEntityKey.toNamespaceKey();
     if (CatalogUtil.forATSpecifierAccess(catalogEntityKey, this)) {
       try {
-        return getTableSnapshot(catalogEntityKey);
+        DremioTable table = getTableSnapshot(catalogEntityKey);
+        if (table != null && isRbacDeniedForVds(table, namespaceKey)) {
+          return null; // RBAC denied -- appear as "not found"
+        }
+        return table;
       } catch (UserException e) {
         // getTableSnapshot returns a UserException when table or Reference is not found.
         return null;
@@ -342,10 +370,17 @@ public class CatalogImpl implements Catalog {
     }
 
     // define a value transformer which will update any view tables after retrieval
+    // and filter out RBAC-denied VDS entries
     ValueTransformer<NamespaceKey, Optional<DremioTable>, NamespaceKey, Optional<DremioTable>>
         updateTableAfterRetrieval =
             (originalKey, resolvedKey, optTable) -> {
-              optTable.ifPresent(table -> updateTableIfNeeded(resolvedKey, table));
+              if (optTable.isPresent()) {
+                DremioTable table = optTable.get();
+                if (isRbacDeniedForVds(table, resolvedKey)) {
+                  return Optional.empty(); // RBAC denied -- appear as "not found"
+                }
+                updateTableIfNeeded(resolvedKey, table);
+              }
               return optTable;
             };
 
@@ -1329,6 +1364,12 @@ public class CatalogImpl implements Catalog {
   @Override
   public Collection<Function> getFunctions(CatalogEntityKey path, FunctionType functionType) {
     final NamespaceKey resolvedPath = resolveSingle(path.toNamespaceKey());
+
+    // RBAC: check EXECUTE privilege for UDFs
+    if (isRbacDeniedForFunction(resolvedPath != null ? resolvedPath : path.toNamespaceKey())) {
+      return ImmutableList.of(); // RBAC denied -- appear as "function not found"
+    }
+
     // Resolve version context for the source
     final VersionContext versionContext =
         getVersionContext(resolvedPath, path.getTableVersionContext());
@@ -1571,7 +1612,9 @@ public class CatalogImpl implements Catalog {
         versionedDatasetAdapterFactory,
         metadataIOPool,
         catalogEntityOwnership,
-        userOrRoleResolver);
+        userOrRoleResolver,
+        rbacService,
+        dremioConfig);
   }
 
   @Override
@@ -1594,7 +1637,9 @@ public class CatalogImpl implements Catalog {
         versionedDatasetAdapterFactory,
         metadataIOPool,
         catalogEntityOwnership,
-        userOrRoleResolver);
+        userOrRoleResolver,
+        rbacService,
+        dremioConfig);
   }
 
   @Override
@@ -1616,7 +1661,9 @@ public class CatalogImpl implements Catalog {
         versionedDatasetAdapterFactory,
         metadataIOPool,
         catalogEntityOwnership,
-        userOrRoleResolver);
+        userOrRoleResolver,
+        rbacService,
+        dremioConfig);
   }
 
   @Override
@@ -1640,7 +1687,9 @@ public class CatalogImpl implements Catalog {
         versionedDatasetAdapterFactory,
         metadataIOPool,
         catalogEntityOwnership,
-        userOrRoleResolver);
+        userOrRoleResolver,
+        rbacService,
+        dremioConfig);
   }
 
   private FileSystemPlugin getHomeFilesPlugin() throws ExecutionSetupException {
@@ -2765,7 +2814,116 @@ public class CatalogImpl implements Catalog {
 
   @Override
   public void validatePrivilege(NamespaceKey key, SqlGrant.Privilege privilege) {
-    // For the default implementation, don't validate privilege.
+    // (1) Feature flag OFF -> return immediately (RBAC disabled)
+    if (dremioConfig == null || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return;
+    }
+
+    // (2) System user -> return immediately (bypass all checks)
+    if (SystemUser.isSystemUserName(userName)) {
+      return;
+    }
+
+    // (3) Null rbacService guard (defensive -- should not happen when flag is ON)
+    if (rbacService == null) {
+      return;
+    }
+
+    // Map privilege to RBAC strings
+    String rbacPrivilege = privilege.name(); // "SELECT", "EXECUTE", "CREATE_VIEW", "ALTER", etc.
+    String rbacObjectType = resolveRbacObjectType(key, privilege);
+    String objectPath = key.getSchemaPath();
+
+    if (!rbacService.hasPrivilege(userName, rbacPrivilege, rbacObjectType, objectPath)) {
+      logger.warn("RBAC: Access denied for user '{}'", userName);
+      throw UserException.validationError().message("Table '%s' not found", key).buildSilently();
+    }
+  }
+
+  /**
+   * Maps a namespace key and privilege to the RBAC object type string. Uses privilege as a hint:
+   * EXECUTE implies FUNCTION, CREATE_VIEW implies VDS, default is VDS for SELECT and other
+   * privileges.
+   */
+  private String resolveRbacObjectType(NamespaceKey key, SqlGrant.Privilege privilege) {
+    switch (privilege) {
+      case EXECUTE:
+        return "FUNCTION";
+      case CREATE_VIEW:
+      case SELECT:
+      case ALTER:
+      default:
+        return "VDS";
+    }
+  }
+
+  /**
+   * Checks if RBAC denies the current user access to a VDS (virtual dataset / view). Returns true
+   * if access is denied, false if access is allowed. Only checks VDS -- PDS (physical datasets) are
+   * not subject to RBAC.
+   *
+   * @param table the resolved table -- must be non-null
+   * @param key the namespace key of the table
+   * @return true if RBAC denies access to this VDS
+   */
+  private boolean isRbacDeniedForVds(DremioTable table, NamespaceKey key) {
+    // Only enforce RBAC on views (VDS), not physical datasets
+    if (!(table instanceof ViewTable)) {
+      return false;
+    }
+
+    // Feature flag OFF -> allow
+    if (dremioConfig == null || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return false;
+    }
+
+    // System user -> allow
+    if (SystemUser.isSystemUserName(userName)) {
+      return false;
+    }
+
+    // No RbacService -> allow (defensive)
+    if (rbacService == null) {
+      return false;
+    }
+
+    if (!rbacService.hasPrivilege(userName, "SELECT", "VDS", key.getSchemaPath())) {
+      logger.warn("RBAC: Access denied for user '{}'", userName);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Checks if RBAC denies the current user EXECUTE access to a UDF. Returns true if access is
+   * denied, false if access is allowed.
+   *
+   * @param key the namespace key of the function
+   * @return true if RBAC denies EXECUTE on this function
+   */
+  private boolean isRbacDeniedForFunction(NamespaceKey key) {
+    // Feature flag OFF -> allow
+    if (dremioConfig == null || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return false;
+    }
+
+    // System user -> allow
+    if (SystemUser.isSystemUserName(userName)) {
+      return false;
+    }
+
+    // No RbacService -> allow (defensive)
+    if (rbacService == null) {
+      return false;
+    }
+
+    if (!rbacService.hasPrivilege(userName, "EXECUTE", "FUNCTION", key.getSchemaPath())) {
+      logger.warn("RBAC: Access denied for user '{}'", userName);
+      return true;
+    }
+
+    return false;
   }
 
   @Override

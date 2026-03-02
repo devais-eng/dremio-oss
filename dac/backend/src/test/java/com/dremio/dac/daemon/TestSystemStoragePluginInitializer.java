@@ -268,7 +268,8 @@ public class TestSystemStoragePluginInitializer {
             () -> new CatalogStatusEventsImpl(),
             () -> executor,
             () -> namespaceServiceFactory,
-            () -> mock(UserService.class));
+            () -> mock(UserService.class),
+            () -> null);
     catalogService.start();
   }
 

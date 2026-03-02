@@ -177,7 +177,9 @@ public class TestCatalogServiceHelperForVersioned extends DremioTest {
             homeFileTool,
             datasetVersionMutator,
             searchService,
-            optionManager);
+            optionManager,
+            null,
+            null);
   }
 
   @Test

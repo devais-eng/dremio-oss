@@ -59,6 +59,7 @@ import com.dremio.exec.proto.CoordinationProtos.NodeEndpoint;
 import com.dremio.exec.proto.UserBitShared.QueryId;
 import com.dremio.exec.proto.UserBitShared.WorkloadType;
 import com.dremio.exec.proto.UserProtos.QueryPriority;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.server.MaterializationDescriptorProvider;
 import com.dremio.exec.server.SabotQueryContext;
 import com.dremio.exec.server.SimpleJobRunner;
@@ -355,6 +356,10 @@ public class QueryContext
 
   public AccelerationManager getAccelerationManager() {
     return sabotQueryContext.getAccelerationManager();
+  }
+
+  public RbacService getRbacService() {
+    return sabotQueryContext.getRbacService();
   }
 
   public ReflectionRoutingManager getReflectionRoutingManager() {

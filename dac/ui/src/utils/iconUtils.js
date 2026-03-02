@@ -69,7 +69,15 @@ const STATUSES_ICON_POSTFIX = {
 };
 
 export function getIconStatusDatabase(status, sourceType) {
-  return getSourceIcon(sourceType) + (STATUSES_ICON_POSTFIX[status] || "");
+  const postfix = STATUSES_ICON_POSTFIX[status] || "";
+  if (!postfix) {
+    return getSourceIcon(sourceType);
+  }
+  // Status variants (-bad, -degraded) only exist for generic entity icons
+  if (NESSIE === sourceType || ARCTIC === sourceType) {
+    return "entities/nessie-source" + postfix;
+  }
+  return "entities/datalake-source" + postfix;
 }
 
 export function getIconByEntityType(type, isVersioned, isSpaceLocked) {

@@ -77,7 +77,8 @@ public class TestMockedCatalogServiceImpl {
                 () -> mock(CatalogStatusEvents.class),
                 () -> mock(ExecutorService.class),
                 () -> mock(NamespaceService.Factory.class),
-                () -> mock(UserService.class)));
+                () -> mock(UserService.class),
+                () -> null));
 
     when(plugin.getState()).thenReturn(SourceState.GOOD);
     when(plugins.managed()).thenReturn(Arrays.asList(plugin));

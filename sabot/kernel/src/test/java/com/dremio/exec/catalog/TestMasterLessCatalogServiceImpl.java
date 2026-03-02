@@ -291,7 +291,8 @@ public class TestMasterLessCatalogServiceImpl {
             () -> new CatalogStatusEventsImpl(),
             () -> executor,
             DirectProvider.wrap(namespaceServiceFactory),
-            () -> mock(UserService.class));
+            () -> mock(UserService.class),
+            () -> null);
     catalogService.start();
     mockUpPlugin = new TestCatalogServiceImpl.MockUpPlugin();
   }
