@@ -38,12 +38,14 @@ public class UserServiceUtils {
   }
 
   public static boolean validateUsername(String input) throws IllegalArgumentException {
-    // DX-8156: These two characters `":` currently cause trouble, particularly for constructing SQL
-    // queries.
+    // DX-8156: These characters cause trouble for SQL query construction and RSQL filter injection.
+    // `;` is blocked to prevent filter injection via the usr== filter in JobsResource /
+    // JobsListingResource (Copilot review item #3/#4, PR #4).
     return input != null
         && !input.isEmpty()
         && !input.contains(String.valueOf('"'))
-        && !input.contains(":");
+        && !input.contains(":")
+        && !input.contains(";");
   }
 
   public static boolean validatePassword(String input) throws IllegalArgumentException {
