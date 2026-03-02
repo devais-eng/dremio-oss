@@ -3212,10 +3212,14 @@ public class CatalogServiceHelper {
     if (rbacService.isAdminMember(userName)) {
       return children;
     }
-    return children.stream().filter(c -> isVisibleToUser(c, userName)).collect(Collectors.toList());
+    Set<String> accessiblePaths = rbacService.getAccessibleObjectPaths(userName);
+    return children.stream()
+        .filter(c -> isVisibleToUser(c, userName, accessiblePaths))
+        .collect(Collectors.toList());
   }
 
-  private boolean isVisibleToUser(NameSpaceContainer container, String userName) {
+  private boolean isVisibleToUser(
+      NameSpaceContainer container, String userName, Set<String> accessiblePaths) {
     if (container.getType() == NameSpaceContainer.Type.DATASET) {
       DatasetConfig ds = container.getDataset();
       if (ds.getType() == DatasetType.VIRTUAL_DATASET) {
@@ -3235,7 +3239,7 @@ public class CatalogServiceHelper {
     }
     if (container.getType() == NameSpaceContainer.Type.FOLDER) {
       String folderPath = String.join(".", container.getFullPathList());
-      return rbacService.hasAccessibleChildUnderPath(userName, folderPath);
+      return rbacService.hasAccessibleChildUnderPath(accessiblePaths, folderPath);
     }
     // SPACE, SOURCE, HOME at child level -- keep visible (top-level filtering handles spaces)
     return true;

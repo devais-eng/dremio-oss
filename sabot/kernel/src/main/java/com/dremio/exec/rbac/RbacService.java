@@ -25,6 +25,7 @@ import com.dremio.exec.store.sys.accesscontrol.SysTableRoleInfo;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -370,10 +371,10 @@ public class RbacService implements AccessControlListingManager {
     Preconditions.checkArgument(
         !Strings.isNullOrEmpty(userName), "userName must not be null or empty");
 
-    List<String> roleIds =
+    Set<String> roleIds =
         membershipStore.listByUser(userName).stream()
             .map(Membership::getRoleId)
-            .collect(Collectors.toList());
+            .collect(Collectors.toCollection(HashSet::new));
     roleIds.add(PUBLIC_ROLE_ID);
 
     return grantStore.listAll().stream()
@@ -407,10 +408,10 @@ public class RbacService implements AccessControlListingManager {
     }
 
     // Collect user's roles + PUBLIC
-    List<String> roleIds =
+    Set<String> roleIds =
         membershipStore.listByUser(userName).stream()
             .map(Membership::getRoleId)
-            .collect(Collectors.toList());
+            .collect(Collectors.toCollection(HashSet::new));
     roleIds.add(PUBLIC_ROLE_ID);
 
     String prefix = containerPath + ".";
@@ -422,6 +423,25 @@ public class RbacService implements AccessControlListingManager {
       }
     }
     return false;
+  }
+
+  /**
+   * Overload accepting a precomputed set of accessible object paths (from
+   * {@link #getAccessibleObjectPaths}). Does only an in-memory prefix check — no store access.
+   *
+   * <p>Use this overload when filtering multiple containers in a loop to avoid repeated
+   * {@code grantStore.listAll()} scans. The caller is responsible for the ADMIN short-circuit and
+   * for pre-computing the paths via {@code getAccessibleObjectPaths(userName)}.
+   *
+   * @param accessiblePaths precomputed set returned by {@link #getAccessibleObjectPaths}
+   * @param containerPath dot-delimited container path (e.g., "myspace" or "myspace.folderA")
+   * @return true if any accessible path starts with containerPath + "."
+   */
+  public boolean hasAccessibleChildUnderPath(Set<String> accessiblePaths, String containerPath) {
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(containerPath), "containerPath must not be null or empty");
+    String prefix = containerPath + ".";
+    return accessiblePaths.stream().anyMatch(p -> p.startsWith(prefix));
   }
 
   // ---------------------------------------------------------------------------
