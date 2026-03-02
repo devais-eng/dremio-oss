@@ -19,7 +19,6 @@ import com.dremio.catalog.model.CatalogEntityKey;
 import com.dremio.service.namespace.NamespaceException;
 import com.dremio.service.namespace.NamespaceService;
 import com.dremio.service.namespace.dataset.proto.DatasetConfig;
-import com.dremio.service.namespace.dataset.proto.DatasetType;
 import com.dremio.service.namespace.proto.NameSpaceContainer;
 import java.util.Optional;
 import javax.annotation.Nullable;
@@ -47,15 +46,23 @@ public class CatalogEntityOwnershipImpl implements CatalogEntityOwnership {
       case DATASET:
         {
           final DatasetConfig dataset = nameSpaceContainer.getDataset();
-          if (dataset.getType() == DatasetType.VIRTUAL_DATASET) {
-            return Optional.empty();
-          } else {
-            return Optional.of(new CatalogUser(dataset.getOwner()));
+          final String owner = dataset.getOwner();
+          if (owner == null || owner.isEmpty()) {
+            return Optional.empty(); // Legacy VDS without recorded owner
           }
+          return Optional.of(new CatalogUser(owner));
+          // Note: PDS and VDS both return the owner now — the VIRTUAL_DATASET
+          // early-return that previously discarded the owner is removed.
         }
       case FUNCTION:
         {
-          return Optional.empty();
+          final com.dremio.service.namespace.function.proto.FunctionConfig function =
+              nameSpaceContainer.getFunction();
+          final String owner = function.getOwner();
+          if (owner == null || owner.isEmpty()) {
+            return Optional.empty(); // Legacy UDF without recorded owner
+          }
+          return Optional.of(new CatalogUser(owner));
         }
       default:
         throw new RuntimeException("Unexpected type for getOwner " + nameSpaceContainer.getType());

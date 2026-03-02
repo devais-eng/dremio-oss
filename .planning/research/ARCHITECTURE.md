@@ -1,776 +1,469 @@
-# Architecture Research
+# Architecture Patterns — RBAC Milestone 2
 
-**Domain:** Dremio OSS — GitHub Actions CI/CD pipeline (Docker + ECR distribution)
+**Domain:** Dremio OSS RBAC — privilege context switching, VDS lifecycle, PDS SELECT, container visibility
 **Researched:** 2026-02-20
-**Confidence:** HIGH (Maven/Docker/GH Actions patterns are stable and well-documented; all Dremio
-build artifact paths verified directly from codebase)
+**Confidence:** HIGH — based on direct codebase analysis, all findings from source code
 
 ---
 
-## Standard Architecture
+## Recommended Architecture
 
-### System Overview
+### Summary of What Already Exists (Do Not Rebuild)
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│              TRIGGER: git tag push  (refs/tags/v*)                  │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │
-┌──────────────────────────────▼──────────────────────────────────────┐
-│              GitHub Actions Runner (ubuntu-latest)                   │
-│                                                                     │
-│  JOB: build-and-push                                                │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │  STAGE 1: Maven Build                                        │   │
-│  │  actions/setup-java@v4 (Java 21, temurin)                   │   │
-│  │  mvn package -pl distribution/server -am -DskipTests        │   │
-│  │  OUTPUT: distribution/server/target/dremio-community-       │   │
-│  │          ${version}.tar.gz                                   │   │
-│  └──────────────────────────┬──────────────────────────────────┘   │
-│                             │                                        │
-│  ┌──────────────────────────▼──────────────────────────────────┐   │
-│  │  STAGE 2: AWS Authentication                                 │   │
-│  │  aws-actions/configure-aws-credentials@v4                    │   │
-│  │  Inputs: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY            │   │
-│  │          AWS_DEFAULT_REGION (secret or var)                  │   │
-│  │  aws-actions/amazon-ecr-login@v2                             │   │
-│  │  OUTPUT: registry URL (e.g. 123456789.dkr.ecr.us-east-1.    │   │
-│  │          amazonaws.com)                                       │   │
-│  └──────────────────────────┬──────────────────────────────────┘   │
-│                             │                                        │
-│  ┌──────────────────────────▼──────────────────────────────────┐   │
-│  │  STAGE 3: Docker Build + Push                                │   │
-│  │  docker/setup-buildx-action@v3                               │   │
-│  │  docker/metadata-action@v5  (derives tags from git tag)      │   │
-│  │  docker/build-push-action@v6                                 │   │
-│  │    context: .                                                │   │
-│  │    file: distribution/docker/Dockerfile                      │   │
-│  │    push: true                                                │   │
-│  │    tags: ECR_REGISTRY/REPO:v1.2.3, ECR_REGISTRY/REPO:latest │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
-                               │
-┌──────────────────────────────▼──────────────────────────────────────┐
-│              AWS ECR (Private Registry)                              │
-│              123456789.dkr.ecr.{region}.amazonaws.com/{repo}        │
-│              Tags: v1.2.3, latest                                    │
-└─────────────────────────────────────────────────────────────────────┘
-```
+The existing RBAC system (Milestone 1) is fully operational:
 
-### Component Responsibilities
+- `CatalogImpl.validatePrivilege(NamespaceKey, SqlGrant.Privilege)` — single enforcement point for DDL operations
+- `CatalogImpl.isRbacDeniedForVds(DremioTable, NamespaceKey)` — SELECT enforcement for VDS via `instanceof ViewTable` check
+- `CatalogImpl.isRbacDeniedForFunction(NamespaceKey)` — EXECUTE enforcement for UDFs
+- `RbacService.hasPrivilege(userName, privilege, objectType, objectPath)` — privilege resolution
+- Feature flag `DremioConfig.RBAC_ENABLED` and system user bypass are wired in each check
 
-| Component | Responsibility | Implementation |
-|-----------|----------------|----------------|
-| Workflow trigger | Fires only on semver tag pushes | `on: push: tags: ['v*']` |
-| Maven build | Produces the server tarball | `mvn package -pl distribution/server -am -DskipTests` |
-| AWS credential step | Configures AWS SDK env vars for the runner | `aws-actions/configure-aws-credentials@v4` with IAM keys from secrets |
-| ECR login step | Authenticates Docker daemon against ECR | `aws-actions/amazon-ecr-login@v2`; outputs `registry` URL |
-| Metadata action | Derives Docker tags from git tag | `docker/metadata-action@v5`; maps `refs/tags/v1.2.3` → `v1.2.3` + `latest` |
-| Buildx + build-push | Builds and pushes the Docker image | `docker/build-push-action@v6`; passes tarball path as build arg |
-| Adapted Dockerfile | Installs Dremio from local tarball via COPY | `COPY` replaces `wget "${DOWNLOAD_URL}"` |
+**What is NOT yet wired:**
+- `resolveRbacObjectType()` maps `ALTER` and `SELECT` both to `"VDS"` — no PDS support
+- Container listing (`getSpaces()`, `getSources()`, `getFolders()`) has no RBAC filtering
+- `isRbacDeniedForVds` only checks `ViewTable` instances — `MaterializedDatasetTable` (PDS) bypasses
 
 ---
 
-## File Change Map — New vs Modified
+## Component Boundaries
 
-| File | Status | Change |
-|------|--------|--------|
-| `.github/workflows/docker-ecr.yml` | **NEW** | The CI/CD workflow definition |
-| `distribution/docker/Dockerfile` | **MODIFIED** | Replace `ARG DOWNLOAD_URL` + `wget` block with `ARG TARBALL_PATH` + `COPY` |
-
-No other files are needed. The Maven build, pom.xml, `.mvn/maven.config`, and all existing source files are untouched.
-
----
-
-## Recommended Project Structure
-
-```
-.github/
-└── workflows/
-    └── docker-ecr.yml          # Tag-triggered build, push to ECR
-
-distribution/
-└── docker/
-    └── Dockerfile              # MODIFIED: wget -> COPY
-```
-
-### Structure Rationale
-
-- `.github/workflows/docker-ecr.yml` — GitHub Actions requires workflow files here. One file per
-  pipeline is the standard pattern. Splitting into reusable workflows (`.github/workflows/build.yml`
-  + `.github/workflows/push.yml`) is premature for a single pipeline.
-
-- `distribution/docker/Dockerfile` — keep it in its existing location. The `build-push-action`
-  `file:` input accepts any path; moving the Dockerfile only adds confusion.
+| Component | Responsibility | Location | Communicates With |
+|---|---|---|---|
+| `CatalogImpl` | Enforcement dispatcher | `com.dremio.exec.catalog` | `RbacService`, `DatasetManager`, all handlers |
+| `RbacService` | Privilege resolution (existing) | `com.dremio.exec.rbac` | `GrantStore`, `RoleStore`, `MembershipStore` |
+| `ViewExpander` | VDS SQL expansion with view owner identity | `com.dremio.exec.planner.sql` | `SqlValidatorAndToRelContext.Builder` |
+| `UserDefinedFunctionExpanderImpl` | UDF expansion with UDF owner identity | `com.dremio.exec.ops` | `SqlConverter`, `SqlValidatorAndToRelContext.Builder` |
+| `ViewExpansionContext` | Token tracking during nested view expansion | `com.dremio.exec.ops` | `ViewExpander`, `QueryContext` |
+| `PlannerCatalogImpl` | View validation/conversion during planning | `com.dremio.exec.ops` | `ViewExpander`, `CatalogImpl` |
+| `DescribeTableHandler` | DESCRIBE TABLE command | `com.dremio.exec.planner.sql.handlers.direct` | `Catalog.getTable()` |
+| `ExplainHandler` | EXPLAIN PLAN command | `com.dremio.exec.planner.sql.handlers.direct` | `SqlHandlerConfig`, full query planning pipeline |
+| `DropViewHandler` | DROP VIEW command | `com.dremio.exec.planner.sql.handlers.direct` | `catalog.validatePrivilege(path, ALTER)` |
+| `CreateOrUpdateViewHandler` | CREATE/ALTER VIEW command | `com.dremio.exec.planner.sql.handlers.direct` | `catalog.validatePrivilege(path, CREATE_VIEW)` |
 
 ---
 
-## Architectural Patterns
+## Integration Point 1: VDS Definer Rights (Already Exists — Understand, Do Not Break)
 
-### Pattern 1: Single-Job Tag-Triggered Workflow
+### How VDS Expansion Uses the View Owner Identity
 
-**What:** One workflow file, one job, sequential steps within that job. The trigger is a tag push
-matching a glob pattern.
+**Confidence: HIGH** — read directly from `ViewExpander.java` and `UserDefinedFunctionExpanderImpl.java`.
 
-**When to use:** When the build, Docker build, and ECR push all belong together and there is no
-parallel work to do. Adding a separate `build` job and `push` job (with `needs:`) only makes sense
-when you need to run tests in parallel or conditionally skip the push.
+The identity context switching for definer rights is **already implemented** in Dremio's architecture. The flow is:
 
-**Trade-offs:** Simple to understand and debug. Cannot reuse the build artifact across matrix builds.
-Adequate for this milestone.
-
-**Example:**
-```yaml
-name: Build and Push to ECR
-
-on:
-  push:
-    tags:
-      - 'v*'
-
-jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    steps:
-      # ... steps in sequence
+```
+SELECT * FROM my_view
+  -> PlannerCatalogImpl.getValidatedTableWithSchema(key)
+     -> CatalogImpl.getTable(key)              [RBAC check: does invoker have SELECT on VDS?]
+        -> DatasetManager.getTable()           [returns ViewTable with viewOwner field]
+     -> convertView(ViewTable)
+        -> ViewExpander.expandView(ViewTable)
+           -> expandViewInternal(viewTable)
+              -> viewOwner = viewTable.getViewOwner()  [CatalogIdentity — the view definer]
+              -> viewExpansionContext.reserveViewExpansionToken(viewOwner)
+              -> expandRelNode(viewTable, viewOwner, queryString)
+                 -> builder.withUser(viewOwner)         [SWITCH TO DEFINER IDENTITY]
+                 -> sqlValidatorAndToRelContext = builder.build()
+                 -> sqlValidatorAndToRelContext.validate(parsedNode)
+                    -> during validation, nested table lookups use definer's identity
 ```
 
-### Pattern 2: Artifact Handoff via Filesystem (Maven → Docker COPY)
+Key classes:
+- `ViewTable.getViewOwner()` returns `@Nullable CatalogIdentity` — the stored view creator
+- `ViewExpansionContext.reserveViewExpansionToken(viewOwner)` tracks depth of nested identity switches
+- `SqlValidatorAndToRelContext.Builder.withUser(CatalogIdentity)` creates a new catalog bound to the definer's identity
+- `Catalog.resolveCatalog(CatalogIdentity)` clones `CatalogImpl` with the new identity — this new catalog's `this.userName` is the definer
 
-**What:** The Maven build produces a tarball at a known path. The Docker build accesses it via
-`COPY` using a build argument for the path, or by placing the tarball in the Docker build context.
+**For RBAC Milestone 2:** The definer-rights switch already works at planning time. The **only new requirement** is that during definer expansion, the nested `CatalogImpl` (bound to the definer's identity) correctly checks the definer's RBAC privileges on any VDS/PDS the view references. If the current PDS SELECT feature is added (see Integration Point 4), definer expansion will automatically enforce it for the definer's access to the underlying PDS.
 
-**When to use:** When you own both the Maven build and the Docker build and they run in the same
-CI job. This avoids the network round-trip of uploading to S3 and downloading in the Dockerfile.
+**No code change needed in the expansion path itself.** The work is in what the definer-identity catalog checks.
 
-**Trade-offs:** Couples the Maven step and Docker step to run in the same job/runner. For large
-repositories where the Maven artifact is cached and reused across jobs, a multi-job approach with
-`actions/upload-artifact` is better. For a single pipeline, filesystem handoff is simpler and
-faster.
+### Where viewOwner is Stored
 
-**Example — tarball path derived from Maven version:**
-```yaml
-- name: Derive tarball path
-  id: tarball
-  run: |
-    VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout \
-      -pl distribution/server)
-    echo "path=distribution/server/target/dremio-community-${VERSION}.tar.gz" \
-      >> "$GITHUB_OUTPUT"
+`ViewTable.viewOwner` is populated from:
+1. Non-versioned: `DatasetManager` retrieves the stored `DatasetConfig` owner field via `CatalogEntityOwnership.getCatalogEntityOwner(key)` (see `CatalogImpl.getUserDefinedFunctionOwner()` pattern)
+2. Versioned (Nessie): `VDS` created from Nessie metadata; owner is tracked in `VersionedDatasetAdapter`
 
-- name: Build and push Docker image
-  uses: docker/build-push-action@v6
-  with:
-    context: .
-    file: distribution/docker/Dockerfile
-    build-args: |
-      TARBALL_PATH=${{ steps.tarball.outputs.path }}
-    tags: ${{ steps.meta.outputs.tags }}
-    push: true
-```
-
-### Pattern 3: ECR Authentication via aws-actions
-
-**What:** Two sequential actions handle AWS auth: `configure-aws-credentials` (sets env vars) then
-`amazon-ecr-login` (authenticates Docker). The `amazon-ecr-login` action outputs the registry URL
-so you do not hardcode it.
-
-**When to use:** Always, when authenticating to ECR with IAM access keys. OIDC federation is the
-alternative (no long-lived keys) but requires IAM role configuration that is out of scope here.
-
-**Trade-offs:** IAM access keys are long-lived credentials. They must be rotated manually. They
-are stored as GitHub encrypted secrets. If the repository is public, secrets are not exposed to
-fork PRs. For a private repository this risk is lower.
-
-**Example:**
-```yaml
-- name: Configure AWS credentials
-  uses: aws-actions/configure-aws-credentials@v4
-  with:
-    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-
-- name: Log in to Amazon ECR
-  id: login-ecr
-  uses: aws-actions/amazon-ecr-login@v2
-
-- name: Build and push
-  uses: docker/build-push-action@v6
-  with:
-    tags: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.ref_name }}
-```
-
-### Pattern 4: Docker Metadata Action for Tag Derivation
-
-**What:** `docker/metadata-action@v5` reads the git ref and generates `tags:` and `labels:` outputs
-following Docker Hub / OCI conventions. When the trigger is `refs/tags/v1.2.3`, it outputs both
-`v1.2.3` and `latest` tags by default.
-
-**When to use:** Always. Deriving image tags from git refs manually is error-prone and non-idiomatic.
-
-**Trade-offs:** Adds one extra step but eliminates a class of manual string-manipulation bugs.
-
-**Example:**
-```yaml
-- name: Extract Docker metadata
-  id: meta
-  uses: docker/metadata-action@v5
-  with:
-    images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
-    tags: |
-      type=semver,pattern={{version}}
-      type=semver,pattern={{major}}.{{minor}}
-      type=raw,value=latest,enable={{is_default_branch}}
-```
+For the OSS KV-store path (spaces/home), views are stored via `ViewCreatorFactory` which stores the creating user's identity in the `View` proto.
 
 ---
 
-## Data Flow
+## Integration Point 2: UDF Invoker Rights (Already Exists — Understand, Do Not Break)
 
-### End-to-End Build to Registry Flow
+### How UDF Expansion Uses Owner Identity
 
-```
-Developer pushes tag: git tag v1.2.3 && git push origin v1.2.3
-    |
-    v
-GitHub receives refs/tags/v1.2.3 push
-    |
-    v
-Workflow trigger fires: on.push.tags matches 'v*'
-    |
-    v
-Runner starts: ubuntu-latest
-    |
-    v
-actions/checkout@v4
-  - checks out full repository at the tag ref
-    |
-    v
-actions/setup-java@v4 (Java 21, distribution: temurin)
-  - installs Eclipse Temurin JDK 21 (required by maven-enforcer [21,22) rule)
-    |
-    v
-actions/cache@v4 (optional but recommended)
-  - caches ~/.m2/repository keyed by pom.xml hash
-  - reduces subsequent build time from ~45min to ~10min
-    |
-    v
-mvn package -pl distribution/server -am -DskipTests
-  - builds all Maven modules required by distribution/server
-  - produces: distribution/server/target/dremio-community-${revision}.tar.gz
-  - revision is set in .mvn/maven.config as -Drevision=<value>
-  - on CI, pass -Drevision=${GITHUB_REF_NAME#v} to align Maven version with git tag
-    |
-    v
-aws-actions/configure-aws-credentials@v4
-  - reads AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION from secrets
-  - sets AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION env vars
-    |
-    v
-aws-actions/amazon-ecr-login@v2
-  - runs: aws ecr get-login-password | docker login ...
-  - outputs: registry = 123456789.dkr.ecr.us-east-1.amazonaws.com
-    |
-    v
-docker/setup-buildx-action@v3
-  - creates a BuildKit builder instance (faster, multi-platform capable)
-    |
-    v
-docker/metadata-action@v5
-  - input: refs/tags/v1.2.3
-  - outputs tags:
-      123456789.dkr.ecr.us-east-1.amazonaws.com/dremio-oss:1.2.3
-      123456789.dkr.ecr.us-east-1.amazonaws.com/dremio-oss:1.2
-      123456789.dkr.ecr.us-east-1.amazonaws.com/dremio-oss:latest
-    |
-    v
-docker/build-push-action@v6
-  - context: . (entire repository root)
-  - file: distribution/docker/Dockerfile
-  - build-args: TARBALL_PATH=distribution/server/target/dremio-community-1.2.3.tar.gz
-  - push: true
-  - tags: <from metadata-action>
-    |
-    v
-Docker daemon executes modified Dockerfile:
-  - FROM eclipse-temurin:11-jdk
-  - creates dremio user/group, directories
-  - COPY ${TARBALL_PATH} /tmp/dremio.tar.gz
-  - tar xfz /tmp/dremio.tar.gz -C /opt/dremio --strip-components=1
-  - rm /tmp/dremio.tar.gz
-    |
-    v
-Built image pushed to AWS ECR:
-  123456789.dkr.ecr.us-east-1.amazonaws.com/dremio-oss:1.2.3
-  123456789.dkr.ecr.us-east-1.amazonaws.com/dremio-oss:latest
-```
+**Confidence: HIGH** — read directly from `UserDefinedFunctionExpanderImpl.java` (lines 130-141).
 
-### Version Alignment Between Maven and Docker
+UDF expansion uses **owner's identity** (invoker rights are NOT the current pattern — Dremio UDFs run as owner):
 
 ```
-.mvn/maven.config: -Drevision=26.0.5-202509091642240013-f5051a07  (local dev default)
-        |
-        | overridden on CI:
-        v
-mvn ... -Drevision=${GITHUB_REF_NAME#v}
-  where GITHUB_REF_NAME = "v1.2.3"
-  strip "v" prefix -> revision = "1.2.3"
-        |
-        v
-Tarball: distribution/server/target/dremio-community-1.2.3.tar.gz
-Docker image tag: :1.2.3
+SELECT my_udf(x) FROM my_table
+  -> CatalogImpl.getFunctions(path, SCALAR)      [RBAC check: does invoker have EXECUTE?]
+     -> isRbacDeniedForFunction(key) -> hasPrivilege(userName, "EXECUTE", "FUNCTION", path)
+     -> getUserDefinedScalarFunctions(path)
+        -> getUserDefinedFunctionOwner(path)      [fetches stored creator identity]
+        -> new DremioScalarUserDefinedFunction(owner, udf)
+  -> UdfConvertlet / TabularUserDefinedFunctionExpanderRule
+     -> UserDefinedFunctionExpanderImpl.expandScalar(dremioUdf)
+        -> parseAndValidate(dremioUdf, sqlNode)
+           -> builder.withUser(dremioUdf.getOwner())   [SWITCH TO UDF OWNER IDENTITY]
+           -> builder.build().validateAndConvertForExpression(...)
 ```
+
+The check is: invoker must have EXECUTE (already enforced via `isRbacDeniedForFunction`), then expansion runs as the UDF owner (definer semantics). This is Dremio's current behavior.
+
+**For RBAC Milestone 2:** If the goal is true invoker rights (UDF body runs as invoker, not owner), this would require changing `parseAndValidate` to NOT call `.withUser(owner)`, or passing both identities. This is architecturally invasive. The simpler and safer interpretation is:
+- Keep owner-based expansion (existing)
+- Add EXECUTE privilege enforcement (already done in Milestone 1)
+- Document that Dremio UDFs have definer semantics by design
+
+**Recommended: Do not change UDF expansion semantics. Milestone 2 EXECUTE enforcement is already in place.**
 
 ---
 
-## Dockerfile Adaptation — wget to COPY
+## Integration Point 3: Container Visibility Filtering
 
-### Existing Dockerfile (distribution/docker/Dockerfile)
+### How Catalog Listing Works
 
-```dockerfile
-ARG JAVA_IMAGE="eclipse-temurin:11-jdk"
-FROM ${JAVA_IMAGE} as base
+**Confidence: HIGH** — read from `CatalogImpl.java` listing methods.
 
-LABEL maintainer=Dremio
+Container listing methods delegate to `userNamespaceService` (a `NamespaceService` instance) with **no RBAC filtering**:
 
-ARG DOWNLOAD_URL
+```java
+// CatalogImpl.java
+public List<SourceConfig> getSources() {
+    return userNamespaceService.getSources();   // No RBAC filter
+}
 
-RUN \
-  apt-get update \
-  && apt-get install wget -y \
-  && rm -rf /var/lib/apt/lists/* \
-  \
-  && mkdir -p /opt/dremio \
-  && mkdir -p /var/lib/dremio \
-  && mkdir -p /var/run/dremio \
-  && mkdir -p /var/log/dremio \
-  && mkdir -p /opt/dremio/data \
-  \
-  && groupadd --system dremio --gid 999 \
-  && useradd --base-dir /var/lib/dremio --system --uid 999 --gid dremio dremio \
-  && chown -R dremio:dremio /opt/dremio/data \
-  && chown -R dremio:dremio /var/run/dremio \
-  && chown -R dremio:dremio /var/log/dremio \
-  && chown -R dremio:dremio /var/lib/dremio \
-  && wget -q "${DOWNLOAD_URL}" -O dremio.tar.gz \
-  && tar vxfz dremio.tar.gz -C /opt/dremio --strip-components=1 \
-  && rm -rf dremio.tar.gz
-```
+public List<SpaceConfig> getSpaces() {
+    return userNamespaceService.getSpaces();    // No RBAC filter
+}
 
-### Adapted Dockerfile — COPY instead of wget
-
-Three changes only:
-1. Remove `ARG DOWNLOAD_URL`
-2. Add `ARG TARBALL_PATH` (receives path relative to build context)
-3. Replace `apt-get install wget` + `wget` line with `COPY ${TARBALL_PATH} /tmp/dremio.tar.gz`
-
-```dockerfile
-ARG JAVA_IMAGE="eclipse-temurin:11-jdk"
-FROM ${JAVA_IMAGE} as base
-
-LABEL maintainer=Dremio
-
-# TARBALL_PATH is relative to the Docker build context (repository root).
-# CI passes: distribution/server/target/dremio-community-${version}.tar.gz
-ARG TARBALL_PATH
-
-RUN \
-  apt-get update \
-  && rm -rf /var/lib/apt/lists/* \
-  \
-  && mkdir -p /opt/dremio \
-  && mkdir -p /var/lib/dremio \
-  && mkdir -p /var/run/dremio \
-  && mkdir -p /var/log/dremio \
-  && mkdir -p /opt/dremio/data \
-  \
-  && groupadd --system dremio --gid 999 \
-  && useradd --base-dir /var/lib/dremio --system --uid 999 --gid dremio dremio \
-  && chown -R dremio:dremio /opt/dremio/data \
-  && chown -R dremio:dremio /var/run/dremio \
-  && chown -R dremio:dremio /var/log/dremio \
-  && chown -R dremio:dremio /var/lib/dremio
-
-COPY ${TARBALL_PATH} /tmp/dremio.tar.gz
-
-RUN tar xfz /tmp/dremio.tar.gz -C /opt/dremio --strip-components=1 \
-  && rm /tmp/dremio.tar.gz \
-  && chown -R dremio:dremio /opt/dremio
-
-EXPOSE 9047/tcp
-EXPOSE 31010/tcp
-EXPOSE 32010/tcp
-EXPOSE 45678/tcp
-
-USER dremio
-WORKDIR /opt/dremio
-ENV DREMIO_HOME /opt/dremio
-ENV DREMIO_PID_DIR /var/run/dremio
-ENV DREMIO_GC_LOGS_ENABLED="yes"
-ENV DREMIO_GC_LOG_TO_CONSOLE="yes"
-ENV DREMIO_LOG_DIR="/var/log/dremio"
-ENTRYPOINT ["bin/dremio", "start-fg"]
-```
-
-**Why split `RUN` into two:** `COPY` cannot be inside a `RUN` command. The standard pattern is:
-- `RUN` for OS setup (directories, users — this layer is stable and cached)
-- `COPY` to bring in the artifact (invalidates cache only when tarball changes)
-- `RUN` to extract + clean up
-
-**Why `COPY` can use a build arg for the path:** Docker supports `ARG` before `COPY`. The build
-arg `TARBALL_PATH` is a path relative to the build context. When `docker build --build-arg
-TARBALL_PATH=distribution/server/target/dremio-community-1.2.3.tar.gz -f
-distribution/docker/Dockerfile .` is run from the repo root, Docker can access the tarball.
-
-**Build context:** The `build-push-action` `context: .` means the entire repository root is the
-build context. The tarball at `distribution/server/target/` is inside this context and reachable
-by `COPY`.
-
-**Important:** The build context must not contain the entire Maven repository cache. Add a
-`.dockerignore` at the repository root to exclude heavy directories:
-
-```
-# .dockerignore (new file at repository root)
-.git
-dac/ui-lib/node_modules
-dac/ui-tools/node_modules
-dac/ui-common/node_modules
-**/.m2
-**/target/archive-tmp
-**/target/site
-**/target/surefire-reports
-# Keep: distribution/server/target/*.tar.gz
-```
-
----
-
-## Complete Workflow File
-
-**Location:** `.github/workflows/docker-ecr.yml` (new file)
-
-```yaml
-name: Build and Push Docker Image to ECR
-
-on:
-  push:
-    tags:
-      - 'v*'
-
-env:
-  # Set ECR_REPOSITORY as an env var (not a secret) — it is not sensitive.
-  # Example: "dremio-oss" or "my-org/dremio"
-  ECR_REPOSITORY: dremio-oss
-
-jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Java 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-
-      - name: Cache Maven local repository
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
-
-      - name: Derive version from git tag
-        id: version
-        run: |
-          # Strip the leading "v" from the git tag (e.g. v1.2.3 -> 1.2.3)
-          echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Build Maven distribution tarball
-        run: |
-          mvn package \
-            --batch-mode \
-            --no-transfer-progress \
-            -pl distribution/server \
-            -am \
-            -DskipTests \
-            -Drevision=${{ steps.version.outputs.value }}
-
-      - name: Locate tarball
-        id: tarball
-        run: |
-          TARBALL="distribution/server/target/dremio-community-${{ steps.version.outputs.value }}.tar.gz"
-          if [ ! -f "$TARBALL" ]; then
-            echo "ERROR: tarball not found at $TARBALL"
-            ls distribution/server/target/ || true
-            exit 1
-          fi
-          echo "path=$TARBALL" >> "$GITHUB_OUTPUT"
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-
-      - name: Log in to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: distribution/docker/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            TARBALL_PATH=${{ steps.tarball.outputs.path }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-```
-
----
-
-## GitHub Secrets Configuration
-
-Secrets are set at: GitHub repository > Settings > Secrets and variables > Actions > Secrets
-
-| Secret Name | Value | Notes |
-|-------------|-------|-------|
-| `AWS_ACCESS_KEY_ID` | IAM access key ID | From IAM user with `ecr:GetAuthorizationToken`, `ecr:BatchCheckLayerAvailability`, `ecr:CompleteLayerUpload`, `ecr:InitiateLayerUpload`, `ecr:PutImage`, `ecr:UploadLayerPart` permissions |
-| `AWS_SECRET_ACCESS_KEY` | IAM secret access key | Paired with `AWS_ACCESS_KEY_ID` |
-| `AWS_DEFAULT_REGION` | e.g. `us-east-1` | The region where the ECR registry lives |
-
-The ECR repository URL (`ECR_REGISTRY`) is output by `amazon-ecr-login@v2` — it is not a secret
-and does not need to be stored separately. The `ECR_REPOSITORY` name (e.g. `dremio-oss`) is set
-as a plain `env:` variable in the workflow file.
-
-### Minimum IAM Policy for the ECR Push User
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "ecr:GetAuthorizationToken"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "ecr:BatchCheckLayerAvailability",
-        "ecr:CompleteLayerUpload",
-        "ecr:InitiateLayerUpload",
-        "ecr:PutImage",
-        "ecr:UploadLayerPart"
-      ],
-      "Resource": "arn:aws:ecr:{region}:{account-id}:repository/{repo-name}"
-    }
-  ]
+public List<FolderConfig> getFolders(NamespaceKey rootPath) {
+    return userNamespaceService.getFolders(rootPath);  // No RBAC filter
 }
 ```
 
-`ecr:GetAuthorizationToken` is IAM-wide (resource `*`) because it is a control-plane operation.
-All image-layer operations are scoped to the specific ECR repository ARN.
+The `InformationSchemaCatalogImpl` (accessed via `iscDelegate`) also returns unfiltered results for `listCatalogs()`, `listSchemata()`, `listTables()`, `listViews()`.
+
+The `listSchemas()` method queries the namespace index and returns schema names without privilege checks.
+
+### Where to Add Container Visibility Filtering
+
+There are two levels to consider:
+
+**Level 1 — Source/Space visibility (coarse-grained):**
+`CatalogImpl.getSources()` and `getSpaces()` return all items. For container visibility, the approach is to filter the returned list against user privileges.
+
+**Level 2 — Dataset/View visibility (already handled):**
+`getTable()` already calls `isRbacDeniedForVds()` — invisible VDS returns null (appears not found). The planner sees no VDS it cannot access.
+
+**New component needed: `RbacVisibilityFilter`**
+
+```
+CatalogImpl.getSources()
+  -> userNamespaceService.getSources()   [all sources]
+  -> RbacVisibilityFilter.filterSources(sources, userName)
+     -> for each source: rbacService.hasPrivilege(userName, "SELECT", "SOURCE", sourceName)
+     -> return only visible sources
+```
+
+However, "SOURCE" visibility may not be the right granularity. A more practical approach: a container is visible if the user has any privilege on any object within it. This requires a broader scan.
+
+**Simpler alternative (recommended for Milestone 2):** Containers (sources, spaces) are always visible. Only datasets within them are filtered. This matches Snowflake's behavior where a database is visible even if you have no tables in it. This avoids the expensive recursive visibility scan.
+
+**Object type for grants:** `"SOURCE"`, `"SPACE"`, `"FOLDER"` as object types for container-level grants.
+
+### listDatasets / listSchemas
+
+The `listDatasets(NamespaceKey)` method (line 1341) uses a namespace index query and returns all datasets. For dataset-level visibility filtering, this would require post-filtering the iterator — an O(N) operation where N is the total dataset count.
+
+**Approach:** Add RBAC filter to the iterator returned by `listDatasets()` and `listSchemas()` using `RbacService.hasPrivilege()` per entry. For large catalogs this is expensive but acceptable for Milestone 2.
 
 ---
 
-## Integration Points
+## Integration Point 4: Table-Level SELECT for PDS
 
-### External Services
+### Current State: PDS Bypasses RBAC
 
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| AWS ECR | `aws-actions/configure-aws-credentials@v4` + `amazon-ecr-login@v2` | Registry URL is output by the login action — do not hardcode |
-| GitHub Actions cache | `actions/cache@v4` for `.m2/repository`; `cache-from/cache-to: type=gha` for Docker layer cache | Both significantly reduce re-build time |
-| GitHub Secrets store | `secrets.AWS_ACCESS_KEY_ID`, `secrets.AWS_SECRET_ACCESS_KEY`, `secrets.AWS_DEFAULT_REGION` | Encrypted at rest, masked in logs, not available to fork PR runs |
+**Confidence: HIGH** — confirmed from `CatalogImpl.isRbacDeniedForVds()` source code.
 
-### Internal Boundaries
+The current `isRbacDeniedForVds()` method (line 2869) explicitly skips non-ViewTable instances:
 
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| Maven build → Docker build | Filesystem: `distribution/server/target/*.tar.gz` | Same runner job; tarball path passed as Docker build-arg |
-| Docker build → ECR | Docker push to authenticated registry | Registry URL from `amazon-ecr-login` step output `${{ steps.login-ecr.outputs.registry }}` |
-| Git tag → Maven version | Shell string strip: `${GITHUB_REF_NAME#v}` | Ensures Maven `dremio-community-${revision}.tar.gz` name aligns with git tag |
-| Git tag → Docker tag | `docker/metadata-action@v5` semver patterns | Generates `:1.2.3`, `:1.2`, `:latest` automatically |
+```java
+private boolean isRbacDeniedForVds(DremioTable table, NamespaceKey key) {
+    // Only enforce RBAC on views (VDS), not physical datasets
+    if (!(table instanceof ViewTable)) {
+        return false;   // PDS always allowed
+    }
+    // ... VDS check
+}
+```
 
----
+`MaterializedDatasetTable` (PDS) does not extend `ViewTable`, so it always passes through.
 
-## Java Version Constraint — Critical Build Requirement
+### What Changes for PDS SELECT Enforcement
 
-The Dremio Maven build enforces Java 21 at build time (maven-enforcer rule `[21,22)` in root
-`pom.xml`, line ~3396). The workflow `setup-java` step MUST use `java-version: '21'`.
+Two things must change:
 
-The Maven compiler release target is `11` (`maven.compiler.release=11` in root `pom.xml`). This
-means:
-- **CI runner needs Java 21** to compile (maven-enforcer blocks builds on older JDKs)
-- **Docker runtime base image uses Java 11** (`eclipse-temurin:11-jdk` in existing Dockerfile)
-- The tarball contains Java 11 bytecode — it runs on Java 11+ at runtime
+**1. Add `isRbacDeniedForPds()` method in `CatalogImpl`:**
 
-Do not "fix" the Dockerfile to use `eclipse-temurin:21-jdk`. The existing base image is correct
-for the runtime. The CI runner is separate from the Docker runtime.
+```java
+private boolean isRbacDeniedForPds(DremioTable table, NamespaceKey key) {
+    if (table instanceof ViewTable) {
+        return false;  // handled by isRbacDeniedForVds
+    }
+    if (!isPdsRbacEnabled()) return false;     // separate flag or same flag
+    if (SystemUser.isSystemUserName(userName)) return false;
+    if (rbacService == null) return false;
 
----
+    // Check SELECT on the PDS using object type "PDS" or "TABLE"
+    return !rbacService.hasPrivilege(userName, "SELECT", "PDS", key.getSchemaPath());
+}
+```
 
-## Build Order for Implementation Phases
+**2. Call it from the same call sites as `isRbacDeniedForVds()`:**
 
-### Phase 1 — Workflow Skeleton (fastest feedback, no ECR needed yet)
+```java
+// In getTable(NamespaceKey key):
+if (table != null && (isRbacDeniedForVds(table, key) || isRbacDeniedForPds(table, key))) {
+    return null;
+}
+```
 
-1. Create `.github/workflows/docker-ecr.yml` with the trigger, checkout, Java setup, and Maven
-   build steps only (no Docker, no ECR steps). Push a test tag.
-2. Verify: Maven build completes on the runner, tarball appears in the expected path.
-3. Confirms: Java 21 enforcement passes, Maven build works in CI, tarball naming is correct.
+Or merge into a single `isRbacDenied(table, key)` that handles both cases.
 
-**Why first:** Validates the Maven build in CI before adding Docker complexity. The Maven step
-is the longest (30-45 minutes on a cold cache) and most likely to fail for reasons unrelated to
-Docker or ECR.
+**Object type for PDS grants:** Use `"PDS"` (or `"TABLE"`) as the `objectType` string in `RbacService.hasPrivilege()`. Grant key becomes `roleId::PDS::source.schema.table::SELECT`.
 
-### Phase 2 — Dockerfile Adaptation
+**Important:** The `resolveRbacObjectType()` method currently maps `SELECT` to `"VDS"` — this must be updated to distinguish VDS vs PDS based on the actual table type.
 
-1. Modify `distribution/docker/Dockerfile`: replace `ARG DOWNLOAD_URL` + `wget` with
-   `ARG TARBALL_PATH` + `COPY`.
-2. Add `.dockerignore` at repository root.
-3. Test locally: `mvn package -pl distribution/server -am -DskipTests && docker build
-   --build-arg TARBALL_PATH=distribution/server/target/dremio-community-*.tar.gz
-   -f distribution/docker/Dockerfile .`
-4. Confirm the image starts: `docker run --rm -p 9047:9047 <image_id>` and Dremio
-   UI appears at `http://localhost:9047`.
+### DESCRIBE and EXPLAIN PLAN
 
-**Why second:** Validates the Dockerfile change in isolation before adding the CI push step.
-A broken Dockerfile is easier to debug locally than in CI.
+**DESCRIBE TABLE** — `DescribeTableHandler.toResult()` (line 96) calls `catalog.getTable(catalogEntityKey)`. Since `getTable()` already calls the RBAC checks (after your fix), DESCRIBE will automatically get the right behavior: if the user cannot SELECT the table, `getTable()` returns null and DESCRIBE returns "Unknown table". **No additional changes needed in DescribeTableHandler.**
 
-### Phase 3 — ECR Authentication + Push in Workflow
-
-1. Create the IAM user and ECR repository in AWS.
-2. Add secrets to GitHub (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`).
-3. Add the `configure-aws-credentials`, `amazon-ecr-login`, `setup-buildx`, `metadata-action`,
-   and `build-push-action` steps to the workflow.
-4. Push a test tag and verify the image appears in ECR.
-
-**Why last:** Requires AWS infrastructure and secrets to exist. Decoupling Phase 3 from Phase 1
-means the Maven/Docker changes can be developed and tested without AWS access.
+**EXPLAIN PLAN** — `ExplainHandler.toResult()` delegates to the full planning pipeline (same as SELECT). The planning pipeline calls `getTable()` through `PlannerCatalogImpl` which calls `CatalogImpl.getTable()`. RBAC enforcement is inherited. **No additional changes needed in ExplainHandler.**
 
 ---
 
-## Scaling Considerations
+## Integration Point 5: VDS Lifecycle Privileges (ALTER, DROP)
 
-This is a CI/CD pipeline, not a runtime system. Scaling concerns are about pipeline performance,
-not user load.
+### Current State
 
-| Scale | Architecture Adjustment |
-|-------|-------------------------|
-| Single developer, rare releases | Current design is sufficient. Cold Maven build is ~40min. |
-| Weekly releases | Add Maven `.m2` cache (`actions/cache@v4`). Reduces rebuild time to ~10min after cache warms. |
-| Multiple tags per week | Add Docker layer cache (`cache-from: type=gha`). Reduces Docker build time on layer cache hits. |
-| Multi-arch images (AMD64 + ARM64) | Add `platforms: linux/amd64,linux/arm64` to `build-push-action`. Build time doubles; consider self-hosted ARM runner or QEMU emulation tradeoffs. |
-| Separate test and release pipelines | Split into two workflows: `ci.yml` (on every push, runs tests) + `release.yml` (on tag push, skips tests, builds Docker). Out of scope for this milestone. |
+**Confidence: HIGH** — confirmed from handler source code.
 
----
+Both ALTER (via `CREATE OR REPLACE VIEW`) and DROP VIEW already call `validatePrivilege`:
 
-## Anti-Patterns
+```java
+// DropViewHandler.java line 55:
+catalog.validatePrivilege(path, SqlGrant.Privilege.ALTER);
 
-### Anti-Pattern 1: Hardcoding the ECR Registry URL
+// CreateOrUpdateViewHandler.java line 105:
+catalog.validatePrivilege(resolvedViewPath, SqlGrant.Privilege.CREATE_VIEW);
+```
 
-**What people do:** Set `ECR_REGISTRY: 123456789.dkr.ecr.us-east-1.amazonaws.com` as a secret
-or env var and use it directly in the Docker tag.
+`validatePrivilege()` in `CatalogImpl` (line 2816) maps `ALTER` to `"VDS"` as object type. So `GRANT ALTER ON VDS myspace.myview TO ROLE r` already works with the existing framework.
 
-**Why it's wrong:** The `amazon-ecr-login@v2` action outputs the registry URL. Using the output
-avoids duplication and ensures the URL is always consistent with the authenticated registry.
+**What is missing:** The `resolveRbacObjectType()` method maps both `ALTER` and `SELECT` to `"VDS"`. There is no special handling for `DROP` vs `ALTER`. The current code at line 2854:
 
-**Do this instead:** Use `${{ steps.login-ecr.outputs.registry }}` in the `tags:` field of
-`build-push-action`.
+```java
+case ALTER:
+default:
+    return "VDS";
+```
 
-### Anti-Pattern 2: Running Maven Without `-DskipTests` in the Docker Pipeline
+**`DROP` privilege:** `DropTableHandler` calls `validatePrivilege(path, Privilege.DROP)` (not `ALTER`). The current `resolveRbacObjectType()` falls through to `default: return "VDS"` which correctly routes it. A `GRANT DROP ON VDS` grant would enforce this.
 
-**What people do:** Run the full Maven build (with tests) before the Docker push, making the
-pipeline 60-90 minutes long.
-
-**Why it's wrong:** Tests should run in a separate CI job triggered on every push/PR. The
-release pipeline triggered by a tag should trust that the tag was applied to a commit that
-already passed CI. Re-running all tests on every tag push doubles the CI cost and pipeline time.
-
-**Do this instead:** `-DskipTests` in the Docker pipeline. Have a separate workflow for PRs/pushes
-that runs `mvn verify` without the Docker steps.
-
-### Anti-Pattern 3: Using `docker build --build-arg DOWNLOAD_URL=...` in CI to Download from S3
-
-**What people do:** Upload the Maven tarball to S3 after the Maven build, then pass the S3 URL
-as `DOWNLOAD_URL` to the original Dockerfile's `wget` step.
-
-**Why it's wrong:** This requires S3 upload permissions, a network round-trip inside the Docker
-build, and keeps the problematic wget-in-Dockerfile pattern. It also makes local Docker builds
-require an external URL.
-
-**Do this instead:** Adapt the Dockerfile to use `COPY` (as described above). The tarball is on
-the runner filesystem. No S3 involvement needed.
-
-### Anti-Pattern 4: Setting the Build Context to `distribution/docker/`
-
-**What people do:** Set `context: distribution/docker` in `build-push-action` to minimize build
-context size.
-
-**Why it's wrong:** The tarball is at `distribution/server/target/`, which is outside the
-`distribution/docker/` context. Docker cannot `COPY` files from outside the build context.
-
-**Do this instead:** Set `context: .` (repository root) and use `.dockerignore` to exclude
-node_modules, `.git`, etc. The tarball at `distribution/server/target/` is then accessible.
-
-### Anti-Pattern 5: Deriving Maven Version with `mvn help:evaluate` Instead of `GITHUB_REF_NAME`
-
-**What people do:** Run `mvn help:evaluate -Dexpression=project.version -q -DforceStdout` to get
-the version from the POM, then use that as the Docker tag.
-
-**Why it's wrong:** For this project, the version IS the revision passed as `-Drevision` to Maven,
-which is read from `.mvn/maven.config` during local builds. In CI you should override `-Drevision`
-to match the git tag. If you evaluate `project.version` before overriding `-Drevision`, you get
-the version from `.mvn/maven.config` (the developer's local version), not the release version.
-
-**Do this instead:** Derive the version from `GITHUB_REF_NAME` (strip the `v` prefix), use it
-as both `-Drevision` for Maven AND as the Docker tag. They will always agree.
+**For ALTER VIEW specifically:** The `ALTER VIEW ... SET TBLPROPERTIES` path uses `CatalogImpl.alterView()` or equivalent via a separate call chain. The code at line 2287 shows `ALTER_VIEW_PROPERTIES` goes through `createOrUpdateView` → which calls `validatePrivilege(..., CREATE_VIEW)` — may need a dedicated `ALTER` check here rather than reusing `CREATE_VIEW`.
 
 ---
 
-## Sources
+## Data Flow: New Features End-to-End
 
-All pipeline patterns are HIGH confidence based on:
-- GitHub Actions official documentation patterns for Docker publishing (well-established, stable
-  since 2021)
-- `aws-actions/configure-aws-credentials` and `aws-actions/amazon-ecr-login` are official AWS
-  actions with stable v4/v2 API
-- `docker/build-push-action`, `docker/metadata-action`, `docker/setup-buildx-action` are official
-  Docker actions with stable v5/v6 API
-- Dremio build structure verified directly from:
-  - `/home/emanuele/IdeaProjects/dremio-oss/distribution/docker/Dockerfile` (existing Dockerfile)
-  - `/home/emanuele/IdeaProjects/dremio-oss/distribution/server/pom.xml` (finalName, distribution name)
-  - `/home/emanuele/IdeaProjects/dremio-oss/.mvn/maven.config` (revision property)
-  - `/home/emanuele/IdeaProjects/dremio-oss/pom.xml` (maven.compiler.release=11, enforcer [21,22))
-  - `distribution/server/target/dremio-community-26.0.5-202509091642240013-f5051a07.tar.gz` (actual artifact, naming confirmed)
+### Flow 1: SELECT on PDS
+
+```
+SELECT * FROM source.schema.my_table
+  -> Planner: CatalogImpl.getTable(NamespaceKey["source","schema","my_table"])
+     -> DatasetManager.getTable() -> MaterializedDatasetTable (not ViewTable)
+     -> isRbacDeniedForVds(table, key) -> returns false (not ViewTable)  [existing]
+     -> [NEW] isRbacDeniedForPds(table, key)
+        -> rbacService.hasPrivilege(userName, "SELECT", "PDS", "source.schema.my_table")
+        -> false (denied) -> return null (appears as "table not found")
+        -> true (allowed) -> return MaterializedDatasetTable to planner
+```
+
+### Flow 2: VDS Expansion with Definer Access to PDS
+
+```
+SELECT * FROM my_space.my_view  [view SQL: SELECT * FROM source.my_table]
+  -> CatalogImpl.getTable(["my_space","my_view"])
+     -> ViewTable with viewOwner = CatalogIdentity("view_creator")
+     -> isRbacDeniedForVds: rbacService.hasPrivilege(invoker, "SELECT", "VDS", "my_space.my_view")
+        -> allowed: invoker has VDS SELECT grant
+  -> PlannerCatalogImpl.convertView(ViewTable)
+     -> ViewExpander.expandView(ViewTable)
+        -> expandRelNode(viewTable, viewOwner="view_creator", sql)
+           -> builder.withUser(CatalogUser("view_creator"))
+           -> new CatalogImpl with userName="view_creator"
+           -> validate("SELECT * FROM source.my_table") with definer's catalog
+              -> CatalogImpl(view_creator).getTable(["source","my_table"])
+                 -> MaterializedDatasetTable
+                 -> [NEW] isRbacDeniedForPds: rbacService.hasPrivilege("view_creator", "SELECT", "PDS", "source.my_table")
+                    -> view_creator must have PDS SELECT; invoker's PDS access is irrelevant
+```
+
+### Flow 3: Container Listing with Visibility
+
+```
+SHOW SCHEMAS  [or UI browse request]
+  -> CatalogImpl.getSpaces() -> userNamespaceService.getSpaces()  [all spaces]
+  -> [NEW] RbacVisibilityFilter.filterContainers(spaces, userName, rbacService)
+     -> For each space: rbacService.hasPrivilege(userName, "SELECT", "SPACE", spaceName)
+     -> Return only permitted spaces
+```
+
+### Flow 4: DROP VIEW Privilege Check
+
+```
+DROP VIEW my_space.my_view
+  -> DropViewHandler.toResult()
+     -> catalog.validatePrivilege(path, SqlGrant.Privilege.ALTER)
+        -> CatalogImpl.validatePrivilege():
+           -> rbacPrivilege = "ALTER"
+           -> rbacObjectType = resolveRbacObjectType(key, ALTER) = "VDS"
+           -> rbacService.hasPrivilege(userName, "ALTER", "VDS", "my_space.my_view")
+           -> false -> throw UserException (permission denied)
+           -> true -> proceed with drop
+```
 
 ---
 
-*Architecture research for: Dremio OSS GitHub Actions CI/CD pipeline (Docker + ECR)*
-*Researched: 2026-02-20*
+## New vs Modified Components
+
+### Modified (Existing Files, Surgical Changes)
+
+| File | Change | Line Range |
+|---|---|---|
+| `CatalogImpl.java` | Add `isRbacDeniedForPds()` method; call from all `getTable` variants | ~2870 area |
+| `CatalogImpl.java` | Update `resolveRbacObjectType()` to return `"PDS"` for physical tables | ~2848 |
+| `CatalogImpl.java` | Filter `getSources()`, `getSpaces()`, `getFolders()` results | ~3514, 3668, 3539 |
+| `CatalogImpl.java` | Add `"SOURCE"` and `"SPACE"` to `resolveRbacObjectType()` or new method | ~2848 |
+| `RbacService.java` | No changes needed — `hasPrivilege()` already accepts any objectType string | — |
+| `GrantStore.java` / `RbacConfig.java` | Possibly add object type constants | — |
+
+### New Components
+
+| Component | Purpose | Location |
+|---|---|---|
+| `RbacVisibilityFilter` | Static helper: filter container lists against RBAC grants | `com.dremio.exec.rbac` |
+| Grant DDL changes | Support `"PDS"`, `"SOURCE"`, `"SPACE"`, `"FOLDER"` as grantable object types | SQL parser, GrantPrivilegeHandler |
+| SQL grammar extension | `GRANT SELECT ON PDS source.schema.table TO ROLE r` syntax | `SqlGrantPrivilege.java` or equivalent |
+
+---
+
+## Anti-Patterns to Avoid
+
+### Anti-Pattern 1: Checking DatasetConfig.getType() Instead of instanceof
+
+**What goes wrong:** Using `datasetConfig.getType() == DatasetType.PHYSICAL_DATASET` to detect PDS.
+
+**Why bad:** `DatasetConfig` may be null (for snapshot/versioned tables). The `instanceof ViewTable` check is safe; `getDatasetConfig().getType()` may NPE.
+
+**Instead:** Use `instanceof ViewTable` for VDS detection. For PDS, use `!(table instanceof ViewTable)` as the positive condition, with null guard on `table` first.
+
+### Anti-Pattern 2: Changing ViewExpander Expansion Identity
+
+**What goes wrong:** Changing `withUser(viewOwner)` to `withUser(queryUser)` to implement "true invoker rights."
+
+**Why bad:** This breaks the existing security model where view owners can grant access to underlying sources without exposing direct PDS access. All existing tests will break.
+
+**Instead:** Keep existing definer-rights expansion. If invoker rights are needed for a specific UDF scenario, scope it to that UDF only with a new flag.
+
+### Anti-Pattern 3: O(N) Visibility Check in `listDatasets()` Without Caching
+
+**What goes wrong:** Calling `rbacService.hasPrivilege()` for every dataset in a namespace scan of a large catalog.
+
+**Why bad:** `listDatasets()` may return thousands of entries. One RocksDB read per entry is not acceptable at large scale.
+
+**Instead:** Batch the check by fetching all grants for the current user once (`rbacService.listGrantsByObject()` or a user-grants query), then filter in-memory. Or defer dataset-level filtering to query time (table access) rather than listing time.
+
+### Anti-Pattern 4: Using `validatePrivilege()` for PDS Read Enforcement
+
+**What goes wrong:** Calling `validatePrivilege(key, SELECT)` in `getTable()` instead of the existing `isRbacDeniedForPds()` pattern.
+
+**Why bad:** `validatePrivilege()` throws an exception. For `getTable()`, the contract is to return null (silent deny). Using an exception here would break callers that use getTable() for existence checks, not just privilege checks.
+
+**Instead:** Use the silent `isRbacDeniedForPds()` pattern (returns boolean, caller returns null), matching the existing `isRbacDeniedForVds()` approach.
+
+---
+
+## Scalability Considerations
+
+| Concern | At 100 users | At 10K users | Notes |
+|---|---|---|---|
+| PDS SELECT check per query | Single RocksDB get, negligible | Same — KV lookup | Key is `roleId::PDS::path::SELECT` |
+| Container listing filter | O(containers), fast | O(containers), fast | Small number of sources/spaces |
+| Dataset listing filter | O(datasets) per user | O(datasets) — potential bottleneck | Consider lazy/query-time filtering |
+| Grant key cardinality | Low | May need composite key scan | Monitor RocksDB key count |
+
+---
+
+## Build Order for Milestone 2
+
+Build order respects the dependency graph: enforcement changes must come before UI/listing changes, and new grant types must be parseable before they can be enforced.
+
+**Step 1 — Extend grant object types (parser + store)**
+Enable `"PDS"`, `"SOURCE"`, `"SPACE"`, `"FOLDER"` as valid object types in `GrantPrivilegeHandler` and `RevokePrivilegeHandler`. Add validation that the object exists. Update `resolveRbacObjectType()` in `CatalogImpl`. Enables: GRANT SELECT ON PDS ... syntax.
+
+**Step 2 — PDS SELECT enforcement**
+Add `isRbacDeniedForPds()` to `CatalogImpl`. Wire into all `getTable()` variants and `bulkGetTables()`. Unit test with physical dataset. This is a self-contained change that does not touch VDS or UDF paths.
+
+**Step 3 — DESCRIBE / EXPLAIN verification**
+Verify (no code change expected) that DESCRIBE TABLE and EXPLAIN PLAN inherit PDS SELECT enforcement through `getTable()`. Add integration tests.
+
+**Step 4 — VDS lifecycle privileges (ALTER, DROP)**
+The ALTER and DROP paths already call `validatePrivilege()` with the correct privilege. The only work is ensuring `"ALTER"` and `"DROP"` map correctly in `resolveRbacObjectType()` for VDS objects. Add integration tests for `DROP VIEW` and `CREATE OR REPLACE VIEW` with RBAC.
+
+**Step 5 — Container visibility**
+Add optional filtering to `getSources()` and `getSpaces()`. Introduce `"SOURCE"` and `"SPACE"` object types. Start with opt-in (flag or no-op if no SOURCE grants exist) to avoid breaking the default open-access behavior for sources.
+
+**Step 6 — Integration tests end-to-end**
+Test definer-rights flow: user A has SELECT on VDS, VDS owner has SELECT on PDS, user A cannot directly access PDS. Verify expansion succeeds (definer's access is used).
+
+---
+
+## Key Files by Integration Point
+
+| Feature | Primary Files | Method |
+|---|---|---|
+| VDS definer rights (understand/verify) | `ViewExpander.java:119-169` | `expandViewInternal()` |
+| VDS definer rights (understand/verify) | `ViewExpansionContext.java:93-107` | `reserveViewExpansionToken()` |
+| VDS definer rights (understand/verify) | `SqlValidatorAndToRelContext.java` | `Builder.withUser()` |
+| UDF owner expansion (understand/verify) | `UserDefinedFunctionExpanderImpl.java:129-141` | `parseAndValidate()` |
+| PDS SELECT enforcement (NEW) | `CatalogImpl.java:2869-2895` | Add `isRbacDeniedForPds()` |
+| PDS SELECT enforcement (NEW) | `CatalogImpl.java:2848-2857` | Update `resolveRbacObjectType()` |
+| PDS SELECT enforcement (NEW) | `CatalogImpl.java:288-388` | All `getTable()` overloads |
+| DESCRIBE (no change expected) | `DescribeTableHandler.java:96` | Uses `catalog.getTable()` |
+| EXPLAIN (no change expected) | `ExplainHandler.java` | Delegates to full planning pipeline |
+| DROP VIEW (existing, verify) | `DropViewHandler.java:55` | `validatePrivilege(path, ALTER)` |
+| CREATE VIEW (existing, verify) | `CreateOrUpdateViewHandler.java:105` | `validatePrivilege(path, CREATE_VIEW)` |
+| Container listing (NEW) | `CatalogImpl.java:3614-3670` | `getSources()`, `getSpaces()`, `getFolders()` |
+| Grant type extension (NEW) | `GrantPrivilegeHandler.java` | Add `"PDS"`, `"SOURCE"`, `"SPACE"` |
+| Grant type extension (NEW) | `RevokePrivilegeHandler.java` | Same |
+
+---
+
+## Confidence Assessment
+
+| Area | Confidence | Basis |
+|---|---|---|
+| VDS definer rights (existing path) | HIGH | Read `ViewExpander.java`, `ViewExpansionContext.java`, `PlannerCatalogImpl.java` |
+| UDF expansion with owner identity | HIGH | Read `UserDefinedFunctionExpanderImpl.java:136` — explicit `withUser(owner)` |
+| PDS bypass (current behavior) | HIGH | Read `isRbacDeniedForVds` line 2871: `!(table instanceof ViewTable)` returns false |
+| Container listing (no filter) | HIGH | Read `getSources()`, `getSpaces()` — direct namespace delegate, no filter |
+| DESCRIBE inherits table check | HIGH | `DescribeTableHandler:96` calls `catalog.getTable()` which does RBAC |
+| EXPLAIN inherits planning checks | HIGH | Delegates to full planning pipeline; `getTable()` is called through normal path |
+| ALTER/DROP privilege (existing) | HIGH | Read `DropViewHandler:55`, `CreateOrUpdateViewHandler:105` |
+
+---
+
+*Research date: 2026-02-20. Based on direct analysis of Dremio OSS codebase at git branch `rbac` (commit 2cc3b3c3d).*

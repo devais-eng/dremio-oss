@@ -22,6 +22,7 @@ import com.dremio.exec.planner.sql.handlers.direct.SimpleDirectHandler;
 import com.dremio.exec.planner.sql.handlers.direct.SqlNodeUtil;
 import com.dremio.exec.planner.sql.parser.SqlGrant;
 import com.dremio.exec.planner.sql.parser.SqlRevokeOnCatalog;
+import com.dremio.exec.rbac.RbacEntityNotFoundException;
 import com.dremio.exec.rbac.RbacService;
 import java.util.Collections;
 import java.util.List;
@@ -68,7 +69,15 @@ public class CatalogRevokeHandler extends SimpleDirectHandler {
     for (SqlNode privNode : revokeNode.getPrivilegeList()) {
       final SqlGrant.Privilege privilege =
           ((SqlLiteral) privNode).symbolValue(SqlGrant.Privilege.class);
-      rbacService.revokePrivilege(revokee, objectType, objectPath, privilege.name());
+      try {
+        rbacService.revokePrivilege(revokee, objectType, objectPath, privilege.name());
+      } catch (RbacEntityNotFoundException e) {
+        throw UserException.validationError()
+            .message(
+                "Privilege %s on %s '%s' not granted to role '%s'.",
+                privilege.name(), objectType, objectPath, revokee)
+            .buildSilently();
+      }
     }
 
     return Collections.singletonList(

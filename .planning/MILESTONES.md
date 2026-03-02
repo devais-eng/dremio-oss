@@ -63,23 +63,54 @@
 **Files affected:** 3 (1 created, 2 modified)
 **Lines of code:** 86 insertions, 13 deletions (YAML + Dockerfile)
 **Timeline:** 1 day (2026-02-20)
-**Git range:** 35e40373b..fbc5a0b4e (5 commits)
+**Git range:** 35e40373b..fbc5a0b4e (5 commits on develop branch)
 
-**Delivered:** End-to-end GitHub Actions CI/CD pipeline that builds Docker images of the custom Dremio OSS fork and pushes them to a private AWS ECR registry on git tag pushes.
+**Delivered:** End-to-end GitHub Actions CI/CD pipeline that builds Docker images of the custom Dremio OSS fork and pushes them to GitHub Container Registry (GHCR) on git tag pushes. (Originally targeted AWS ECR; switched to GHCR via quick tasks 1-3.)
 
 **Key accomplishments:**
 - GitHub Actions workflow triggered on `v*` tag pushes with version extraction, Java 21 setup, and Maven cache
 - Maven build producing `distribution/server/target/dremio-community-{version}.tar.gz` with all build flags
 - Multi-stage Dockerfile rewrite: busybox extractor + eclipse-temurin:17-jre-jammy runtime (replacing wget + Java 11 JDK)
 - Staging directory pattern isolating Docker build context (tarball + Dockerfile only) from full repo
-- AWS ECR authentication via IAM access keys from GitHub Secrets with dynamic registry URL
+- GHCR authentication via `GITHUB_TOKEN` — no AWS credentials required
 - Dual Docker image tagging: versioned tag from git tag + `latest` tag on every push
 
-**User setup required:**
-- AWS: Private ECR repository, IAM user with ECR push permissions
-- GitHub: 4 repository secrets (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, ECR_REPOSITORY)
+**Quick task follow-ups (post-milestone):**
+- Quick-1: Fix ARG JAVA_IMAGE scope in Dockerfile (2026-02-25)
+- Quick-2: Split docker-ecr workflow into separate build and docker jobs (2026-02-25)
+- Quick-3: Switch push target from ECR to GHCR (2026-02-28)
 
 **Archives:** `milestones/v1.2-ROADMAP.md`, `milestones/v1.2-REQUIREMENTS.md`, `milestones/v1.2-MILESTONE-AUDIT.md`
+
+---
+
+
+## v1.3 Privilege Context & Enforcement (Shipped: 2026-02-24)
+
+**Phases completed:** 9 phases, 17 plans, 30 tasks
+**Files affected:** 114 files
+**Lines of code:** ~3,091 Java insertions
+**Timeline:** 5 days (2026-02-20 to 2026-02-24)
+**Git range:** 2a8cf2427..cf526f2cc (84 commits on rbac branch)
+
+**Delivered:** Privilege context switching (definer rights for VDS and UDF), SELECT grants on physical tables, container visibility filtering, VDS lifecycle privileges, metadata safety checks, and file browse/promote admin restrictions — completing deny-by-default enforcement across every access path.
+
+**Key accomplishments:**
+- VDS lifecycle enforcement: ALTER, DROP, and CREATE_VIEW privileges enforced at all SQL DDL and REST API call sites
+- Definer rights: view expansion runs under the last modifier's identity with cycle detection, deleted-owner safety, and plan cache definer-chain bypass
+- UDF definer semantics: FunctionConfig owner stamping, CatalogEntityOwnershipImpl FUNCTION fix, EXECUTE enforcement verified
+- PDS SELECT enforcement: opt-in deny-by-default SELECT grants on physical tables with separate `services.rbac.pds.enabled` flag
+- Container visibility filtering: sources, spaces, and folders hidden unless user has access to at least one child; full ancestor path shown
+- Metadata safety: sys.privileges admin-only, DESCRIBE/EXPLAIN gated on privilege model, file browse/promote restricted to admins
+- UAT verified on Docker (port 19047) with 10/10 RBAC tests passing; PostgreSQL source tested with PDS enforcement
+
+**Known gaps (from audit — all low severity):**
+- DROP VDS requires SELECT + DROP grants (undocumented cross-phase constraint; misleading "Unknown view" error)
+- getTable(String datasetId) PDS enforcement TODO (versioned/time-travel path, not main query path)
+- UI search for promoted PDS blocked for non-admin users (guard applies to all source types)
+- Container visibility tested via SQL proxy only, not REST API listing endpoints
+
+**Archives:** `milestones/v1.3-ROADMAP.md`, `milestones/v1.3-REQUIREMENTS.md`, `milestones/v1.3-MILESTONE-AUDIT.md`
 
 ---
 

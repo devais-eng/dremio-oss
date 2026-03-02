@@ -19,6 +19,7 @@ import static com.dremio.service.namespace.dataset.proto.DatasetType.PHYSICAL_DA
 
 import com.dremio.common.exceptions.UserException;
 import com.dremio.common.utils.PathUtils;
+import com.dremio.config.DremioConfig;
 import com.dremio.dac.annotations.RestResource;
 import com.dremio.dac.annotations.Secured;
 import com.dremio.dac.explore.QueryExecutor;
@@ -48,6 +49,7 @@ import com.dremio.exec.catalog.ConnectionReader;
 import com.dremio.exec.catalog.SourceCatalog;
 import com.dremio.exec.catalog.SourceRefreshOption;
 import com.dremio.exec.ops.ReflectionContext;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.store.CatalogService;
 import com.dremio.exec.store.NamespaceNotEmptyException;
 import com.dremio.file.File;
@@ -73,6 +75,7 @@ import java.util.Arrays;
 import java.util.ConcurrentModificationException;
 import java.util.Objects;
 import java.util.Optional;
+import javax.annotation.Nullable;
 import javax.annotation.security.RolesAllowed;
 import javax.inject.Inject;
 import javax.inject.Provider;
@@ -109,6 +112,8 @@ public class SourceResource extends BaseResourceWithAllocator {
   private final OptionManager optionManager;
   private final Provider<Orphanage.Factory> orphanageFactoryProvider;
   private final CatalogService catalogService;
+  @Nullable private final RbacService rbacService;
+  @Nullable private final DremioConfig dremioConfig;
 
   @Inject
   public SourceResource(
@@ -124,7 +129,9 @@ public class SourceResource extends BaseResourceWithAllocator {
       BufferAllocatorFactory allocatorFactory,
       OptionManager optionManager,
       Provider<Orphanage.Factory> orphanageFactoryProvider,
-      CatalogService catalogService)
+      CatalogService catalogService,
+      @Nullable RbacService rbacService,
+      @Nullable DremioConfig dremioConfig)
       throws SourceNotFoundException {
     super(allocatorFactory);
     this.namespaceService = namespaceService;
@@ -140,6 +147,21 @@ public class SourceResource extends BaseResourceWithAllocator {
     this.optionManager = optionManager;
     this.orphanageFactoryProvider = orphanageFactoryProvider;
     this.catalogService = catalogService;
+    this.rbacService = rbacService;
+    this.dremioConfig = dremioConfig;
+  }
+
+  private void requireAdmin(String operation) {
+    if (rbacService != null
+        && dremioConfig != null
+        && dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      String userName = securityContext.getUserPrincipal().getName();
+      if (!rbacService.isAdminMember(userName)) {
+        throw UserException.validationError()
+            .message("Permission denied: only administrators can " + operation + ".")
+            .buildSilently();
+      }
+    }
   }
 
   protected SourceUI newSource(SourceConfig config) throws Exception {
@@ -156,6 +178,7 @@ public class SourceResource extends BaseResourceWithAllocator {
       @QueryParam("refValue") String refValue)
       throws Exception {
     try {
+      requireAdmin("browse source files");
       final SourceConfig sourceConfig = namespaceService.getSource(sourcePath.toNamespaceKey());
       final SourceState sourceState =
           catalogService.getSourceState(sourcePath.getSourceName().getName());
@@ -239,6 +262,7 @@ public class SourceResource extends BaseResourceWithAllocator {
           SourceFolderNotFoundException,
           PhysicalDatasetNotFoundException,
           SourceNotFoundException {
+    requireAdmin("browse source files");
     sourceService.checkSourceExists(sourceName);
     SourceFolderPath folderPath = SourceFolderPath.fromURLPath(sourceName, path);
     return sourceService.getFolder(
@@ -309,6 +333,7 @@ public class SourceResource extends BaseResourceWithAllocator {
   @Produces(MediaType.APPLICATION_JSON)
   public File getFile(@PathParam("path") String path)
       throws SourceNotFoundException, NamespaceException, PhysicalDatasetNotFoundException {
+    requireAdmin("browse source files");
     if (useFastPreview()) {
       return sourceService.getFileDataset(asFilePath(path), null);
     }
@@ -374,6 +399,7 @@ public class SourceResource extends BaseResourceWithAllocator {
   @Consumes(MediaType.APPLICATION_JSON)
   public FileFormatUI saveFormatSettings(FileFormat fileFormat, @PathParam("path") String path)
       throws NamespaceException, SourceNotFoundException {
+    requireAdmin("promote files to datasets");
     checkUnknownFileConfig(fileFormat);
     SourceFilePath filePath = SourceFilePath.fromURLPath(sourceName, path);
     sourceService.checkSourceExists(filePath.getSourceName());
@@ -483,6 +509,7 @@ public class SourceResource extends BaseResourceWithAllocator {
   @Consumes(MediaType.APPLICATION_JSON)
   public FileFormatUI saveFolderFormat(FileFormat fileFormat, @PathParam("path") String path)
       throws NamespaceException, SourceNotFoundException {
+    requireAdmin("promote files to datasets");
     checkUnknownFileConfig(fileFormat);
     SourceFolderPath folderPath = SourceFolderPath.fromURLPath(sourceName, path);
     sourceService.checkSourceExists(folderPath.getSourceName());

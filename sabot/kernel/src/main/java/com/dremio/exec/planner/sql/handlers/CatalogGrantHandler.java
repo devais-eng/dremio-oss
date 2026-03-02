@@ -22,6 +22,8 @@ import com.dremio.exec.planner.sql.handlers.direct.SimpleDirectHandler;
 import com.dremio.exec.planner.sql.handlers.direct.SqlNodeUtil;
 import com.dremio.exec.planner.sql.parser.SqlGrant;
 import com.dremio.exec.planner.sql.parser.SqlGrantOnCatalog;
+import com.dremio.exec.rbac.RbacEntityAlreadyExistsException;
+import com.dremio.exec.rbac.RbacEntityNotFoundException;
 import com.dremio.exec.rbac.RbacService;
 import java.util.Collections;
 import java.util.List;
@@ -68,7 +70,19 @@ public class CatalogGrantHandler extends SimpleDirectHandler {
     for (SqlNode privNode : grantNode.getPrivilegeList()) {
       final SqlGrant.Privilege privilege =
           ((SqlLiteral) privNode).symbolValue(SqlGrant.Privilege.class);
-      rbacService.grantPrivilege(grantee, objectType, objectPath, privilege.name(), userName);
+      try {
+        rbacService.grantPrivilege(grantee, objectType, objectPath, privilege.name(), userName);
+      } catch (RbacEntityNotFoundException e) {
+        throw UserException.validationError()
+            .message("Role '%s' not found.", grantee)
+            .buildSilently();
+      } catch (RbacEntityAlreadyExistsException e) {
+        throw UserException.validationError()
+            .message(
+                "Privilege %s on %s '%s' already granted to role '%s'.",
+                privilege.name(), objectType, objectPath, grantee)
+            .buildSilently();
+      }
     }
 
     return Collections.singletonList(

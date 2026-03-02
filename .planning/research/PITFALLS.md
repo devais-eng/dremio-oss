@@ -1,693 +1,651 @@
-# Pitfalls Research
+# RBAC Pitfalls
 
-**Domain:** GitHub Actions CI/CD — Docker build + AWS ECR push for Dremio OSS fork (large Maven project)
-**Researched:** 2026-02-20
-**Confidence:** HIGH — findings derived from codebase analysis (enforcer constraints, Dockerfile, tarball size,
-Maven module count) plus established GitHub Actions / Docker / ECR patterns with training-cutoff confidence.
+**Research Date (v1.0):** 2026-02-17
+**Research Date (v2.0 additions):** 2026-02-20
+**Scope:**
+- P1–P14: Adding deny-by-default RBAC to Dremio OSS — catalog-level enforcement via `CatalogImpl.validatePrivilege()` (v1.0)
+- P15–P27: Adding privilege context switching (VDS definer rights, UDF invoker rights), table-level SELECT on PDS, container visibility filtering, and VDS lifecycle privileges (ALTER, DROP) to the existing v1.0 system (v2.0)
 
 ---
 
-## Critical Pitfalls
+## P1 — The Bootstrap Deadlock: Who Grants the First ADMIN?
 
-### Pitfall 1: Maven Enforcer Rejects Java 21.1+ — Build Fails Immediately
+**Description:**
+Deny-by-default means no user has any privilege until someone grants it. But `GRANT ROLE ADMIN TO USER alice` is itself an operation that requires ADMIN. If the `validatePrivilege()` enforcement is enabled before any ADMIN assignment exists, every user including the first one is locked out — including from the UI and REST API.
+
+**Warning Signs:**
+- New cluster fresh-installs fail to complete setup because the first login attempt hits a privilege check before any grant exists.
+- Integration tests that wipe KV state and restart see "access denied" on the very first SQL query.
+
+**Prevention Strategy:**
+1. Wire the bootstrap sequence to the existing `BootstrapResource` (`dac/backend/src/main/java/com/dremio/dac/resource/BootstrapResource.java`) — the first user created via `/bootstrap/firstuser` must atomically receive the ADMIN role in the same transaction as user creation.
+2. Alternatively, use an `Option` flag (via `OptionManager` / `ExecConstants`) that defaults to `false` (RBAC off). RBAC enforcement only activates after the flag is explicitly set. This gives operators a safe window to configure grants before enforcement starts.
+3. At startup, if the RBAC KV store is empty and RBAC is enabled, log a loud ERROR and refuse to start (fail-fast) rather than silently accepting deny-all.
+
+**Phase:** v1.0 Implementation — Phase 1, before any enforcement goes live.
+
+---
+
+## P2 — SYSTEM_USERNAME as a Silent Backdoor
+
+**Description:**
+Dremio has a `SystemUser.SYSTEM_USERNAME` that already bypasses authorization in dozens of places. `CatalogUtil.getSystemCatalog()`, `MetadataSynchronizer`, `ViewExpander.stringToRelRootAsSystemUser()`, and reflection/materialization jobs all run as the system user. If `validatePrivilege()` naively checks only username-based grants without an explicit system-user bypass, these internal operations will break. If the bypass is too broad, attackers who can impersonate the system user get free access.
+
+**Warning Signs:**
+- Metadata refresh jobs fail after enabling RBAC (`MetadataSynchronizer` uses `SYSTEM_USERNAME`).
+- Reflection/acceleration refreshes fail (ReflectionManager calls catalog as system user).
+- Dataset lineage updates (`MetadataSynchronizer.updateDatasetLineageMetadata()`) throw access denied.
+
+**Prevention Strategy:**
+1. Make `validatePrivilege()` an explicit no-op when the catalog was constructed with `CatalogUser.from(SystemUser.SYSTEM_USERNAME)` — check the `SchemaConfig` identity at the entry point.
+2. Do not rely on role membership for the system user — hard-code the bypass in `validatePrivilege()` rather than granting ADMIN to the system user (granting would create a persistent record that could confuse audits).
+3. Audit all `CatalogUtil.getSystemCatalog()` call sites before enabling enforcement to confirm none of them originate from user-controlled inputs.
+
+**Phase:** v1.0 Implementation — before any enforcement check is active.
+
+---
+
+## P3 — The Definer-Rights Confusion: Check Once at the Outer Layer Only
+
+**Description:**
+Views use definer rights: `ViewExpander` calls `builder.withUser(viewOwner)` so inner table resolution runs under the view creator's identity, not the caller's. This is the correct SQL standard behavior and the security model is sound — but implementing it wrong is easy. Common mistakes: (a) checking `SELECT` privilege on both the outer view AND inner tables for the end-user, which breaks definer rights; (b) failing to check the outer view at all because the planner has already resolved it through definer rights; (c) not checking privilege at the point where the view is first looked up (`getTable`/`getDataset`) before the view expander takes over.
+
+**Warning Signs:**
+- A user with `SELECT` on view `V` cannot query it because the inner table access check fails under their identity.
+- A user with no grants on view `V` can query the underlying table directly if that table was promoted and has no privilege check.
+- UDF calls fail because `UserDefinedFunctionExpanderImpl` switches identity before privilege check is evaluated.
+
+**Prevention Strategy:**
+1. Place the `SELECT` privilege check in `DatasetManager` at the point where the `DremioTable` is first resolved for the calling user — before the view expansion machinery runs. The check must use the caller's identity, not the view owner's.
+2. For UDFs, check `EXECUTE` privilege before `UserDefinedFunctionExpanderImpl` switches to the definer identity. The check point is `CatalogImpl.getFunction()`.
+3. Write a test: user A creates view V over table T; user B has `SELECT` on V but no grant on T; confirm user B can query V and that the inner table read uses user A's identity.
+
+**Phase:** v1.0 Implementation — the most critical correctness test to have before enabling enforcement.
+
+---
+
+## P4 — Access Path Gaps: SQL is Not the Only Door
+
+**Description:**
+Dremio has at least four distinct client paths: SQL via JDBC (port 31010), REST API (port 9047), Arrow Flight (port 32010), and internal gRPC (Fabric, port 45678). `CatalogImpl.validatePrivilege()` is in the catalog layer, which is shared — but some REST endpoints bypass the catalog entirely and interact with `NamespaceService` or `DatasetVersionResource` directly. `DACSecurityContext.isUserInRole()` currently returns `true` unconditionally for all roles, which means any JAX-RS `@RolesAllowed` annotation on REST resources is effectively disabled.
+
+**Warning Signs:**
+- A user denied `SELECT` on a view via SQL can still retrieve its definition via `GET /api/v3/catalog/{id}`.
+- Arrow Flight clients connecting directly don't hit the same code path as JDBC.
+- `DatasetVersionResource` (1422 lines, flagged as a God class) performs dataset operations without going through `CatalogImpl`.
+
+**Prevention Strategy:**
+1. Update `DACSecurityContext.isUserInRole()` (`dac/backend/src/main/java/com/dremio/dac/server/DACSecurityContext.java`) to call the RBAC store for real role lookups rather than returning `true`.
+2. Audit all `@Path` REST resources in `dac/backend/src/main/java/com/dremio/dac/resource/` for direct `NamespaceService` calls that bypass `CatalogImpl`.
+3. Arrow Flight session creation (`DremioFlightAuthUtils`) authenticates via tokens — verify the catalog instance created per Flight session is the same privilege-enforcing instance used by SQL queries.
+4. After the first enforcement build, run a systematic access test: for each privilege type, attempt access via SQL, REST, and Flight independently.
+
+**Phase:** v1.0 Implementation — Phase 2 after catalog-layer checks are done; REST/Flight gaps are second priority but must not be deferred past MVP.
+
+---
+
+## P5 — Cache Invalidation: Grants Change, Cached Decisions Don't
+
+**Description:**
+`CachingCatalog` (`sabot/kernel/src/main/java/com/dremio/exec/catalog/CachingCatalog.java`) caches catalog state per query. If privilege decisions are cached (e.g., a positive access check cached for a user), a subsequent `REVOKE` of that privilege will not take effect until the cache expires. In multi-coordinator deployments, the problem is worse: the token invalidation bug already noted in CONCERNS.md (`TokenManagerImpl` cache is per-coordinator and not broadcast) applies equally to any per-coordinator grant cache.
+
+**Warning Signs:**
+- After revoking a grant, the affected user continues to access the resource for several minutes.
+- Coordinator 2 still allows access after a revoke issued on Coordinator 1.
+
+**Prevention Strategy:**
+1. Do not cache grant decisions across query boundaries. The per-query `CachingCatalog` is acceptable because it lives only for one query's lifetime — do not add a longer-lived privilege cache initially.
+2. If a grant cache is introduced later for performance (see P6), implement invalidation via NATS pub/sub (`services/pubsub-nats/`) — the infrastructure already exists for distributed messaging.
+3. RocksDB reads for grant lookups are local and sub-millisecond at the record count expected for v1 (thousands of grants). Defer caching until profiling shows it is necessary.
+
+**Phase:** v1.0 Implementation — avoid the problem by not caching; revisit in optimization phase.
+
+---
+
+## P6 — Performance: A KV Lookup on Every Catalog Resolution
+
+**Description:**
+`validatePrivilege()` will be called on every `getTable`/`getDataset`/`getFunction` resolution, which happens for every table reference in every query — including multi-table joins, subqueries, and reflection-rewrite substitution. For a complex query with 20 table references, that is 20+ RocksDB lookups per query. The existing `BatchLookupOptimiser` in `NamespaceService` already exists because individual namespace lookups were a bottleneck. Adding unbatched KV reads inside the hot planning path is a known anti-pattern in this codebase.
+
+**Warning Signs:**
+- Query planning latency increases by more than 5ms per table reference after enabling RBAC.
+- Profiling shows `validatePrivilege` appearing in query planning flame graphs.
+
+**Prevention Strategy:**
+1. For v1, accept the KV reads — at the scale of OSS deployments (tens not thousands of concurrent queries), RocksDB local reads will not be the bottleneck.
+2. Implement a request-scoped grant cache keyed by `(userId, privilege, entityKey)` — populated on first check per query, evicted when the query ends. This is safe because no grant changes during a single query's planning phase.
+3. Batch the privilege check for all tables in a query plan using a set lookup rather than per-table sequential reads.
+4. Do not implement cross-request caching (see P5) until a multi-coordinator invalidation mechanism is in place.
+
+**Phase:** Optimization — after correctness is validated; monitor before optimizing.
+
+---
+
+## P7 — The Migration Lock-Out: Existing Views and UDFs Have No Owner
+
+**Description:**
+Enabling deny-by-default on an existing deployment means every view and UDF that was created before RBAC existed has no owner and no grants. All existing queries will fail immediately. Views stored in `NamespaceService` have a `VirtualDataset.getOwner()` field — if that field is empty or null for legacy datasets, the definer-rights model breaks and the privilege check has no valid entity to match against.
+
+**Warning Signs:**
+- Turning on RBAC flag on an existing cluster breaks all existing view queries.
+- `VirtualDataset.getOwner()` returns null or empty string for views created before RBAC was added.
+- UDF owner field (`DremioScalarUserDefinedFunction.getOwner()`) is unpopulated.
+
+**Prevention Strategy:**
+1. Before enabling enforcement, run a migration job that reads all `VirtualDataset` records from the namespace store and backfills an empty owner with the username that created the dataset (using job history if available, or defaulting to a known admin user).
+2. Implement a "grant PUBLIC SELECT on all existing views" migration step that runs atomically with enabling RBAC. The PUBLIC role (which all users implicitly belong to) serves as the open-access default for pre-existing datasets.
+3. Provide an `--rbac-migrate` command or startup flag that runs the migration before enforcement activates, with a dry-run mode that reports what would change.
+
+**Phase:** Migration — must be completed before production deployment of enforcement.
+
+---
+
+## P8 — EE Conflict: Clobbering the Enterprise RBAC
+
+**Description:**
+Dremio Enterprise Edition has its own production-grade RBAC implementation that also implements `validatePrivilege()`. The OSS build and EE build share the same `CatalogImpl.java`. The OSS no-op is replaced by the EE implementation via dependency injection or class override. If the OSS RBAC implementation creates conflicting KV store keys, protobuf types, or SQL grammar changes, it will corrupt EE deployments or cause merge conflicts that block upstream synchronization.
+
+**Warning Signs:**
+- KV store key prefixes for OSS RBAC tables clash with EE key prefixes.
+- Protobuf message names added for OSS RBAC conflict with EE proto definitions.
+- SQL grammar changes for `GRANT`/`REVOKE` handlers conflict with EE handler registration.
+
+**Prevention Strategy:**
+1. Namespace all OSS RBAC KV store keys with a distinct prefix (e.g., `"oss_rbac_"`) that will not collide with EE key spaces.
+2. Do not modify the `SqlGrant` / `SqlCreateRole` parsers — they already parse correctly. Only add the handler implementations that dispatch from the existing no-op or `UnsupportedOperationException` handlers.
+3. Place all new RBAC code under a package that EE does not touch: `com.dremio.exec.catalog.rbac` or similar. The `validatePrivilege()` override in EE should remain the canonical implementation; OSS should provide a distinct, independently testable one.
+4. Before merging, confirm that the OSS RBAC feature flag (`Option`) defaults to `false` so EE deployments (which have their own RBAC active) are unaffected.
+
+**Phase:** Design — namespace and packaging decisions must be made before writing any persistence code.
+
+---
+
+## P9 — The Implicit ADMIN: Internal System Operations That Must Not Be Blocked
+
+**Description:**
+Internal operations that run as the system user (reflections, metadata sync, schema refresh) are covered by P2. But there is a subtler case: jobs submitted on behalf of a user but executed by an internal service. `LocalJobsService` has `// TODO (DX-17909): Add and use username in request` comments — meaning authorization username is currently a no-op in job cancellation and retrieval flows. If RBAC privilege checks are added to catalog access during job execution but the username is not correctly propagated through the job service, internal operations will fail with permission denied under the wrong identity.
+
+**Warning Signs:**
+- `DX-17909` comment still present in `LocalJobsService` at lines 3084 and 1534.
+- Scheduled refresh jobs (reflection refresh, metadata sync) fail with access denied after enabling RBAC.
+- Job cancellation by admin fails because the job was recorded under `SYSTEM_USERNAME` but queried under a user identity.
+
+**Prevention Strategy:**
+1. Do not add privilege checks inside the job execution path (fragment execution, `LocalJobsService`). Privilege is checked once at query submission time in the catalog layer.
+2. Audit any code path that creates a `Catalog` instance during job execution: confirm those all either use `SYSTEM_USERNAME` (and are exempt by P2's bypass) or correctly carry the original submitting user's identity.
+3. Flag `DX-17909` as a dependency risk — the authorization username gap in job service means audit logging of who did what will be inaccurate even if access control is correct.
+
+**Phase:** v1.0 Implementation — audit before enabling enforcement.
+
+---
+
+## P10 — INFORMATION_SCHEMA and sys Tables: Privilege Leakage Through Metadata
+
+**Description:**
+A user who is denied `SELECT` on view `V` should not be able to discover `V`'s existence, schema, or SQL definition via `INFORMATION_SCHEMA.VIEWS`, `sys.privileges`, or the REST catalog API. Failing to filter these metadata results by the caller's grants is a privilege escalation: even without data access, schema information reveals business logic, column names, and join relationships.
+
+**Warning Signs:**
+- `SELECT * FROM INFORMATION_SCHEMA.VIEWS` returns views the user has no `SELECT` grant on.
+- `GET /api/v3/catalog` lists datasets the user cannot query.
+- `sys.privileges` is readable by all users (it should only be readable by ADMIN or by users querying their own grants).
+
+**Prevention Strategy:**
+1. Filter `INFORMATION_SCHEMA.VIEWS` and `INFORMATION_SCHEMA.TABLES` results by the calling user's effective grants — only return rows for entities the user can actually access.
+2. For v1, restrict `sys.privileges`, `sys.roles`, and `sys.membership` to ADMIN-only read access. Regular users can see only their own rows.
+3. Apply the same `validatePrivilege(SELECT)` check in the `InformationSchemaCatalog` implementation for view/function listing endpoints.
+
+**Phase:** v1.0 Implementation — Phase 2; can be deferred from MVP but must be tracked.
+
+---
+
+## P11 — Broad Error Messages That Reveal Object Existence
+
+**Description:**
+If `validatePrivilege()` throws "You do not have SELECT privilege on view `finance.revenue_2024`", a user without access has confirmed that `finance.revenue_2024` exists. The correct behavior for deny-by-default is to return `NOT FOUND` (not `FORBIDDEN`) for entities the user has no `SELECT` on — identical to how the object would appear if it did not exist. This prevents enumeration attacks.
+
+**Warning Signs:**
+- Access-denied exceptions include the full path of the denied object.
+- Error messages say "Access denied to `X`" vs "Object `X` not found" depending on whether the object exists.
+
+**Prevention Strategy:**
+1. In `validatePrivilege()`, throw `UserException.validationError().message("Object not found")` rather than a permission-denied message. Use Dremio's existing `UserException` patterns — consistent with how `CatalogEntityNotFoundException` is surfaced.
+2. Reserve permission-denied messages for operations where the user already knows the object exists (e.g., `DROP VIEW` when you own it, but ADMIN revoked your DDL privilege).
+3. This is specifically important for `getTable`/`getDataset` in the dataset resolution path — those already return `null` for not-found; a privilege failure should also return `null` (not found) rather than throw.
+
+**Phase:** v1.0 Implementation — bake into the initial `validatePrivilege()` implementation.
+
+---
+
+## P12 — KV Store Schema Evolution: Protobuf Changes Cannot Break Existing Records
+
+**Description:**
+RBAC grant records, role records, and membership records will be stored in RocksDB via protobuf serialization. Dremio uses `ProtostuffSerializer` for some stores and direct protobuf for others. If field numbers are reused, required fields are added, or enum values are removed in a schema update, existing records in RocksDB will fail to deserialize — silently returning nulls or throwing on read. This is particularly dangerous for RBAC because a deserialization failure on a grant record could default to "no grant" (deny) or crash the coordinator.
+
+**Warning Signs:**
+- After a version upgrade, privilege checks fail for users who had explicit grants before the upgrade.
+- RocksDB records from the previous version throw protobuf parse errors in logs.
+
+**Prevention Strategy:**
+1. Use proto3 for all new RBAC message types — all fields are optional by default, which is safe for forward/backward evolution.
+2. Never reuse field numbers in proto definitions, even after removing a field.
+3. Test deserialization of records written by the previous version as part of the upgrade integration test suite.
+4. Choose a well-defined key schema (e.g., `{storePrefix}/{entityId}/{userId}/{privilege}`) so that key parsing is also version-stable.
+
+**Phase:** Design — before writing any protobuf definitions.
+
+---
+
+## P13 — The DACSecurityContext `isUserInRole()` Time Bomb
+
+**Description:**
+`DACSecurityContext.isUserInRole(String role)` currently returns `true` for every role check. This means every `@RolesAllowed("admin")` annotation on REST resources has been silently ineffective. When RBAC is enabled and `isUserInRole()` is updated to return real results, any JAX-RS resource that was relying on the broken implementation to allow all access will suddenly enforce role checks. This could break REST-based admin operations that legitimate admin users depend on — if their role name does not exactly match the string passed to `isUserInRole()`.
+
+**Warning Signs:**
+- REST endpoints that previously worked for all users return 403 after `isUserInRole()` is fixed.
+- REST admin endpoints become inaccessible to the ADMIN role because the role name string does not match the expected JAX-RS role string.
+
+**Prevention Strategy:**
+1. Before fixing `isUserInRole()`, audit all `@RolesAllowed` annotations in REST resources to catalog what role strings are expected.
+2. Map JAX-RS role strings to RBAC role names explicitly. The ADMIN built-in role should be the canonical answer for `@RolesAllowed("admin")`.
+3. Fix `isUserInRole()` in a separate, isolated change from the `validatePrivilege()` implementation. Treat it as a REST authorization layer distinct from the catalog layer.
+
+**Phase:** v1.0 Implementation — Phase 2, after catalog-level enforcement is stable.
+
+---
+
+## P14 — Legacy KV Store API: Don't Add Debt to a Deprecated Layer
+
+**Description:**
+Dremio's `LegacyKVStore` / `LegacyKVStoreProvider` are fully `@Deprecated` but still in active use. If RBAC store classes are implemented using the deprecated API, they join the cleanup debt pile. More concretely, if the legacy API is removed in a future cleanup, RBAC code written against it breaks.
+
+**Warning Signs:**
+- RBAC store implementation imports `com.dremio.datastore.api.LegacyKVStore` or `LegacyKVStoreProvider`.
+
+**Prevention Strategy:**
+1. Implement RBAC stores using the current `KVStore` / `KVStoreProvider` API (`com.dremio.datastore.api.KVStore`), not the legacy layer.
+2. If existing RBAC-adjacent infrastructure (e.g., `AccessControlListingManager`) uses the legacy API, implement the RBAC store independently and do not extend the legacy code.
+3. Use `KVStoreCreationFunction` as the standard store registration pattern, consistent with `TokenManagerImpl` and `NamespaceServiceImpl`.
+
+**Phase:** v1.0 Implementation — first line of code constraint.
+
+---
+
+## P15 — Privilege Escalation via Stale Definer Identity
 
 **What goes wrong:**
-The Maven enforcer in `build-tools/pom.xml` requires Java version `[21,22)` — exactly Java 21.x, exclusive
-of Java 22+. When `actions/setup-java` is configured with `java-version: '21'`, it installs the latest
-available Java 21 patch release (e.g., 21.0.5 or later), which passes. However, if the version is set to
-`'22'`, `'23'`, or `'latest'` (which tracks the latest LTS, currently 21 but will advance), the enforcer
-fires immediately at the `validate` phase with a message like:
-
-```
-[ERROR] Rule 0: org.apache.maven.plugins.enforcer.RequireJavaVersion failed with message:
-Detected JVM Version: 22.x.y - Supported JVM Version range is [21,22)
-```
-
-The build terminates before any compilation occurs.
+VDS definer rights require that when user B queries view V (owned by user A), the inner table lookups run under A's identity. If user A's grants are revoked *after* view V is created, V should become inaccessible to everyone — because the definer no longer has the required privilege. The pitfall is implementing definer rights by snapshot: caching or materialising A's grants at view-creation time (e.g., storing them in the `VirtualDataset` proto) rather than resolving A's live grants at query time.
 
 **Why it happens:**
-Dremio's root `pom.xml` uses Maven CI-friendly versioning (`${revision}`) and the enforcer check runs in the
-`validate` phase — before any code is compiled. The enforcer range `[21,22)` uses Maven's standard version
-range notation: inclusive lower bound 21, exclusive upper bound 22. This range was set deliberately to lock
-the build to Java 21 APIs and prevent accidental use of preview features from Java 22+.
+The temptation is to store the definer's effective grants in the `VirtualDataset` proto alongside the owner field to avoid KV lookups during expansion. This produces a frozen-grant snapshot that survives revocations.
 
-`actions/setup-java` accepts semver specifiers. `java-version: '21'` resolves to the latest Java 21.x
-from the distribution (Eclipse Temurin by default). This is correct and stable.
+**Consequences:**
+User A is revoked SELECT on table T. V is defined as `SELECT * FROM T` (owned by A). User B queries V. If grants were snapshotted, B still gets data. The admin's revocation of A's grant on T has no effect on V's queries until the VDS is manually invalidated.
 
-**How to avoid:**
-In the workflow YAML:
-```yaml
-- uses: actions/setup-java@v4
-  with:
-    java-version: '21'
-    distribution: 'temurin'
-    cache: 'maven'
-```
-Never use `java-version: 'latest'`, `'22'`, `'23'`, or an unversioned string. Pin to `'21'` exactly.
-If the project upgrades the enforcer range in the future, the workflow must be updated in the same PR.
+**Prevention:**
+1. Never store resolved grants in VDS metadata. Store only the owner identity (username string). At expansion time, the privilege check against A's current grants runs through the live KV store path: `rbacService.hasPrivilege(viewOwner, "SELECT", objectType, objectPath)`.
+2. The `ViewExpander.expandViewInternal()` already switches to the `viewOwner` identity via `builder.withUser(viewOwner)`. The privilege check must happen inside the new catalog instance that `resolveCatalog(viewOwner)` creates — not before the switch. Confirm `CatalogImpl.isRbacDeniedForVds()` runs against the definer's `userName` field, not the outer caller's.
+3. Write the regression test: GRANT SELECT on T to role_A. User A creates V = SELECT * FROM T. REVOKE SELECT on T from role_A. User B queries V. Expect: access denied (definer A cannot read T anymore).
 
 **Warning signs:**
-- First build fails at `[INFO] BUILD FAILURE` within 60 seconds of starting the Maven step.
-- Error message mentions `RequireJavaVersion` or `Detected JVM Version`.
-- `java -version` output in the step log shows a version outside `21.x`.
+- Grant revocations don't break existing view queries immediately.
+- Integration tests that revoke a definer's grant still pass against V.
 
-**Phase to address:**
-Phase 1 (Maven build setup) — first workflow commit must pin Java 21.
+**Phase:** v2.0 Definer Rights Implementation — Phase 1.
 
 ---
 
-### Pitfall 2: GitHub Actions 6-Hour Job Timeout Exceeded for Full Maven Build Without Cache
+## P16 — Definer-Rights Check Against the Wrong CatalogImpl Instance
 
 **What goes wrong:**
-A full cold build of Dremio OSS from source without a populated Maven cache takes 45–90 minutes on
-a standard `ubuntu-latest` GitHub-hosted runner (4 cores, 16GB RAM as of 2024, varying by runner
-version). With 158 Maven modules, dependency resolution alone can take 10–15 minutes if the
-`~/.m2/repository` is empty. Without the `actions/cache` step, every job run is a cold build.
-
-GitHub Actions has a 6-hour job timeout (`timeout-minutes` defaults to 360). The build will not hit
-this limit, but it makes the CI pipeline slow (30–60 min per tag push). More immediately dangerous:
-if the Maven cache `actions/cache` key is misconfigured (e.g., keyed only on `pom.xml` at the
-root rather than the full `**/pom.xml` tree), a dependency change in a sub-module invalidates
-nothing and the cache becomes stale, causing dependency resolution failures on the runner that do
-not reproduce locally.
+In `isRbacDeniedForVds()`, the check `rbacService.hasPrivilege(userName, ...)` uses the `CatalogImpl.userName` field — the field is set at construction time and is immutable for the life of a `CatalogImpl` instance. During VDS expansion, `ViewExpander` calls `builder.withUser(viewOwner)` which calls `resolveCatalog(viewOwner)` which creates a **new** `CatalogImpl` instance with `userName = viewOwner`. Inner table lookups go through this new instance. If the v2.0 implementation incorrectly attaches the privilege check on the inner table to the outer `CatalogImpl` (the caller's instance), the inner table check runs under the caller's identity, not the definer's.
 
 **Why it happens:**
-`actions/cache` uses a hash key. If the key is `hashFiles('pom.xml')` (root only), changes to any of
-the 157 sub-module `pom.xml` files are invisible to the cache key. The cached `~/.m2/repository` will
-contain old artifact versions, and Maven will attempt to resolve the new versions from the remote
-repository — which may fail if the Dremio-internal custom artifacts (e.g., `hadoop-3.3.6-dremio-*`,
-`calcite-1.22.0-dremio-*`) are not available from the public Maven Central repo and the runner has
-no access to Dremio's internal artifact server.
+In Java, `this.userName` in `CatalogImpl` is the field that `isRbacDeniedForVds()` reads. The outer and inner `CatalogImpl` instances are both live in the call stack simultaneously during view expansion. It is easy to pass the wrong `CatalogImpl` reference — especially via lambdas or callbacks — and have the inner check fire against the outer instance's `userName`.
 
-Additionally, Maven downloads artifacts into `~/.m2/repository` during the build run even with cache
-configured. If the workflow does not restore the cache BEFORE the Maven step, the cache is useless.
+**Consequences:**
+User B has SELECT on view V but not on table T. Definer A has SELECT on T. The inner table check fires under B's identity. B is denied T and therefore denied V. Definer rights don't work at all — V is effectively inaccessible to anyone who doesn't also have direct T access.
 
-**How to avoid:**
-Cache key must hash ALL `pom.xml` files:
-```yaml
-- uses: actions/cache@v4
-  with:
-    path: ~/.m2/repository
-    key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-    restore-keys: |
-      ${{ runner.os }}-maven-
-```
-
-Place the `actions/cache` step BEFORE the Maven build step. Also consider `actions/setup-java@v4`'s
-built-in `cache: 'maven'` parameter, which handles the `pom.xml` hash automatically and is simpler
-than a manual `actions/cache` step. Do not use both — choose one approach.
-
-For Dremio specifically, the Maven build should use `-DskipTests` and consider
-`-pl distribution/server -am` to build only the server distribution module and its transitive
-dependencies (not UI, not JDBC driver). Verify that the custom `plugins/icebergcatalog` and RBAC
-modules are in the transitive dependency graph of `distribution/server` before using `-pl`.
+**Prevention:**
+1. Trace the exact call graph: `ViewExpander.expandViewInternal()` → `builder.withUser(viewOwner)` → `catalog.resolveCatalog(viewOwner)` → new `CatalogImpl` with `userName = viewOwner`. Verify that inner `getTable()` calls go through this new `CatalogImpl` and that `isRbacDeniedForVds()` inside it reads `this.userName` = viewOwner.
+2. Add a `@VisibleForTesting` accessor for `CatalogImpl.userName` and assert its value in the inner table check test.
+3. Do not share `CatalogImpl` instances across concurrently running privilege context switches. Each `withUser()` call must produce a fresh instance.
 
 **Warning signs:**
-- Build time does not improve after the first run (cache miss every time).
-- Maven step log shows `Downloading from central:` for Dremio-internal artifact coordinates
-  (e.g., `com.dremio:*`), which are not on Maven Central.
-- Cache restore log shows "Cache not found" on subsequent runs.
+- User with SELECT on V but not T cannot query V even when definer has SELECT on T.
+- Adding a direct SELECT on T to user B's role fixes the V query — the outer check is running when it should not.
 
-**Phase to address:**
-Phase 1 (Maven build setup) — cache must be correct before any other steps are reliable.
+**Phase:** v2.0 Definer Rights Implementation — Phase 1.
 
 ---
 
-### Pitfall 3: Dockerfile `wget DOWNLOAD_URL` Cannot Reach a Local Build Artifact
+## P17 — Recursive VDS Chain: Missing Cycle Guard in Definer Context Stack
 
 **What goes wrong:**
-The existing `distribution/docker/Dockerfile` downloads Dremio from a remote URL:
-```dockerfile
-ARG DOWNLOAD_URL
-RUN wget -q "${DOWNLOAD_URL}" -O dremio.tar.gz && tar vxfz dremio.tar.gz ...
-```
-In the CI pipeline, the tarball is produced locally at
-`distribution/server/target/dremio-community-*.tar.gz` (864MB). There is no URL to `wget` from — the
-artifact is on the GitHub Actions runner's disk, not a web server. If the workflow passes
-`--build-arg DOWNLOAD_URL=` with an empty value or a `file://` path, `wget` will fail, and the Docker
-build will exit with a non-zero code. The image is never produced.
-
-A naive workaround — uploading the tarball to a public URL or a pre-signed S3 URL — works but
-introduces an unnecessary step, potential credential exposure in the `--build-arg`, and race conditions
-if the URL expires before the Docker layer cache can reuse it.
+VDS-over-VDS is legal: V3 = SELECT * FROM V2, V2 = SELECT * FROM V1, V1 = SELECT * FROM T. Each view can have a different owner. The existing `ViewExpansionContext` tracks per-owner token counts (the `userTokens: ObjectIntHashMap`) and issues/releases tokens at each expansion level. This is a token-count mechanism, not a cycle-detection mechanism. A cyclic view definition (V1 references V2 which references V1) will recurse until a `StackOverflowError`. The token counter never detects that V1 is being expanded again.
 
 **Why it happens:**
-The Dockerfile was designed for the Dremio release workflow where tarballs are hosted at
-`download.dremio.com`. For a fork building from source, the tarball never goes to a remote URL; it
-is created by `mvn package` and sits on disk.
+`ViewExpansionContext.reserveViewExpansionToken()` increments a counter per owner but never asserts a depth limit or detects revisiting the same view path. The cycle guard is absent from the existing code at `sabot/kernel/src/main/java/com/dremio/exec/ops/ViewExpansionContext.java`.
 
-**How to avoid:**
-Add a separate `Dockerfile.ci` (or modify the existing Dockerfile with a build-arg mode switch)
-that uses `COPY` instead of `wget`:
+**Consequences:**
+A user creates a cyclic view chain. Any query of any view in the chain causes a coordinator thread to stack-overflow. This is a denial-of-service vector; with definer-rights context switching it becomes harder to detect because each hop switches identity, obscuring the cycle in logs.
 
-```dockerfile
-ARG JAVA_IMAGE="eclipse-temurin:17-jre"
-FROM ${JAVA_IMAGE} AS base
-LABEL maintainer="DevAIS Engineering"
-COPY distribution/server/target/dremio-community-*.tar.gz /tmp/dremio.tar.gz
-RUN mkdir -p /opt/dremio /var/lib/dremio /var/run/dremio /var/log/dremio /opt/dremio/data \
-    && groupadd --system dremio --gid 999 \
-    && useradd --base-dir /var/lib/dremio --system --uid 999 --gid dremio dremio \
-    && tar vxfz /tmp/dremio.tar.gz -C /opt/dremio --strip-components=1 \
-    && rm /tmp/dremio.tar.gz \
-    && chown -R dremio:dremio /opt/dremio/data /var/run/dremio /var/log/dremio /var/lib/dremio
-EXPOSE 9047/tcp 31010/tcp 32010/tcp 45678/tcp
-USER dremio
-WORKDIR /opt/dremio
-ENV DREMIO_HOME=/opt/dremio DREMIO_PID_DIR=/var/run/dremio \
-    DREMIO_GC_LOGS_ENABLED=yes DREMIO_GC_LOG_TO_CONSOLE=yes DREMIO_LOG_DIR=/var/log/dremio
-ENTRYPOINT ["bin/dremio", "start-fg"]
-```
-
-The Docker build context MUST be the repository root (not `distribution/docker/`) so that the
-`COPY distribution/server/target/...` path resolves. In the workflow:
-```yaml
-- uses: docker/build-push-action@v6
-  with:
-    context: .         # repository root, not ./distribution/docker/
-    file: distribution/docker/Dockerfile.ci
-```
+**Prevention:**
+1. Before implementing multi-hop definer rights, add a `Set<NamespaceKey>` to `ViewExpansionContext` tracking which view paths are currently being expanded. Before expanding a view, assert the path is not already in the set; add it on entry, remove it on exit (use `try/finally`).
+2. Add a hard depth counter as a secondary guard: throw `UserException.validationError("View chain exceeds maximum depth")` if depth > configurable max (default 50).
+3. Test: create V1 = SELECT * FROM V2, V2 = SELECT * FROM V1 (requires DDL bypass or direct KV write). Assert query returns a clear error, not a stack overflow.
 
 **Warning signs:**
-- Docker build fails with `wget: bad address` or `wget: invalid option` or HTTP 400/404.
-- Build arg `DOWNLOAD_URL` is empty or a `file://` path in the `docker build` command.
-- Docker build step log shows `wget` attempting a URL rather than a `COPY` instruction.
+- `java.lang.StackOverflowError` in coordinator logs with `ViewExpander` or `ViewTable.toRel` on the stack.
+- Coordinator thread count creeps up and never drops during a workload of complex VDS chains.
 
-**Phase to address:**
-Phase 2 (Dockerfile adaptation) — first step of Docker build phase before any image push attempt.
+**Phase:** v2.0 Definer Rights Implementation — Phase 1. Must be addressed before or alongside definer rights.
 
 ---
 
-### Pitfall 4: Java Version Mismatch — Build JDK 21 vs Runtime JRE 11/17
+## P18 — UDF Invoker vs Definer Rights: Unresolved Design Produces Security Holes
 
 **What goes wrong:**
-The existing Dockerfile uses `eclipse-temurin:11-jdk` as the base image. The project context requires
-Java 17 at runtime. The Maven build compiles with Java 21 (`maven.compiler.release=11` in root pom,
-but the enforcer requires JVM 21 to RUN Maven). This creates a three-way version situation:
+v1.0 checks `EXECUTE` privilege on a UDF before invoking it (in `CatalogImpl.getFunctions()` / `isRbacDeniedForFunction()`). For v2.0, the question is whether UDF bodies run under invoker rights (caller's identity) or definer rights (UDF creator's identity). This distinction is critical for security:
+- **Invoker rights:** body runs as the calling user. User cannot see tables they don't have SELECT on, even inside the UDF body. The EXECUTE check in `isRbacDeniedForFunction()` is correct as-is.
+- **Definer rights:** body runs as the UDF creator. A user with EXECUTE on the UDF gets the creator's table access inside the body. This is a designed privilege escalation and must be explicit.
 
-- Maven build JVM: Java 21 (enforcer mandated)
-- `maven.compiler.release`: 11 (bytecode compiled to Java 11 class format)
-- Dockerfile base image (existing): `eclipse-temurin:11-jdk`
-- Intended runtime: Java 17
-
-If the Dockerfile is left unchanged with `eclipse-temurin:11-jdk`, the image runs Java 11. Dremio
-may start, but JVM tuning flags written for Java 17+ (e.g., `-XX:+UseZGC`, newer G1 options) in
-`dremio-env` config will emit warnings or errors. More critically, if any Dremio startup code uses
-APIs available in Java 17+ but not Java 11, the process will crash with `NoSuchMethodError` or
-`UnsupportedClassVersionError`.
-
-Separately: using `eclipse-temurin:17-jdk` (full JDK) instead of `eclipse-temurin:17-jre` (runtime
-only) adds approximately 200–300MB to the image unnecessarily. Production images should use JRE.
+Implementing definer rights for UDFs without documenting the decision creates a silent privilege escalation: users with EXECUTE can read tables they cannot directly SELECT.
 
 **Why it happens:**
-The original Dockerfile was written for Dremio 5.x/6.x which supported Java 11. The project context
-specifies Java 17 runtime, but the Dockerfile was not updated. The Maven compiler release of `11`
-means the `.class` files target Java 11 compatibility — they will run on any JVM 11+, including 17 or 21.
-The issue is runtime API availability, not bytecode compatibility.
+The SQL standard defines both models. Dremio's current `UserDefinedFunctionExpanderImpl` may default to one without documenting it. The existing `ViewExpander.stringToRelRootAsSystemUser()` uses the system user for UDF body expansion — indicating that some UDF paths already run as a non-caller identity.
 
-**How to avoid:**
-Set the base image to `eclipse-temurin:17-jre` in `Dockerfile.ci`. Do not use `17-jdk`.
-Do not use `21-jre` unless the project explicitly requires Java 21 runtime behavior.
-The `ARG JAVA_IMAGE` mechanism already exists in the Dockerfile — use it:
-```dockerfile
-ARG JAVA_IMAGE="eclipse-temurin:17-jre"
-FROM ${JAVA_IMAGE} AS base
-```
-Or pass it as a build arg:
-```yaml
-build-args: |
-  JAVA_IMAGE=eclipse-temurin:17-jre
-```
+**Consequences:**
+If definer rights are accidentally implemented for UDFs: user B has EXECUTE on UDF `f`. UDF `f` is owned by A. `f` body reads table T (A has SELECT on T, B does not). B executes `f` and reads T indirectly.
+
+**Prevention:**
+1. Document clearly in the phase design: are Dremio OSS UDFs invoker-rights or definer-rights? Do not implement both simultaneously.
+2. If invoker-rights: no context switch. Inner table reads inside UDF expansion go through the caller's `CatalogImpl` instance. The existing EXECUTE check is sufficient.
+3. If definer-rights: the context switch must mirror the VDS pattern. EXECUTE check uses the invoker's identity. Inner expansion uses the definer's identity. The same stale-grant risk (P15) and wrong-identity risk (P16) apply.
+4. Never allow a UDF to recursively call itself without a depth counter (same issue as P17 for VDS chains).
 
 **Warning signs:**
-- `docker inspect <image>` shows `eclipse-temurin:11` base layer.
-- Container startup logs show Java 11 in JVM info: `java version "11.x.x"`.
-- `WARN: Unrecognized VM option` for JVM flags in `dremio-env` that require Java 17+.
+- UDF bodies that query tables the invoking user cannot see directly succeed.
+- No explicit documentation in the codebase of which rights model UDFs use.
 
-**Phase to address:**
-Phase 2 (Dockerfile adaptation) — correct the base image at the same time as the `COPY` adaptation.
+**Phase:** v2.0 UDF Rights Implementation — requires design decision before any code is written.
 
 ---
 
-### Pitfall 5: ECR Authentication Token Expires Mid-Build (12-Hour Token Lifetime)
+## P19 — Container Visibility: O(n) Tree Walk Per Listing Request
 
 **What goes wrong:**
-`aws-actions/amazon-ecr-login` obtains a temporary Docker login token from ECR. This token is valid
-for 12 hours. In a standard pipeline where Maven build takes 30–60 minutes and Docker build + push
-takes 5–15 minutes, the total job time is well under 12 hours, and token expiry is not a practical
-risk.
-
-However, the risk materializes in two scenarios: (1) if the job is queued in GitHub Actions for a long
-time before it starts (queuing counts against the total 6-hour limit, but not the ECR token lifetime
-which starts when `ecr-login` runs); (2) if Docker layer cache is cold and the 864MB tarball layer
-takes unusually long to push. Neither scenario is common for private repos, but the failure mode
-(silent auth error mid-push, non-zero exit, workflow fails but no image is pushed) is confusing because
-the `docker push` command may print authentication errors that look like network issues.
-
-The more immediate authentication pitfall: using the wrong action or action version. The v1 action
-`amazon-ecr-login@v1` outputs `registry` as a step output; the v2 action outputs it differently. If
-the workflow uses `@v1` syntax for credential injection but `@v2` output syntax for registry URI
-extraction, the `ECR_REGISTRY` variable will be empty and the `docker push` will fail with
-`denied: requested access to the resource is denied`.
+Container visibility (a space or folder is visible if the user has access to at least one child) requires computing the transitive union of accessible descendants. The naive implementation walks the entire namespace subtree for each listing call, checking RBAC on every leaf node. `CatalogImpl.listSchemas()` delegates to `listSchemata(searchQuery)` which queries the namespace index. The index returns all schema entries regardless of user permissions. A filter step is applied per-result. If the filter requires a `hasPrivilege()` call per entry, and `hasPrivilege()` is a KV round-trip (`GrantStore.get()`), the list operation scales linearly with the number of datasets under the container.
 
 **Why it happens:**
-AWS ECR tokens are short-lived by design. The action must run in the same job step sequence as the
-Docker push, not in a separate job. If `ecr-login` is in Job A and `docker push` is in Job B, the
-token is not automatically shared between jobs (only artifacts and caches are shared).
+The grant key format is `{role_id}|{object_type}|{object_path}|{privilege}`. There is no index by object path prefix. To answer "does user have any grant under container X", the only option with the current `GrantStore` is a full scan filtered by prefix — which is the same O(grants) scan that `listByRole()` already does.
 
-**How to avoid:**
-- Use `aws-actions/amazon-ecr-login@v2` (current major version as of 2025).
-- Place `configure-aws-credentials` and `ecr-login` in the same job as `build-push-action`.
-- Extract the ECR registry URI from the `ecr-login` step output: `${{ steps.login-ecr.outputs.registry }}`.
-- Full sequence:
-  ```yaml
-  - name: Configure AWS credentials
-    uses: aws-actions/configure-aws-credentials@v4
-    with:
-      aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      aws-region: ${{ secrets.AWS_REGION }}
+**Consequences:**
+`SHOW SCHEMAS` or `SHOW TABLES` in a large space causes a cascade of thousands of KV reads per listing. For concurrent queries this multiplies. The coordinator appears to hang on `SHOW SCHEMAS` for large spaces.
 
-  - name: Login to Amazon ECR
-    id: login-ecr
-    uses: aws-actions/amazon-ecr-login@v2
-
-  - name: Build and push
-    uses: docker/build-push-action@v6
-    with:
-      tags: ${{ steps.login-ecr.outputs.registry }}/dremio-oss:${{ env.IMAGE_VERSION }}
-  ```
+**Prevention:**
+1. Do not implement per-row privilege checks inside `listSchemas()` for v2.0. Use a two-phase approach: (a) retrieve the full set of containers, (b) apply the visibility filter by checking only whether the user has any grant whose `object_path` starts with the container's path prefix.
+2. The visibility check should scan the grant store once (O(grants)), not once per container. Collect all matching path prefixes in a single pass, then intersect with the container list.
+3. For v2.0 MVP: implement container visibility as a prefix-based grant check. A container is visible if any of the user's roles has a grant whose `object_path` starts with the container's path. This requires a prefix scan of the grant store keyed by role. For the expected grant count in OSS (hundreds to low thousands), this is acceptable.
+4. Profile with 5,000 grants before shipping the feature.
 
 **Warning signs:**
-- `docker push` fails with `denied: requested access to the resource is denied` or `no basic auth credentials`.
-- ECR registry URI is an empty string in the `tags:` field (produces `:tagname` without a registry prefix).
-- `ecr-login` step succeeds but Docker push fails: indicates version mismatch in output variable naming.
+- `SHOW SCHEMAS` in a large space takes more than 500ms.
+- Coordinator CPU spikes during `listSchemas()` calls with RBAC enabled.
+- Flame graphs show `GrantStore.get()` inside the listing loop.
 
-**Phase to address:**
-Phase 3 (ECR authentication and push) — verify authentication chain before attempting a push.
+**Phase:** v2.0 Container Visibility Implementation — Phase 2.
 
 ---
 
-### Pitfall 6: IAM Key Secrets Missing or Misconfigured — Silent Permission Errors
+## P20 — Container Visibility: Pagination Shortfall Made Worse
 
 **What goes wrong:**
-The GitHub Actions workflow requires four secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
-`AWS_REGION`, and `ECR_REPOSITORY`. If any of these secrets are missing from the repository's
-GitHub Secrets settings, the workflow receives an empty string for the secret value. GitHub Actions
-does not fail immediately on a missing secret reference — `${{ secrets.MISSING_SECRET }}` evaluates
-to an empty string, not an error.
-
-The consequences depend on which secret is missing:
-- `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` missing: `configure-aws-credentials` fails with
-  `Error: Must provide at least one authorized credential set`.
-- `AWS_REGION` missing: the action defaults to no region, causing ECR login to fail with
-  `Error: Could not resolve endpoint`.
-- `ECR_REPOSITORY` missing: the image tag becomes `{registry}/:version` (empty repository name),
-  and `docker push` fails with `invalid reference format`.
-
-None of these errors reveal that a secret is missing — they look like AWS API errors or Docker
-configuration errors, leading to incorrect debugging paths.
-
-Additionally: IAM policies attached to the access key must include `ecr:GetAuthorizationToken`
-(for `ecr-login`) plus `ecr:BatchCheckLayerAvailability`, `ecr:InitiateLayerUpload`,
-`ecr:UploadLayerPart`, `ecr:CompleteLayerUpload`, `ecr:PutImage` (for `docker push`). The managed
-policy `AmazonEC2ContainerRegistryPowerUser` covers all of these. A custom IAM policy that only
-includes `ecr:PutImage` will fail at `InitiateLayerUpload` with a cryptic permissions error.
+v1.0 already has a known limitation: paginated list results can return fewer items than the requested page size when RBAC filters remove denied items from a full page. v2.0 container visibility adds a second filter layer: first, VDS-level RBAC filters items within containers; second, container-level visibility filtering removes containers. If both filters apply to a paginated result, the shortfall becomes severe: a page of 100 items might return 3 after both filters, with no way for the client to request the next actual page of filtered results.
 
 **Why it happens:**
-GitHub Actions does not validate that referenced secrets exist when the workflow is parsed. The
-`${{ secrets.NAME }}` interpolation is silent on missing values. The workflow author adds the `uses:`
-lines correctly but forgets to create the corresponding secrets in Settings > Secrets and Variables.
+Dremio's namespace pagination is cursor-based over the unfiltered namespace. The RBAC filter runs post-retrieval. If the namespace returns page [item 1 … item 100] and RBAC removes 97 of them, the client sees 3 items but the cursor advances past item 100.
 
-**How to avoid:**
-- Create all four secrets in the repository before pushing the workflow file.
-- Name secrets consistently: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`,
-  `ECR_REPOSITORY`. Document this in a comment in the workflow file.
-- Test IAM permissions with `aws ecr describe-repositories` locally using the same access key before
-  adding it to GitHub Secrets.
-- Use `AmazonEC2ContainerRegistryPowerUser` managed policy for the CI IAM user — do not write a
-  custom policy unless required by security policy.
+**Consequences:**
+A user browsing a space with 10,000 datasets (mostly RBAC-denied) sees only a few items per page and must page through many pages to find all accessible items. REST API clients that fetch the first page and stop assume there are only a few datasets in the space.
+
+**Prevention:**
+1. Accept this limitation for v2.0 MVP. Document it as a known behaviour.
+2. Long-term fix: change the list implementation to filter-then-paginate (pull items until the page is full of allowed items, not until the namespace cursor moves a page).
+3. For container visibility specifically: query the namespace for containers that have a corresponding grant record rather than querying all containers and then filtering.
+4. Add a test that documents the shortfall: create a space with 100 datasets, grant SELECT on 3 of them, list with page size 10, assert that iterating all pages retrieves exactly 3.
 
 **Warning signs:**
-- `configure-aws-credentials` step fails with credential or region errors.
-- Docker push fails with `repository does not exist` or `invalid reference format`.
-- `aws sts get-caller-identity` in a debugging step returns error or empty output.
-- Step log shows the secrets are present but the values look truncated (GitHub masks secrets, but
-  a missing secret shows as an empty string, not a masked value).
+- REST API clients report missing datasets.
+- `GET /api/v3/catalog` with a small page size returns far fewer items than the total.
 
-**Phase to address:**
-Phase 3 (ECR authentication and push) — set up secrets before the first workflow run.
+**Phase:** v2.0 Container Visibility — Phase 2. Document before implementing.
 
 ---
 
-### Pitfall 7: Docker Image Size Bloat — 864MB Tarball Produces Multi-GB Image
+## P21 — Table-Level SELECT on PDS: Grant Key Collision with VDS objectType
 
 **What goes wrong:**
-The Dremio distribution tarball is 864MB (measured from `distribution/server/target/`). When added
-to a Docker image as a `COPY` + `RUN tar` pair in two separate `RUN` instructions, the image layer
-history records both the compressed tarball copy AND the extracted contents as separate layers. Total
-image size can reach 2–3GB if the Dockerfile is naively structured.
-
-A second source of bloat: using `eclipse-temurin:17-jdk` (includes full JDK, ~600MB) instead of
-`eclipse-temurin:17-jre` (~300MB) adds ~300MB unnecessarily.
-
-A third source: running `apt-get update` without `rm -rf /var/lib/apt/lists/*` in the same `RUN`
-instruction leaves the package lists in the image layer (100–200MB).
-
-GitHub-hosted runners have disk space limits (~14GB available on `ubuntu-latest`). A 2.5GB image
-pushed to ECR costs non-trivial storage and pull time in downstream deployments.
+v1.0's `resolveRbacObjectType()` returns `"VDS"` for `SELECT` and `"FUNCTION"` for `EXECUTE`. Physical datasets (PDS) are explicitly excluded from v1.0 RBAC checks in `isRbacDeniedForVds()` via the `!(table instanceof ViewTable)` guard. Adding table-level SELECT for PDS requires a new object type string. The pitfall is using the same `"VDS"` string for both PDS and VDS grants, creating a namespace collision where a grant intended for a view inadvertently covers a physical table at the same path, or vice versa.
 
 **Why it happens:**
-Docker layer caching works at the `RUN` instruction level. Each `RUN` instruction creates a new
-immutable layer. The tarball `COPY` step creates a layer with the compressed file; the subsequent
-`RUN tar xzf` step creates another layer with the extracted files. Both layers exist in the image's
-layer history, but the tarball layer is effectively wasted space after extraction.
+The grant key format is `{role_id}|{objectType}|{objectPath}|{privilege}`. If VDS and PDS at the same path both use `objectType = "VDS"`, the grant key is identical. Granting SELECT on the VDS also grants it on the PDS.
 
-**How to avoid:**
-Combine `COPY` and extraction into a single `RUN` using a heredoc or pipe to avoid intermediate
-layers, or use a multi-stage build:
+**Consequences:**
+Admin grants SELECT on VDS `reports.q1_summary`. A PDS also named `reports.q1_summary` exists in a different source. The PDS is now accessible to anyone with the VDS grant. When the VDS is dropped and a PDS promoted at the same path, the new PDS inherits the old VDS grant — the admin did not intend to grant PDS access.
 
-```dockerfile
-# Stage 1: extract tarball
-FROM eclipse-temurin:17-jre AS extractor
-COPY distribution/server/target/dremio-community-*.tar.gz /tmp/dremio.tar.gz
-RUN mkdir -p /opt/dremio && tar xzf /tmp/dremio.tar.gz -C /opt/dremio --strip-components=1
+**Prevention:**
+1. Introduce `"PDS"` as a distinct `objectType` string for physical table grants. Update `resolveRbacObjectType()` to return `"PDS"` when checking physical tables and `"VDS"` for views.
+2. The `isRbacDeniedForVds()` guard already distinguishes `ViewTable` vs non-`ViewTable`. Add a parallel `isRbacDeniedForPds()` method that fires only for non-`ViewTable` objects.
+3. Existing grants stored in the KV store use `"VDS"` as the object type for views. Do not change this string — it is the persistent key component. Only add `"PDS"` for new grants on physical tables.
+4. Test: grant SELECT on VDS `space.view1` (objectType=VDS). Assert that a user cannot SELECT physical table `space.view1` (objectType=PDS) without an explicit PDS grant, even if the paths match.
 
-# Stage 2: runtime image (no tarball layer)
-FROM eclipse-temurin:17-jre AS runtime
-RUN groupadd --system dremio --gid 999 \
-    && useradd --base-dir /var/lib/dremio --system --uid 999 --gid dremio dremio \
-    && mkdir -p /opt/dremio/data /var/run/dremio /var/log/dremio /var/lib/dremio \
-    && chown -R dremio:dremio /opt/dremio/data /var/run/dremio /var/log/dremio /var/lib/dremio
-COPY --from=extractor --chown=dremio:dremio /opt/dremio /opt/dremio
+**Warning signs:**
+- GRANT on a view inadvertently allows access to a co-located physical table.
+- Unexpected access after a VDS is replaced by a PDS at the same path.
+
+**Phase:** v2.0 Table-Level PDS SELECT — Phase 3.
+
+---
+
+## P22 — EXPLAIN PLAN Reveals Physical Table Names the User Cannot See
+
+**What goes wrong:**
+`EXPLAIN PLAN FOR SELECT * FROM my_view` triggers full query planning. `ExplainHandler.toResult()` runs the full pipeline — parse, validate, convert, optimise — and returns plan text built from `RelOptUtil.toString(logicalPlan)` or `innerNodeHandler.getTextPlan()`. The physical plan includes scan operators with physical table paths. If user B has SELECT on `my_view` but not on the underlying table `raw.customer_pii`, the EXPLAIN output reveals `raw.customer_pii` as a scan target. Neither `RelOptUtil.toString()` nor the physical plan text builder filters by the requesting user's privileges on referenced physical objects.
+
+**Why it happens:**
+The plan cache and plan text were designed before RBAC. With definer rights, B can query `my_view` without SELECT on `raw.customer_pii`, but the EXPLAIN reveals the underlying path anyway.
+
+**Consequences:**
+Information leakage: users can discover physical table names, source names, and join structure by running EXPLAIN PLAN on any view they have SELECT on, even when the underlying data is strictly access-controlled.
+
+**Prevention:**
+1. Decide before implementing definer rights: should EXPLAIN PLAN be allowed on a view when the invoker has SELECT on the view but not on underlying tables? The secure answer is: yes for the view's logical output (schema only), no for the full physical plan that exposes underlying table paths.
+2. For v2.0 MVP: restrict `EXPLAIN PLAN PHYSICAL` to users who have direct SELECT on all referenced underlying tables, or restrict it to ADMINs. Allow `EXPLAIN PLAN LOGICAL` which does not expose physical scan paths.
+3. At minimum: add an ADMIN-only option flag for `EXPLAIN PLAN PHYSICAL` that defaults off for non-ADMINs when RBAC is enabled.
+4. This must be addressed in the same phase as Definer Rights. Do not ship definer rights without addressing this.
+
+**Warning signs:**
+- Non-admin users run `EXPLAIN PLAN FOR SELECT * FROM view` and see physical table paths in output.
+- Source/table names that are supposedly hidden appear in job profiles or plan output.
+
+**Phase:** v2.0 Definer Rights Implementation — Phase 1 (must ship together).
+
+---
+
+## P23 — Plan Cache Key Does Not Include Definer Identity: Cross-User Plan Reuse
+
+**What goes wrong:**
+`PlanCacheUtils.generateCacheKey()` hashes: SQL text, workload type, dataset versions, reflection hashes, and query options. It does not include the requesting user's identity or the definer identity chain of any expanded views. When user A and user B issue the same SQL (`SELECT * FROM my_view`), they may receive the same cached plan. If the cached plan was built for user A (whose definer grants produced a particular physical plan) and user B has a different definer chain, the cached plan may be physically incorrect for B or may bypass privilege checks that would fire during fresh planning.
+
+**Why it happens:**
+The cache was designed before RBAC existed. Query identity was not a cache dimension because all users could access all data. With definer rights, the physical plan depends on which user owns which view.
+
+**Consequences:**
+User A queries V (owner is userA, plan cached). UserA's grants change (or V is transferred to userB). User C queries V. Cache hit. Plan still uses userA's physical table path choices, built under userA's privilege context — without checking userB's (the new definer's) grants.
+
+**Prevention:**
+1. Add the view owner identity chain as an additional hash input in `PlanCacheUtils.generateCacheKey()`. For each `ViewTable` referenced in the plan's `RelNode` tree, hash the `getViewOwner()` username. This ensures plans built under different definer chains get different cache keys.
+2. Or: disable the plan cache for queries that involve at least one `ViewTable` with a non-null, non-system `viewOwner`. This is conservative but safe for v2.0.
+3. When a view's owner changes, call `invalidateCacheOnDataset(datasetId)` — the `LegacyPlanCache.invalidateCacheOnDataset()` method exists for exactly this purpose.
+4. Test: user A queries V (plan cached). Change V's owner to userB (different grants). User A queries V again. Assert: cache miss, fresh plan built under userB's definer context.
+
+**Warning signs:**
+- Privilege changes to a view's definer do not cause re-planning for subsequent queries.
+- `EXPLAIN PLAN` returns a cached plan that references a user who no longer owns the view.
+
+**Phase:** v2.0 Definer Rights Implementation — Phase 1. Cache safety must be verified before the cache is left enabled with definer rights active.
+
+---
+
+## P24 — Deleted Definer: Silent Fallback to Query User Bypasses Security Boundary
+
+**What goes wrong:**
+`ViewExpander.expandViewInternal()` has a `UserNotFoundException` fallback at lines 127–133: if the view owner's account no longer exists in Dremio, the expansion falls back to the query user's identity. This fallback was added for continuity. With deny-by-default RBAC in place, the fallback effectively grants the query user full definer-level access to the underlying tables whenever the owner's account is deleted — bypassing the principle that a deleted owner should cause view access to fail.
+
+**Exact code location:**
+```java
+// ViewExpander.java
+} catch (RuntimeException e) {
+  if (!(e.getCause() instanceof UserNotFoundException)) {
+    throw e;
+  }
+  final CatalogIdentity delegatedUser = viewExpansionContext.getQueryUser();
+  return expandRelNode(viewTable, delegatedUser, queryString);
+}
 ```
 
-Multi-stage build ensures the final image contains only the JRE and extracted Dremio files — no
-tarball, no extraction tooling, no apt package lists.
+**Consequences:**
+Admin deletes user A (the view owner). User B queries V. The fallback triggers. V expands under B's identity. B can now read V's underlying tables if B has sufficient grants. This silently changes the security boundary without operator awareness.
+
+**Prevention:**
+1. For v2.0, replace the `UserNotFoundException` fallback with an explicit `UserException.permissionError()`: "View owner no longer exists; view access has been suspended. Contact an administrator."
+2. This is a breaking change from existing fallback behaviour. Document it in the v2.0 release notes.
+3. Alternatively: require ownership transfer before user deletion. Add a pre-delete check in the user deletion REST handler that blocks deletion if any views are owned by the user being deleted.
+4. Test: create view V owned by userA. Delete userA. User B queries V. Assert: access denied with a clear error, not a silent fallback to B's identity.
 
 **Warning signs:**
-- `docker image ls` shows image > 2.5GB.
-- ECR push time exceeds 10 minutes on a fast connection (indicates multiple large layers).
-- `docker history <image>` shows two large layers (one for tarball copy, one for extraction).
+- Deleting a user account does not break views owned by that user.
+- Queries to orphaned views succeed silently.
 
-**Phase to address:**
-Phase 2 (Dockerfile adaptation) — design multi-stage from the start; retrofitting is painful.
+**Phase:** v2.0 Definer Rights Implementation — Phase 1. The fallback must be changed before definer rights are activated.
 
 ---
 
-### Pitfall 8: Tag Parsing Edge Cases — `v` Prefix Strip Breaks on Non-Semver Tags
+## P25 — Backwards Compatibility: Inner VDS Check Fires Under Definer Preventing VDS-over-VDS
 
 **What goes wrong:**
-The standard bash parameter expansion `${GITHUB_REF#refs/tags/v}` strips the `refs/tags/v` prefix
-from a git ref like `refs/tags/v1.2.0`, producing `1.2.0`. This works correctly for tags matching the
-`v*` workflow trigger pattern.
-
-However, edge cases break this:
-1. **Tag without `v` prefix:** If someone pushes `1.2.0` (no `v`), the workflow trigger `tags: ['v*']`
-   does not fire, so this case is safely excluded from the pipeline. BUT if the trigger is changed to
-   `tags: ['*']`, then `${GITHUB_REF#refs/tags/v}` produces `1.2.0` (correct for `v1.2.0`) but
-   `${GITHUB_REF#refs/tags/v}` on `refs/tags/1.2.0` produces `1.2.0` only if there is no leading `v`
-   — wait, `refs/tags/1.2.0` with `#refs/tags/v` strip produces `1.2.0` unchanged because the prefix
-   `refs/tags/v` does not match `refs/tags/1.2.0`. Result: the tag `1.2.0` maps to image tag `1.2.0`,
-   which is correct, but only by accident.
-2. **Tag with double `v`:** `vv1.2.0` → strip `refs/tags/v` → `v1.2.0` → image tag is `v1.2.0` (has a
-   `v`). Consumer scripts expecting SemVer without `v` will fail.
-3. **Tag containing `/`:** `release/v1.2.0` → `${GITHUB_REF#refs/tags/}` → `release/v1.2.0` → Docker
-   tag `release/v1.2.0` → invalid Docker tag (slashes are illegal except in registry/repo context).
-4. **`GITHUB_REF` is empty:** If the workflow is triggered via `workflow_dispatch` (manual trigger),
-   `GITHUB_REF` may not contain a tag. The strip operation produces an empty string, and the image
-   gets tagged `:` — failing with `invalid reference format`.
+v1.0 enforcement fires `isRbacDeniedForVds()` on every `ViewTable` resolved via `getTable()` — including inner views resolved during view expansion. When definer rights are active, the inner catalog instance (running as the definer userA) resolves an inner view W (owned by userC). The inner catalog checks whether userA has SELECT on W. UserA doesn't — userA just owns the outer view V. The query fails with an opaque "access denied" during expansion, even though the intent is for definer rights to bypass inter-view privilege checks.
 
 **Why it happens:**
-Bash parameter expansion `${var#prefix}` silently returns the original string if the prefix does not
-match, rather than erroring. Docker tag validation errors are vague. The workflow trigger filter
-`tags: ['v*']` provides partial protection but does not cover manual triggers or future trigger changes.
+`CatalogImpl.isRbacDeniedForVds()` is a blanket check on all `ViewTable` objects, regardless of whether the current catalog instance is running in "definer expansion mode" or "direct user query mode". The `resolveCatalog(viewOwner)` call creates a new `CatalogImpl` with a different `userName` but identical privilege enforcement logic.
 
-**How to avoid:**
-Use a dedicated step that validates the tag format and exits if invalid:
-```yaml
-- name: Extract and validate version
-  id: version
-  run: |
-    TAG="${GITHUB_REF#refs/tags/}"
-    if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-      echo "ERROR: Tag '$TAG' does not match expected format vX.Y.Z"
-      exit 1
-    fi
-    VERSION="${TAG#v}"
-    echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-    echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-```
-Reference the validated version in subsequent steps: `${{ steps.version.outputs.version }}`.
+**Consequences:**
+VDS-over-VDS queries fail with definer rights enabled. Error says "access denied on view W" when the failing user (the definer) actually owns the outer view and never needed SELECT on W.
+
+**Prevention:**
+1. Add a `boolean isInDefinerContext` field to `CatalogImpl`. Default: false. Set to true when `resolveCatalog(viewOwner)` is called for view expansion (not for general user impersonation).
+2. In `isRbacDeniedForVds()`: if `isInDefinerContext` is true, return false — skip VDS privilege checks during definer expansion. Only `isRbacDeniedForPds()` (table-level PDS checks) should run in definer context.
+3. The `isInDefinerContext` flag must propagate through any further `resolveCatalog()` calls made during expansion (inner views expanding inner views).
+4. Test: V = SELECT * FROM W WHERE ...; W = SELECT * FROM table T. V owned by userA. W owned by userB. User C has SELECT on V only. Assert: C can query V, inner expansion under userA does not require userA to have SELECT on W, inner expansion under userB does not require userB to have SELECT on V.
 
 **Warning signs:**
-- Docker build step fails with `invalid reference format` — usually indicates empty tag or illegal
-  characters in the tag string.
-- Image is pushed with tag `v1.2.0` (with `v`) instead of `1.2.0` (without `v`).
-- Multiple images with different tag formats exist in ECR from different invocations.
+- VDS-over-VDS queries fail with definer rights enabled but succeed with definer rights disabled.
+- Error says "access denied on view W" when the failing user owns W or is the definer of the outer view.
 
-**Phase to address:**
-Phase 3 (ECR authentication and push) — validate tag parsing before the first push attempt.
+**Phase:** v2.0 Definer Rights Implementation — Phase 1. This interaction must be designed before coding starts.
 
 ---
 
-### Pitfall 9: Secrets Leaked via Build Args or Workflow Logs
+## P26 — VDS Lifecycle Privileges: Pre-Existing ALTER/DROP Grant Stubs Activate Silently
 
 **What goes wrong:**
-GitHub Actions masks secret values in workflow logs when secrets are accessed via
-`${{ secrets.NAME }}`. However, masking is bypassed if:
-1. A secret value is passed as a Docker `--build-arg` (e.g., `--build-arg AWS_KEY=${{ secrets.AWS_ACCESS_KEY_ID }}`). Docker build output may echo build args in layer metadata or build logs.
-2. A secret is assigned to a variable using `echo "KEY=${{ secrets.KEY }}" >> $GITHUB_ENV` and that
-   variable is later printed by a script.
-3. `set -x` is enabled in a shell script that processes secret values — bash's debug output (`+ echo secret_value`) bypasses GitHub's masking.
-4. A secret value appears in a Docker image label or environment variable embedded at build time via
-   `--build-arg` and inspectable with `docker inspect`.
+In v1.0, `resolveRbacObjectType()` defaults to `"VDS"` for `ALTER` and `DROP` in the switch default case. This means the enforcement path for ALTER and DROP already exists in `validatePrivilege()` — but no grants for these privileges exist in the KV store because v1.0 never exposed ALTER/DROP grant management. If v2.0 adds ALTER/DROP grant support, any grant written directly to the KV store during v1.0 testing (e.g., via REST API or integration test fixtures) will activate immediately without any code change.
 
-For this pipeline, the specific risk is the `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` being
-inadvertently printed. The `configure-aws-credentials` action is designed to avoid this, but custom
-scripts that re-export these values are not protected.
+**Consequences:**
+Low probability in production; higher risk in test environments where grants were written manually. A test environment may have unexpected ALTER/DROP grants that silently become effective when v2.0 enforcement checks for them.
 
-**Why it happens:**
-GitHub Actions log masking works by comparing log output against known secret values. It does not mask
-values that are set indirectly (via env vars set in previous steps that are not explicitly declared as
-secrets). The Docker build process is a subprocess; its stdout is captured and logged by the runner,
-but Docker layer commands are not post-processed by the masking filter in all contexts.
-
-**How to avoid:**
-- Never pass `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` as Docker `--build-arg` or `ENV`.
-- Let `configure-aws-credentials` inject the credentials into the runner environment and let
-  `ecr-login` use them transparently — do not re-export them in shell scripts.
-- Do not use `set -x` in any script step that processes `${{ secrets.* }}` values.
-- Do not `echo` or `cat` secret values for debugging, even temporarily.
-- Do not embed credentials as Docker image labels or `ENV` instructions in the Dockerfile.
-- Add `add-mask` as an extra guard for derived values:
-  ```yaml
-  - run: echo "::add-mask::${{ steps.login-ecr.outputs.registry }}"
-  ```
-  This masks the ECR registry URI in subsequent log output, preventing account ID exposure.
+**Prevention:**
+1. Before enabling v2.0 ALTER/DROP enforcement, scan existing grant stores for entries with `privilege = "ALTER"` or `privilege = "DROP"`. Log a warning for each found record.
+2. Confirm that `CREATE_VIEW` privilege is scoped to the **parent container** (the space), and ALTER/DROP are scoped to the **view path itself**. These are different objectPath values — verify the enforcement code checks the correct path for each operation.
+3. The `dropPrimaryKey` method in `CatalogImpl` already calls `validatePrivilege(table, SqlGrant.Privilege.ALTER)`. Confirm this pattern is followed consistently for all ALTER-requiring operations on VDS.
 
 **Warning signs:**
-- Workflow log shows a sequence of digits matching `AWS_ACCESS_KEY_ID` format (20 uppercase alphanumerics).
-- `docker inspect <image>` shows credential-looking values in `Config.Env` or `Config.Labels`.
-- A team member reports seeing AWS key values in a downloaded workflow log artifact.
+- Test environments have unexpected ALTER/DROP grants in the KV store from manual testing.
+- DROP VIEW succeeds for a user who was never explicitly granted DROP privilege.
 
-**Phase to address:**
-Phase 3 (ECR authentication and push) — review all steps that touch secrets before committing the workflow.
+**Phase:** v2.0 VDS Lifecycle Privileges — Phase 4.
 
 ---
 
-### Pitfall 10: Maven Cache Invalidation on `revision` Property — Build Always Downloads
+## P27 — Definer Context Stack: ViewExpansionContext Is Not Thread-Safe Under Parallel Planning
 
 **What goes wrong:**
-Dremio uses Maven CI-friendly versioning: the root `pom.xml` declares `<version>${revision}</version>`.
-The `revision` property is passed at build time via `-Drevision=X.Y.Z` or read from `.mvn/maven.config`.
-When `actions/setup-java cache: 'maven'` or `actions/cache` keys on `hashFiles('**/pom.xml')`, the cache
-key is stable as long as `pom.xml` files do not change.
-
-However, installed artifacts in `~/.m2/repository` for the Dremio project itself (e.g.,
-`com/dremio/dremio-parent/{revision}/`) will accumulate versions from every build run if the
-`revision` changes between runs (e.g., because the build injects a timestamp-based version). A 3.3GB
-Maven repo (measured locally) growing by 50–100MB per unique `revision` build will eventually exhaust
-the GitHub Actions workspace disk (14GB limit).
-
-More immediately: if the workflow does not pass `-Drevision` explicitly and the `pom.xml` does not
-have a default value for `${revision}`, Maven will fail with `revision is undefined`. Checking the
-local repo shows the `revision` is resolved via the `flatten-maven-plugin`'s `revision` property —
-if this plugin does not run before dependent modules are resolved, cross-module version references fail.
+`ViewExpansionContext` maintains mutable state (`userTokens: ObjectIntHashMap`) that is created per-query (one instance per `QueryContext`). This state is designed for single-threaded view expansion. If Calcite's planning rules trigger view expansion on parallel threads within a single query (parallel rule application), both threads call `reserveViewExpansionToken()` and `releaseViewExpansionToken()` on the same `ViewExpansionContext` instance. `ObjectIntHashMap` is not thread-safe.
 
 **Why it happens:**
-Maven's `${revision}` CI-friendly versioning requires the `flatten-maven-plugin` to write resolved
-`pom.xml` files before reactor dependencies can resolve correctly. In a standard `mvn package` invocation
-this happens automatically. In a parallel build with `-T 4C`, the flatten goal may not have completed
-for a parent module before a child module attempts to resolve the parent's version, causing a reactor
-build order failure.
+`ViewExpansionContext` was designed under the assumption that view expansion is single-threaded (depth-first, one view at a time). Calcite's VolcanoPlanner uses a priority queue for rule application; whether this triggers parallel `ViewTable.toRel()` calls depends on the planning configuration.
 
-**How to avoid:**
-- Use `./mvnw package -DskipTests -Drevision=X.Y.Z` where `X.Y.Z` is derived from the git tag (e.g.,
-  `${{ steps.version.outputs.version }}`). This makes the version explicit and matches the image tag.
-- Do not use parallel Maven builds (`-T`) without testing on the full project tree first. The Dremio
-  build is not guaranteed to be parallel-safe across all modules.
-- Add `~/.m2/repository/com/dremio/` to a `.gitignore`-equivalent cache exclusion list or accept
-  that the Dremio artifacts in the cache are rebuilt on every run (they are produced by the build itself
-  and are not downloadable from Maven Central).
+**Consequences:**
+`ConcurrentModificationException` or incorrect token counts in `userTokens` under concurrent planning. A definer context that was entered is never exited (token not released), causing subsequent expansions under that definer to fail with Preconditions assertion errors (`"Given user doesn't exist in User Token store"`).
+
+**Prevention:**
+1. Audit whether Calcite's planning phases that trigger `ViewTable.toRel()` can run in parallel within a single query. If yes, add synchronization to `ViewExpansionContext` or replace `ObjectIntHashMap` with `ConcurrentHashMap<CatalogIdentity, AtomicInteger>`.
+2. Add a `@NotThreadSafe` annotation to `ViewExpansionContext` if the planning audit confirms single-threaded access — document the assumption explicitly.
+3. For v2.0, if parallel planning is confirmed to be single-threaded at the point of view expansion, document this with a code comment and add a defensive assertion on the calling thread ID.
 
 **Warning signs:**
-- `mvn package` fails with `Could not find artifact com.dremio:dremio-parent:pom:${revision}`.
-- Maven cache restore succeeds but subsequent build attempts to download `com.dremio:*` artifacts
-  (these are always built from source and should never be downloaded).
-- Workflow disk usage exceeds 10GB before the Docker build step (accumulated `revision` artifacts).
+- Intermittent `ConcurrentModificationException` in `ViewExpansionContext` under concurrent query load.
+- Preconditions assertions fire in `releaseViewExpansionToken()` under parallel planning workloads.
 
-**Phase to address:**
-Phase 1 (Maven build setup) — pass explicit `-Drevision` from the first workflow draft.
+**Phase:** v2.0 Definer Rights Implementation — Phase 1. Verify threading model before adding per-definer state.
 
 ---
 
-## Technical Debt Patterns
+## Summary Table
 
-Shortcuts that seem reasonable but create long-term problems.
-
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| `java-version: 'latest'` in `setup-java` | No version to update | Build breaks when GH Actions updates `latest` to Java 22+, failing the enforcer check | Never — pin to `'21'` |
-| Skipping `actions/cache` on first commit | Fewer lines of YAML | Every run is a 45–90 min cold build; CI becomes unusable within days | Never for this project |
-| Using existing Dockerfile unchanged with a `file://` `DOWNLOAD_URL` trick | No Dockerfile changes | Fragile, undocumented, breaks on path changes | Never |
-| `ubuntu-latest` instead of `ubuntu-22.04` | Always current | Docker image SHA changes under you; runner environment shifts break reproducibility | Acceptable only if you want automatic runner OS updates |
-| Hardcoded ECR registry URI string in workflow | Simple copy-paste | URI must be updated in two places (secrets + workflow) on account or region change | Never — always use the `ecr-login` step output |
-| `--build-arg` to pass secrets into Docker | Works once | Secrets end up in image layer history (retrievable via `docker history`) and in CI logs | Never |
-| `jdk` base image instead of `jre` | Slightly easier debugging in container | +300MB image size permanently | Acceptable in development environments; never in production images |
-
----
-
-## Integration Gotchas
-
-Common mistakes when connecting to external services.
-
-| Integration | Common Mistake | Correct Approach |
-|-------------|----------------|------------------|
-| AWS ECR | Using `@v1` of `amazon-ecr-login` — outputs `registry` differently | Always use `@v2`; reference registry as `${{ steps.login-ecr.outputs.registry }}` |
-| AWS ECR | Missing `ecr:BatchCheckLayerAvailability` in IAM policy | Use `AmazonEC2ContainerRegistryPowerUser` managed policy; do not write a minimal custom policy |
-| AWS ECR | ECR repository does not exist before first push | Create the repository in AWS console or Terraform before running the workflow |
-| AWS ECR | Pushing to the wrong region — ECR URI contains region; `AWS_REGION` secret must match the registry region | Verify registry URI format: `{account_id}.dkr.ecr.{region}.amazonaws.com/{repo}` |
-| Docker Buildx | Not calling `docker/setup-buildx-action` before `build-push-action` | `build-push-action` requires Buildx; without it, `cache-from`/`cache-to` options silently fail |
-| GitHub Secrets | Secret added to wrong scope (Organization vs Repository) | For a private fork, add secrets to the specific repository, not the organization (unless org-level inheritance is configured) |
-| Maven + GitHub Actions | Using `mvn` directly instead of `./mvnw` | `mvnw` uses the Maven version pinned by the project wrapper; `mvn` uses whatever Maven the runner provides, which may not match |
-
----
-
-## Performance Traps
-
-Patterns that work at small scale but fail as usage grows.
-
-| Trap | Symptoms | Prevention | When It Breaks |
-|------|----------|------------|----------------|
-| No Docker layer cache | Every push rebuilds all layers (5–10 min for 864MB tarball layer alone) | Use ECR registry cache (`type=registry`) from the first run | After first push once team starts pushing multiple releases per sprint |
-| Maven cache keyed on root `pom.xml` only | Cache is never invalidated on sub-module changes; can serve stale JARs or fail to cache new deps | Key on `**/pom.xml` glob (all pom files) | First time a sub-module pom changes |
-| Single-job workflow (Maven + Docker in one job) | Runner disk pressure: Maven repo (3.3GB) + Docker build (2GB+ intermediate) + tarball (864MB) can approach 14GB disk limit | Split into two jobs: Maven build (upload tarball artifact) + Docker build (download artifact) if disk pressure is observed | When `~/.m2` cache is restored AND a large Docker build runs in the same job |
-| Full Maven build for packaging only | 30–60 min per pipeline run | Use `./mvnw package -pl distribution/server -am -DskipTests` after verifying all custom modules are transitive dependencies | Immediately — optimize from the first workflow version |
-| `ubuntu-latest` runner churn | Reproducibility issues as the runner OS and pre-installed tools change | Pin to `ubuntu-22.04` for stability | When GitHub updates `ubuntu-latest` to Ubuntu 24+ |
+| # | Pitfall | Milestone | Phase |
+|---|---------|-----------|-------|
+| P1 | Bootstrap deadlock: who grants the first ADMIN | v1.0 | Phase 1 |
+| P2 | SYSTEM_USERNAME as a silent backdoor | v1.0 | Phase 1 |
+| P3 | Definer-rights confusion: checking the wrong layer | v1.0 | Phase 1 |
+| P4 | Access path gaps: SQL is not the only door | v1.0 | Phase 2 |
+| P5 | Cache invalidation when grants change | v1.0 | Phase 1 |
+| P6 | Performance: KV lookup on every catalog resolution | v1.0 | Optimization |
+| P7 | Migration lock-out: existing views/UDFs have no owner | v1.0 | Migration |
+| P8 | EE conflict: clobbering the Enterprise RBAC | v1.0 | Design |
+| P9 | Implicit ADMIN: internal operations blocked by wrong identity | v1.0 | Phase 1 |
+| P10 | INFORMATION_SCHEMA leaks object existence | v1.0 | Phase 2 |
+| P11 | Error messages reveal object existence | v1.0 | Phase 1 |
+| P12 | KV store schema evolution: protobuf changes break records | v1.0 | Design |
+| P13 | DACSecurityContext.isUserInRole() time bomb | v1.0 | Phase 2 |
+| P14 | Using the deprecated LegacyKVStore API | v1.0 | Phase 1 |
+| P15 | Stale definer identity: frozen grant snapshot | v2.0 | Phase 1 |
+| P16 | Wrong CatalogImpl instance in inner definer check | v2.0 | Phase 1 |
+| P17 | Missing cycle guard in VDS-over-VDS definer chain | v2.0 | Phase 1 |
+| P18 | UDF invoker vs definer rights: unresolved design | v2.0 | Phase 1 |
+| P19 | Container visibility: O(n) tree walk per listing | v2.0 | Phase 2 |
+| P20 | Container visibility amplifies pagination shortfall | v2.0 | Phase 2 |
+| P21 | PDS SELECT grant key collides with VDS objectType | v2.0 | Phase 3 |
+| P22 | EXPLAIN PLAN reveals physical table names via definer | v2.0 | Phase 1 |
+| P23 | Plan cache key excludes definer identity | v2.0 | Phase 1 |
+| P24 | Deleted definer falls back silently to query user | v2.0 | Phase 1 |
+| P25 | Inner VDS check fires under definer, breaks VDS-over-VDS | v2.0 | Phase 1 |
+| P26 | ALTER/DROP grant stubs activate silently in v2.0 | v2.0 | Phase 4 |
+| P27 | ViewExpansionContext not thread-safe under parallel planning | v2.0 | Phase 1 |
 
 ---
 
-## Security Mistakes
+## v2.0 Integration Pitfalls with v1.0
 
-Domain-specific security issues beyond general web security.
-
-| Mistake | Risk | Prevention |
-|---------|------|------------|
-| IAM access key with `AdministratorAccess` policy for CI | Compromised key = full AWS account access | Create a dedicated CI IAM user with only `AmazonEC2ContainerRegistryPowerUser` (or a minimal custom policy scoped to the specific ECR repository) |
-| Long-lived access keys (no rotation) | Keys leaked via log or source become permanently usable | Rotate access keys every 90 days; set up a GitHub Dependabot or cron job to alert on key age |
-| `AWS_ACCESS_KEY_ID` visible in `docker build` output | Key appears in build logs in plain text | Never pass secrets as `--build-arg`; let `configure-aws-credentials` manage env vars |
-| Image pushed with `latest` tag as the only tag | No version traceability; `latest` in ECR does not mean the image is safe or from a specific release | Always push BOTH the version tag AND `latest` — never push only `latest` |
-| ECR repository with public access enabled | Anyone can pull Dremio images including any sensitive configuration baked in | Keep ECR repository private (default); never enable public access for a fork with custom configuration |
-| No `contents: read` permission constraint | Default `GITHUB_TOKEN` permissions are broader than needed for a packaging workflow | Add explicit `permissions: contents: read` at the job or workflow level |
+| v1.0 Design Decision | v2.0 Impact | What to Verify |
+|----------------------|-------------|----------------|
+| `isRbacDeniedForVds()` fires on every `getTable()` | During definer expansion, inner views trigger this check under the definer's identity | Add `isInDefinerContext` flag (P25) |
+| `isRbacDeniedForVds()` skips PDS (`!(table instanceof ViewTable)`) | When adding PDS SELECT, must add a parallel check — the skip is no longer universal | Add `isRbacDeniedForPds()` method (P21) |
+| `resolveRbacObjectType()` defaults to `"VDS"` for ALTER/DROP | ALTER/DROP stubs already exist; activating them requires only a grant being present | Scan for pre-existing ALTER/DROP grants (P26) |
+| No plan cache user-scoping | Plan cache does not include user identity or definer chain | Hash definer chain into cache key (P23) |
+| `UserNotFoundException` fallback in `ViewExpander` | Silently changes security boundary when definer is deleted | Replace with explicit error (P24) |
+| Grant store scan is O(grants) for all listing operations | Container visibility adds another listing query layer | Use prefix scan, not per-row check (P19) |
 
 ---
 
-## "Looks Done But Isn't" Checklist
-
-Things that appear complete but are missing critical pieces.
-
-- [ ] **Java version:** Verify `java -version` in the Maven step log shows `21.x.x` — not 11, 17, or 22.
-- [ ] **Maven cache hit:** On second run, verify the Maven step log shows "Cache restored" and build time drops from 45+ minutes to under 20 minutes.
-- [ ] **Tarball produced:** Confirm the Maven step produces a `*.tar.gz` file at `distribution/server/target/dremio-community-*.tar.gz` by listing the directory in a step after Maven.
-- [ ] **Dockerfile uses COPY not wget:** Inspect the Docker build log — the first substantive instruction should be `COPY`, not `RUN wget`.
-- [ ] **Runtime is JRE not JDK:** `docker run {image} java -version` should show a JRE build, not a JDK build. `docker inspect {image}` should show `eclipse-temurin:17-jre` as the base.
-- [ ] **Image tag correct:** ECR console should show the image with tag `1.2.0` (no `v` prefix), not `v1.2.0`, `latest` only, or empty.
-- [ ] **ECR push succeeded:** `aws ecr describe-images --repository-name dremio-oss` returns the expected image digest and the correct tag.
-- [ ] **No secrets in logs:** Manually inspect the full workflow run log and confirm `AWS_ACCESS_KEY_ID` value (20 alphanumeric characters) does not appear in any step output.
-- [ ] **Container starts:** After push, `docker run -p 9047:9047 {ecr-image}:1.2.0` should bring up Dremio without JVM errors. Check `docker logs` for `Server is up`.
-
----
-
-## Recovery Strategies
-
-When pitfalls occur despite prevention, how to recover.
-
-| Pitfall | Recovery Cost | Recovery Steps |
-|---------|---------------|----------------|
-| Wrong Java version (enforcer failure) | LOW | Update `java-version` to `'21'` in `actions/setup-java`, push fix commit |
-| Cold build every run (no cache) | LOW | Add `actions/cache` step before Maven; wait for next run to populate cache |
-| Dockerfile `wget` failure | LOW | Create `Dockerfile.ci` with `COPY` pattern; update workflow `file:` reference |
-| Wrong base image (JDK instead of JRE, or Java 11) | LOW | Update `JAVA_IMAGE` arg in `Dockerfile.ci`; rebuild and push |
-| ECR auth token scope wrong | MEDIUM | Update IAM policy for CI user; may require AWS console access; test with `aws ecr get-login-password` locally first |
-| Secrets missing from GitHub repo | LOW | Add secrets in Settings > Secrets and Variables > Actions; re-run failed workflow |
-| Image tag has `v` prefix or is empty | LOW | Fix the version extraction step; push a new tag to re-trigger the pipeline |
-| Secrets leaked in logs | HIGH | Immediately rotate `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in AWS IAM; update GitHub Secrets with new values; audit ECR for unauthorized pushes |
-| Docker image too large (>2.5GB) | MEDIUM | Refactor Dockerfile to multi-stage build; rebuild; push new version; old oversized images remain in ECR until manually deleted |
-| Maven cache stale (wrong pom hash key) | LOW | Update cache key to `hashFiles('**/pom.xml')`; delete old cache in GitHub Actions > Caches; next run rebuilds |
-
----
-
-## Pitfall-to-Phase Mapping
-
-How roadmap phases should address these pitfalls.
-
-| Pitfall | Prevention Phase | Verification |
-|---------|------------------|--------------|
-| Java 21 enforcer (P1) | Phase 1: Maven build setup | `java -version` shows `21.x` in step log; Maven build reaches `[INFO] BUILD SUCCESS` |
-| Maven timeout / cache (P2) | Phase 1: Maven build setup | Second run completes in < 25 min; "Cache restored" in step log |
-| Dockerfile `wget` incompatibility (P3) | Phase 2: Dockerfile adaptation | Docker build log shows `COPY` not `wget`; no `DOWNLOAD_URL` build arg in step |
-| Java version mismatch build vs runtime (P4) | Phase 2: Dockerfile adaptation | `docker inspect` shows JRE 17 base; container startup shows `java version "17"` |
-| ECR token expiry / action version mismatch (P5) | Phase 3: ECR authentication | `ecr-login` output `registry` variable is non-empty; push succeeds end-to-end |
-| Missing / misconfigured IAM secrets (P6) | Phase 3: ECR authentication | `aws sts get-caller-identity` in a test step returns account identity before pipeline runs |
-| Docker image size bloat (P7) | Phase 2: Dockerfile adaptation | `docker image ls` shows final image < 1.5GB; `docker history` shows multi-stage build |
-| Tag parsing edge cases (P8) | Phase 3: ECR authentication | Test with tag `v1.2.3`: ECR image tag is `1.2.3`; validate step exits non-zero for malformed tags |
-| Secrets in logs (P9) | Phase 3: ECR authentication | Full workflow log audit before marking pipeline complete |
-| Maven `revision` cache pollution (P10) | Phase 1: Maven build setup | Build passes explicit `-Drevision`; no `com.dremio:*` download attempts in Maven log |
-
----
-
-## Sources
-
-- **Codebase analysis (HIGH confidence — directly measured):**
-  - `distribution/docker/Dockerfile` — `ARG DOWNLOAD_URL` + `wget` pattern; `eclipse-temurin:11-jdk` base image confirmed
-  - `distribution/server/target/dremio-community-26.0.5-*.tar.gz` — 864MB measured with `du -sh`
-  - `~/.m2/repository` — 3.3GB measured with `du -sh`; confirms Maven repo size for cache planning
-  - `build-tools/pom.xml` — `requireJavaVersion [21,22)` enforcer range confirmed by direct read
-  - `pom.xml` root — 158 Maven modules confirmed by `find . -name pom.xml | wc -l`; `maven.compiler.release=11`
-  - `distribution/server/pom.xml` — `dremio.distribution.tar.maxSize=980000000` (980MB max)
-
-- **GitHub Actions official documentation (HIGH confidence — stable platform behavior):**
-  - `actions/setup-java@v4` — `java-version` semver resolution behavior
-  - `actions/cache@v4` — `hashFiles()` glob pattern behavior; restore-keys fallback
-  - `docker/build-push-action@v6` — `context:`, `file:`, `tags:`, `push:` parameters
-  - `docker/setup-buildx-action@v3` — required for `build-push-action` cache-from/cache-to
-  - `aws-actions/configure-aws-credentials@v4` — env var injection scoping
-  - `aws-actions/amazon-ecr-login@v2` — `registry` step output format
-  - `GITHUB_REF` format for tag refs — `refs/tags/v1.2.0` format
-
-- **AWS ECR documentation (HIGH confidence — established API):**
-  - ECR authorization token lifetime: 12 hours (AWS official doc)
-  - IAM permissions for `ecr-login` and `docker push`: `GetAuthorizationToken`, `BatchCheckLayerAvailability`,
-    `InitiateLayerUpload`, `UploadLayerPart`, `CompleteLayerUpload`, `PutImage`
-  - `AmazonEC2ContainerRegistryPowerUser` managed policy — covers all required ECR push permissions
-
-- **Docker documentation (HIGH confidence — stable behavior):**
-  - Layer caching: each `RUN` instruction creates an immutable layer; `COPY` + separate `RUN tar` = two layers
-  - Multi-stage builds: final image contains only files explicitly `COPY --from=`'d from builder stages
-  - `eclipse-temurin:17-jre` vs `eclipse-temurin:17-jdk` size difference (~300MB)
-
----
-
-*Pitfall research for: GitHub Actions CI/CD pipeline — Maven build + Docker + ECR push for Dremio OSS fork*
-*Researched: 2026-02-20*
+*v1.0 pitfall research: 2026-02-17. v2.0 pitfall research: 2026-02-20. Codebase: rbac branch, commit 2cc3b3c3d.*

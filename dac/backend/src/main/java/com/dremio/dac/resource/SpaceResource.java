@@ -46,6 +46,7 @@ import com.dremio.service.namespace.proto.NameSpaceContainer;
 import com.dremio.service.namespace.space.proto.SpaceConfig;
 import java.security.AccessControlException;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import javax.annotation.security.RolesAllowed;
@@ -168,6 +169,7 @@ public class SpaceResource {
     if (rbacService.isAdminMember(userName)) {
       return children;
     }
+    Set<String> accessiblePaths = rbacService.getAccessibleObjectPaths(userName);
     return children.stream()
         .filter(
             c -> {
@@ -183,7 +185,11 @@ public class SpaceResource {
                 String objectPath = String.join(".", c.getFullPathList());
                 return rbacService.hasPrivilege(userName, "EXECUTE", "FUNCTION", objectPath);
               }
-              return true; // folders, spaces, sources always visible
+              if (c.getType() == NameSpaceContainer.Type.FOLDER) {
+                String folderPath = String.join(".", c.getFullPathList());
+                return rbacService.hasAccessibleChildUnderPath(accessiblePaths, folderPath);
+              }
+              return true; // spaces, sources at child level
             })
         .collect(Collectors.toList());
   }

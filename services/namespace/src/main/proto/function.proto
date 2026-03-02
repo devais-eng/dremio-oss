@@ -51,4 +51,5 @@ message FunctionConfig {
   optional int64 last_modified = 6;
   repeated FunctionDefinition function_definitions = 7;
   optional ReturnType return_type = 8;
+  optional string owner = 9; // Creator username for definer-rights identity resolution
 }

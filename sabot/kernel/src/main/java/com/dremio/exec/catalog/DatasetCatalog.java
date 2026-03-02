@@ -253,4 +253,13 @@ public interface DatasetCatalog {
    */
   @Deprecated
   void validatePrivilege(NamespaceKey key, SqlGrant.Privilege privilege);
+
+  /**
+   * Validate that the current user has CREATE_VIEW privilege on the container (parent path) of the
+   * given view key. This is a container-scoped check: the privilege is evaluated on the parent
+   * space/folder, not on the view itself.
+   *
+   * @param viewKey the namespace key of the view being created
+   */
+  void validateCreateViewPrivilege(NamespaceKey viewKey);
 }

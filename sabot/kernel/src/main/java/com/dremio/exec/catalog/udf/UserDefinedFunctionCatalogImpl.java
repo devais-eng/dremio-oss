@@ -114,9 +114,17 @@ public class UserDefinedFunctionCatalogImpl implements UserDefinedFunctionCatalo
           try {
             FunctionConfig oldFunctionConfig =
                 userNamespaceService.getFunction(key.toNamespaceKey());
-            newFunctionConfig.setTag(oldFunctionConfig.getTag()).setId(oldFunctionConfig.getId());
+            newFunctionConfig
+                .setTag(oldFunctionConfig.getTag())
+                .setId(oldFunctionConfig.getId())
+                .setOwner(oldFunctionConfig.getOwner());
           } catch (NamespaceException ignore) {
             // It's fine that the tag is not copied over if the existing function not found.
+          }
+        } else {
+          // Stamp the creator's username as the function owner for definer-rights identity
+          if (schemaConfig.getUserName() != null) {
+            newFunctionConfig.setOwner(schemaConfig.getUserName());
           }
         }
 

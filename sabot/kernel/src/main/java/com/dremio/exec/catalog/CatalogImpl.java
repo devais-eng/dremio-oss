@@ -286,8 +286,11 @@ public class CatalogImpl implements Catalog {
 
   @Override
   public DremioTable getTableNoResolve(NamespaceKey key) {
+    if (isRbacDeniedForSysPrivileges(key)) {
+      return null; // RBAC denied -- appear as "not found"
+    }
     final DremioTable table = datasetManager.getTable(key, options, false);
-    if (table != null && isRbacDeniedForVds(table, key)) {
+    if (table != null && (isRbacDeniedForVds(table, key) || isRbacDeniedForPds(table, key))) {
       return null; // RBAC denied -- appear as "not found"
     }
     return table;
@@ -295,8 +298,11 @@ public class CatalogImpl implements Catalog {
 
   @Override
   public DremioTable getTableNoColumnCount(NamespaceKey key) {
+    if (isRbacDeniedForSysPrivileges(key)) {
+      return null; // RBAC denied -- appear as "not found"
+    }
     final DremioTable table = datasetManager.getTable(key, options, true);
-    if (table != null && isRbacDeniedForVds(table, key)) {
+    if (table != null && (isRbacDeniedForVds(table, key) || isRbacDeniedForPds(table, key))) {
       return null; // RBAC denied -- appear as "not found"
     }
     return table;
@@ -309,15 +315,20 @@ public class CatalogImpl implements Catalog {
     if (resolvedKey != null) {
       final DremioTable table = getTableHelper(resolvedKey);
       if (table != null) {
-        if (isRbacDeniedForVds(table, resolvedKey)) {
+        if (isRbacDeniedForSysPrivileges(resolvedKey)
+            || isRbacDeniedForVds(table, resolvedKey)
+            || isRbacDeniedForPds(table, resolvedKey)) {
           return null; // RBAC denied -- appear as "not found"
         }
         return table;
       }
     }
 
+    if (isRbacDeniedForSysPrivileges(key)) {
+      return null; // RBAC denied -- appear as "not found"
+    }
     final DremioTable table = getTableHelper(key);
-    if (table != null && isRbacDeniedForVds(table, key)) {
+    if (table != null && (isRbacDeniedForVds(table, key) || isRbacDeniedForPds(table, key))) {
       return null; // RBAC denied -- appear as "not found"
     }
     return table;
@@ -329,7 +340,10 @@ public class CatalogImpl implements Catalog {
     if (CatalogUtil.forATSpecifierAccess(catalogEntityKey, this)) {
       try {
         DremioTable table = getTableSnapshot(catalogEntityKey);
-        if (table != null && isRbacDeniedForVds(table, namespaceKey)) {
+        if (table != null
+            && (isRbacDeniedForSysPrivileges(namespaceKey)
+                || isRbacDeniedForVds(table, namespaceKey)
+                || isRbacDeniedForPds(table, namespaceKey))) {
           return null; // RBAC denied -- appear as "not found"
         }
         return table;
@@ -370,13 +384,17 @@ public class CatalogImpl implements Catalog {
     }
 
     // define a value transformer which will update any view tables after retrieval
-    // and filter out RBAC-denied VDS entries
+    // and filter out RBAC-denied VDS, PDS, and sys.privileges entries
     ValueTransformer<NamespaceKey, Optional<DremioTable>, NamespaceKey, Optional<DremioTable>>
         updateTableAfterRetrieval =
             (originalKey, resolvedKey, optTable) -> {
+              if (isRbacDeniedForSysPrivileges(resolvedKey)) {
+                return Optional.empty(); // RBAC denied -- appear as "not found"
+              }
               if (optTable.isPresent()) {
                 DremioTable table = optTable.get();
-                if (isRbacDeniedForVds(table, resolvedKey)) {
+                if (isRbacDeniedForVds(table, resolvedKey)
+                    || isRbacDeniedForPds(table, resolvedKey)) {
                   return Optional.empty(); // RBAC denied -- appear as "not found"
                 }
                 updateTableIfNeeded(resolvedKey, table);
@@ -1197,10 +1215,16 @@ public class CatalogImpl implements Catalog {
     final boolean isTimeTravelDataset =
         versionedDatasetId != null && versionedDatasetId.getVersionContext().isTimeTravelType();
     Span.current().setAttribute("dremio.catalog.getTable.isTimeTravelDataset", isTimeTravelDataset);
+    final DremioTable table;
     if (isTimeTravelDataset) {
-      return getTableForTimeTravel(versionedDatasetId);
+      table = getTableForTimeTravel(versionedDatasetId);
+    } else {
+      table = datasetManager.getTable(datasetId, options);
     }
-    return datasetManager.getTable(datasetId, options);
+    if (table != null && isRbacDeniedForPds(table, table.getPath())) {
+      return null; // RBAC denied -- appear as "not found"
+    }
+    return table;
   }
 
   @Override
@@ -2835,8 +2859,37 @@ public class CatalogImpl implements Catalog {
     String objectPath = key.getSchemaPath();
 
     if (!rbacService.hasPrivilege(userName, rbacPrivilege, rbacObjectType, objectPath)) {
-      logger.warn("RBAC: Access denied for user '{}'", userName);
-      throw UserException.validationError().message("Table '%s' not found", key).buildSilently();
+      logger.warn(
+          "RBAC: Access denied for user '{}' — privilege {} on {}",
+          userName,
+          rbacPrivilege,
+          objectPath);
+      throw UserException.validationError()
+          .message("Permission denied: %s privilege required on '%s'", rbacPrivilege, objectPath)
+          .buildSilently();
+    }
+  }
+
+  @Override
+  public void validateCreateViewPrivilege(NamespaceKey viewKey) {
+    if (dremioConfig == null || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return;
+    }
+    if (SystemUser.isSystemUserName(userName)) {
+      return;
+    }
+    if (rbacService == null) {
+      return;
+    }
+    String containerPath = viewKey.getParent().getSchemaPath();
+    if (!rbacService.hasPrivilege(userName, "CREATE_VIEW", "VDS", containerPath)) {
+      logger.warn(
+          "RBAC: Access denied for user '{}' — privilege CREATE_VIEW on {}",
+          userName,
+          containerPath);
+      throw UserException.validationError()
+          .message("Permission denied: CREATE_VIEW privilege required on '%s'", containerPath)
+          .buildSilently();
     }
   }
 
@@ -2852,6 +2905,7 @@ public class CatalogImpl implements Catalog {
       case CREATE_VIEW:
       case SELECT:
       case ALTER:
+      case DROP:
       default:
         return "VDS";
     }
@@ -2896,6 +2950,57 @@ public class CatalogImpl implements Catalog {
   }
 
   /**
+   * Checks if RBAC denies the current user SELECT access to a PDS (physical dataset / table).
+   * Returns true if access is denied, false if access is allowed.
+   *
+   * <p>Deny-by-default: when PDS enforcement is enabled, users must have an explicit SELECT grant
+   * to access any physical table. Admin users bypass via hasPrivilege() short-circuit.
+   *
+   * <p>Only fires when both {@code services.rbac.enabled} and {@code services.rbac.pds.enabled} are
+   * true. This allows independent rollout of PDS enforcement after VDS enforcement is established.
+   *
+   * @param table the resolved table -- must be non-null
+   * @param key the namespace key of the table
+   * @return true if RBAC denies access to this PDS
+   */
+  private boolean isRbacDeniedForPds(DremioTable table, NamespaceKey key) {
+    // Only enforce on PDS, not views (handled by isRbacDeniedForVds)
+    if (table instanceof ViewTable) {
+      return false;
+    }
+
+    // Main RBAC flag OFF -> allow
+    if (dremioConfig == null || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return false;
+    }
+
+    // PDS-specific flag OFF -> allow (independent rollout)
+    if (!dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)) {
+      return false;
+    }
+
+    // System user -> allow
+    if (SystemUser.isSystemUserName(userName)) {
+      return false;
+    }
+
+    // No RbacService -> allow (defensive)
+    if (rbacService == null) {
+      return false;
+    }
+
+    String objectPath = key.getSchemaPath();
+
+    // Deny-by-default: user must have SELECT grant on this PDS (admin bypass via hasPrivilege)
+    if (!rbacService.hasPrivilege(userName, "SELECT", "PDS", objectPath)) {
+      logger.warn("RBAC: PDS access denied for user '{}'", userName);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Checks if RBAC denies the current user EXECUTE access to a UDF. Returns true if access is
    * denied, false if access is allowed.
    *
@@ -2923,6 +3028,38 @@ public class CatalogImpl implements Catalog {
       return true;
     }
 
+    return false;
+  }
+
+  /**
+   * Checks if RBAC denies the current user access to sys.privileges. Only ADMIN members may read
+   * this table. Non-admin users receive null (table not found).
+   *
+   * @param key the namespace key being accessed
+   * @return true if access is denied (user is non-admin accessing sys.privileges)
+   */
+  private boolean isRbacDeniedForSysPrivileges(NamespaceKey key) {
+    // Only applies to sys.privileges specifically
+    if (!"sys".equalsIgnoreCase(key.getRoot()) || !"privileges".equalsIgnoreCase(key.getLeaf())) {
+      return false;
+    }
+    // Feature flag OFF -> allow (RBAC disabled)
+    if (dremioConfig == null || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return false;
+    }
+    // System user -> allow
+    if (SystemUser.isSystemUserName(userName)) {
+      return false;
+    }
+    // No RbacService -> allow (defensive)
+    if (rbacService == null) {
+      return false;
+    }
+    // Admin -> allow; non-admin -> deny
+    if (!rbacService.isAdminMember(userName)) {
+      logger.warn("RBAC: sys.privileges access denied for non-admin user '{}'", userName);
+      return true;
+    }
     return false;
   }
 

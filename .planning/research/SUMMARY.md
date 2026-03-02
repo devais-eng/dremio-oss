@@ -1,221 +1,272 @@
 # Project Research Summary
 
-**Project:** Dremio OSS Fork — v1.2 CI/CD: Docker build on tag push, push to GHCR
-**Domain:** GitHub Actions CI/CD pipeline for Maven-built Java application
+**Project:** Dremio OSS RBAC v1.1 — Privilege Context Switching, PDS SELECT, Container Visibility, VDS Lifecycle
+**Domain:** Query engine access control — extending an existing deny-by-default RBAC system
 **Researched:** 2026-02-20
-**Confidence:** HIGH
+**Confidence:** HIGH (all findings from direct codebase inspection on branch `rbac`, commit 2cc3b3c3d)
 
 ## Executive Summary
 
-This milestone adds a single GitHub Actions workflow that builds the Dremio OSS distribution from Maven source and pushes a Docker image to GitHub Container Registry (GHCR) whenever a `v*` tag is pushed. The pattern is well-understood and all required actions are official, stable, and verified against live APIs. Exactly two files change: `.github/workflows/docker-ghcr.yml` (new) and `distribution/docker/Dockerfile` (modified). No application source code changes are required.
+v1.0 shipped a functional deny-by-default RBAC system covering SELECT on VDS, EXECUTE on UDF, flat roles, and CREATE_VIEW. v1.1 extends this with four new capability areas: true definer rights for VDS (view expansion runs under the creator's identity), SELECT grants on physical tables (PDS), container visibility filtering (hide spaces/folders/sources the user has no access to), and VDS lifecycle privileges (enforce ALTER and DROP on views). Research was conducted exclusively by direct codebase analysis — every finding has a file path and line number behind it.
 
-The recommended approach is a single-job sequential workflow: checkout, Java 21 setup with built-in Maven cache, Maven package build (`-pl distribution/server -am -DskipTests -Drevision={version}`), Dockerfile adaptation from `wget`-based download to `COPY`-based local artifact, AWS credential configuration, ECR login, and Docker build + push using official actions. The git tag (e.g., `v1.2`) drives both the Maven revision (`-Drevision=1.2`) and the Docker image tag (`1.2`), keeping versions consistent throughout. The Docker image uses `eclipse-temurin:17-jre-jammy` as the runtime base, replacing the existing `eclipse-temurin:11-jdk` with a production-appropriate JRE on a supported Java LTS version.
+The single most important finding: the definer-rights expansion machinery already exists and is correct. `ViewExpander.expandRelNode()` already calls `builder.withUser(viewOwner)` to switch identity during view expansion. The only gap is that `CatalogEntityOwnershipImpl.getCatalogEntityOwner()` returns `Optional.empty()` for `VIRTUAL_DATASET`, so `viewOwner` is always null today, meaning view expansion runs under the query user's identity (invoker semantics). This is a one-line fix in one method. Similarly, PDS enforcement is skipped by a deliberate guard (`if (!(table instanceof ViewTable)) return false`) and VDS lifecycle enforcement is simply missing call sites in `dropView()` and `updateView()`. Across all four features, there is no new storage layer, no new proto messages, and no SQL grammar changes required — all required APIs exist.
 
-The dominant risks are: Maven build time without caching (45-90 minutes cold), the existing Dockerfile's fundamental incompatibility with local CI artifacts (`wget` cannot reach a runner-local file), and ECR authentication misconfiguration. All three are well-documented and straightforward to prevent. The sharpest constraint is the Maven enforcer: it requires Java exactly `[21,22)`, so the workflow must pin `java-version: '21'` — any other value causes an immediate build failure before a single class is compiled.
-
----
+The key risk cluster is definer rights: eight pitfalls (P15, P16, P17, P22, P23, P24, P25, P27) are interdependent and must all be addressed in the same implementation phase. Most critically, the `isInDefinerContext` flag pattern (P25) must prevent the inner VDS privilege check from firing on nested views during definer expansion; the plan cache key must include the definer identity chain (P23); the `UserNotFoundException` fallback that silently re-expands as the query user must be replaced with an explicit error (P24); and EXPLAIN PLAN must be restricted to prevent physical table path leakage through the definer context (P22). Additionally, a critical semantic correction is needed from the original milestone scope: UDFs already use definer semantics, not invoker — `UserDefinedFunctionExpanderImpl.parseAndValidate()` explicitly calls `.withUser(owner)`. The v1.1 UDF work is verification and owner resolution hardening, not implementing a new invoker model.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The pipeline uses six established GitHub Actions in sequence, all verified via GitHub API as of 2026-02-20. Maven is provided by the repository's own `./mvnw` wrapper (3.9.9), so no separate Maven install step is needed. The Docker runtime base is `eclipse-temurin:17-jre-jammy` (Ubuntu 22.04 LTS, confirmed active on Docker Hub 2026-02-17), replacing the existing `eclipse-temurin:11-jdk` with a smaller, more secure JRE.
+No new technologies or external dependencies are needed for v1.1. All required APIs exist in the current codebase. The existing `RbacService.hasPrivilege()`, `CatalogImpl.validatePrivilege()`, and `CatalogImpl.isRbacDeniedForVds()` patterns are the complete enforcement toolkit. The KV store grant key format (`role_id|object_type|object_path|privilege`) already handles arbitrary object types including `"PDS"`. SQL grammar already parses `PDS`, `ALTER`, `DROP`, and `SHOW` tokens. `SqlGrant.GrantType.PDS` and `SqlGrant.Privilege.DROP` and `.ALTER` already exist as enum values.
 
-**Core technologies:**
-- `actions/checkout@v6` (v6.0.2) — source checkout — latest stable
-- `actions/setup-java@v5` (v5.2.0) — Java 21 temurin with built-in Maven cache — eliminates need for a separate `actions/cache` step
-- `aws-actions/configure-aws-credentials@v4` — injects IAM key env vars into runner — official AWS action, scoped credential injection
-- `aws-actions/amazon-ecr-login@v2` (v2.0.1) — authenticates Docker to ECR and outputs the registry URL — avoids hardcoding account IDs in workflow
-- `docker/setup-buildx-action@v3` (v3.12.0) — required by `build-push-action`; enables BuildKit
-- `docker/build-push-action@v6` (v6.19.2) — builds image and pushes to ECR — `push: true`, `tags:`, `build-args:` inputs
-- `eclipse-temurin:17-jre-jammy` — Docker runtime base — LTS JRE (~300MB vs ~600MB JDK), Ubuntu 22.04 pinned for reproducibility
+See `.planning/research/STACK.md` for the full file-by-file change manifest.
 
-**Decision: skip `docker/metadata-action`.** Tag derivation is simple enough to handle with `${GITHUB_REF_NAME#v}` in a one-line shell step. The metadata action adds overhead not justified for a single-trigger pipeline.
+**Files being modified (no new components):**
+- `CatalogEntityOwnershipImpl.java` — return VDS owner instead of `Optional.empty()` for VIRTUAL_DATASET (1 conditional change)
+- `CatalogImpl.java` — add `isRbacDeniedForPds()`, call `validatePrivilege()` in `dropView()` and `updateView()`, add `isInDefinerContext` flag, filter container listing methods
+- `CatalogServiceHelper.java` — audit listing paths for completeness, extend `filterByVisibility()` for PDS opt-in
+- `DACViewCreatorFactory.java` — verify `DatasetConfig.owner` is written at VDS create/update
+- `ViewExpansionContext.java` — add cycle guard (`Set<NamespaceKey>`) for VDS-over-VDS chains
+- `PlanCacheUtils.java` — include definer identity chain in cache key hash
+- `ViewExpander.java` — replace `UserNotFoundException` fallback with explicit permission error
 
-**Decision: skip ECR layer cache for v1.2.** Docker build time is dominated by the 864MB tarball COPY layer, not by Dockerfile instructions. ECR registry cache adds storage cost and IAM permission complexity without meaningful build time improvement. Add in a follow-on milestone after baseline pipeline is proven.
+**What NOT to change:**
+- `ViewExpander.expandRelNode()` — the `withUser(viewOwner)` call is already correct
+- `RbacService.java` — all required interfaces already exist
+- `rbac.proto` / `dataset.proto` — `DatasetConfig.owner` field already exists at proto L34
+- SQL grammar — all tokens already parsed; `SqlGrantOnCatalog` and `SqlRevokeOnCatalog` already accept PDS, ALTER, DROP
 
 ### Expected Features
 
-**Must have (table stakes — P1, required for pipeline to function):**
-- Tag-triggered workflow (`on: push: tags: ['v*']`) — the only valid trigger; prevents ECR pollution from branch builds
-- Java 21 setup via `actions/setup-java@v5` — enforcer mandates `[21,22)`, fails immediately on any other version
-- Maven dependency cache via `setup-java cache: 'maven'` — without this, every run is 45-90 minutes cold; CI is unusable
-- Maven build: `./mvnw package -DskipTests -Pdremio.no-lint -pl distribution/server -am -Drevision={version}` — produces the tarball
-- Dockerfile adapted to `COPY` instead of `wget DOWNLOAD_URL` — existing Dockerfile cannot reach a runner-local artifact
-- Docker runtime base changed to `eclipse-temurin:17-jre-jammy` — replaces existing `eclipse-temurin:11-jdk`
-- `docker/setup-buildx-action@v3` — required by `build-push-action`
-- AWS credentials + ECR login (two-step `aws-actions` chain) — authentication prerequisite for push
-- Tag version extraction stripping `v` prefix — image tag must be `1.2`, not `v1.2`
-- Docker push to ECR with versioned tag + `latest` alias
+See `.planning/research/FEATURES.md` for the full feature analysis and dependency map.
 
-**Should have (differentiators — P2, add after first successful push):**
-- Docker layer cache via `cache-from: type=gha` — cuts Docker build time on repeat runs
-- Workflow step summary output (`GITHUB_STEP_SUMMARY`) — logs pushed image URI for traceability
-- ECR image scanning enabled on the ECR repository (AWS console setting, not a workflow change)
-- Tag format validation step that exits non-zero if tag does not match `vX.Y.Z`
+**Must have (table stakes — v1.1 scope):**
+- VDS definer rights: view expansion uses creator's identity (F1.1) — the security foundation that makes view-based access control meaningful; without this, users granted SELECT on a VDS fail at expansion if they lack underlying PDS access
+- UDF rights verification and owner resolution hardening (F1.2) — UDFs already use definer semantics; v1.1 work is confirming owner resolution from `FunctionConfig` is consistent
+- SELECT on PDS with opt-in enforcement (F1.3) — closes the bypass that lets users circumvent VDS restrictions by querying underlying physical tables directly
+- Container visibility filtering — keep containers always visible, filter leaf objects (F1.4); no recursive tree walk
+- ALTER VIEW privilege enforcement (F1.5) — separate from CREATE_VIEW; already parseable, just missing the call in `updateView()`
+- DROP VIEW privilege enforcement (F1.6) — separate from ALTER; missing the call in `dropView()`
+- CREATE_VIEW enforcement gap close (F1.7) — this call was never wired in `createView()` in v1.0; anyone can create a VDS regardless of grants
 
-**Defer (v2+):**
-- ARM64 multi-platform build — 5-10x slower via QEMU emulation; no stated deployment requirement
-- Automated smoke test (pull image + `docker run` health check) after push
-- SBOM / supply chain attestations
-- Separate test workflow (`ci.yml`) triggered on PRs vs release workflow on tags
+**Critical semantic correction on UDF scope:** The original milestone description requests "UDF invoker rights." Research shows UDFs already expand under the UDF owner's identity (definer semantics) via `UserDefinedFunctionExpanderImpl.parseAndValidate()` which calls `.withUser(dremioUdf.getOwner())`. This is not a gap to fix — it is the correct and intended design. v1.1 should document this explicitly and ensure `CatalogEntityOwnershipImpl` correctly returns the owner for `FUNCTION` type (currently also returns `Optional.empty()`).
+
+**Should have (differentiators — after table stakes):**
+- PDS migration strategy: auto-grant PUBLIC SELECT on existing PDS when enabling PDS enforcement (D2.2) — prevents rollout lockout
+- Batch privilege checks and container visibility index (D2.3) — needed only at large catalog scale
+- Visibility REST API for UI catalog tree rendering (D2.4) — depends on container visibility being complete
+- DESCRIBE/EXPLAIN verification pass with integration tests (D2.1) — code is already correct; tests confirm it
+- GRANT ALL ON VDS syntax expansion (D2.6) — ergonomics; `SqlGrant.Privilege.ALL` enum already exists
+
+**Defer to v2+:**
+- Per-view SQL SECURITY INVOKER toggle (A3.1) — adds per-view attribute complexity; no concrete use case
+- Column-level grants (A3.2) — use views as column projection instead
+- Row-level security (A3.3) — VDS already serves as row filter
+- Container-level cascade grants, e.g., GRANT SELECT ON SPACE (A3.4) — path-prefix inheritance at check time is v2+ scope
+- Nested roles (A3.5) — flat roles remain sufficient
+- Cross-source impersonation integration with definer rights (A3.7) — connector-level concern, separate subsystem
 
 ### Architecture Approach
 
-The pipeline is a single-job, sequential-step workflow. The Maven build hands off to Docker via the runner filesystem: the tarball at `distribution/server/target/dremio-community-{version}.tar.gz` is staged into a `docker-context/` directory and consumed by a `COPY` instruction in the Dockerfile. The Docker build context is that staging directory (not the full repository root), keeping context size small and avoiding the need for a `.dockerignore` file.
+The architecture follows the existing enforcement pattern with surgical additions. The two enforcement entry points are already correct and must not be changed: `CatalogImpl.validatePrivilege()` for DDL operations (throws `UserException` on denial) and `CatalogImpl.isRbacDeniedForVds()` for read access (returns null on denial, no exception — this contract is critical). The definer-rights context switch works by `ViewExpander.expandViewInternal()` calling `builder.withUser(viewOwner)` which calls `catalog.resolveCatalog(viewOwner)` which produces a new `CatalogImpl` instance with `this.userName = viewOwner`. Any RBAC check inside that inner instance reads the definer's identity, not the caller's. Container listing (`getSources()`, `getSpaces()`, `getFolders()`) currently delegates to `userNamespaceService` with no RBAC filter; a post-retrieval filter needs to be added. The settled design for container visibility is to keep containers always visible and filter leaf objects — O(N) subtree scans are not acceptable at scale.
 
-**Major components:**
-1. **Maven build stage** — `./mvnw package -pl distribution/server -am -DskipTests -Pdremio.no-lint -Drevision={version}` — produces `dremio-community-{version}.tar.gz`; Java 21 JDK on runner; `[21,22)` enforcer must pass
-2. **Dockerfile adaptation** — replace `ARG DOWNLOAD_URL` + `RUN wget` with `ARG TARBALL_PATH` + `COPY`; change base image from `eclipse-temurin:11-jdk` to `eclipse-temurin:17-jre-jammy`; use multi-stage build to prevent tarball layer from persisting in final image
-3. **AWS auth chain** — `configure-aws-credentials` (sets env vars) then `amazon-ecr-login` (writes Docker credentials, outputs registry URL); both must be in the same job as the push step
-4. **Docker build + push** — `build-push-action@v6` with `context: docker-context`, `file: distribution/docker/Dockerfile`, `push: true`, versioned tag + `latest`
+See `.planning/research/ARCHITECTURE.md` for complete data flow diagrams for all 4 features and the end-to-end VDS definer expansion trace.
 
-**Version alignment:** Git tag `v1.2` drives everything. Shell strips `v` to produce `1.2`. Maven receives `-Drevision=1.2`, producing `dremio-community-1.2.tar.gz`. Docker image is tagged `:1.2`. No ambiguity between Maven version and Docker tag.
-
-**Build context strategy:** Stage the tarball into a `docker-context/` directory (`mkdir docker-context && cp distribution/server/target/dremio-community-*.tar.gz docker-context/dremio.tar.gz`) and pass `context: docker-context` to `build-push-action`. This avoids sending the full repository (including Maven cache) to the Docker daemon and eliminates `.dockerignore` maintenance. Pass `TARBALL_PATH=dremio.tar.gz` as a build arg.
+**Major components and their v1.1 roles:**
+1. `CatalogEntityOwnershipImpl` — the single gap in the definer rights chain; must return VDS owner for VIRTUAL_DATASET type
+2. `CatalogImpl` — enforcement dispatcher; receives the `isInDefinerContext` flag, adds PDS check, wires lifecycle call sites, adds container listing filter
+3. `ViewExpander` / `ViewExpansionContext` — minimal changes; add cycle guard to `ViewExpansionContext`, replace `UserNotFoundException` fallback in `ViewExpander`
+4. `CatalogServiceHelper` — extend `filterByVisibility()` for PDS opt-in; audit all listing entry points for completeness
+5. `PlanCacheUtils` — include definer identity chain in cache key; no other plan cache changes
+6. `RbacService` / `GrantStore` — unchanged; existing `hasPrivilege()` and `listGrantsByObject()` APIs handle all new object types
 
 ### Critical Pitfalls
 
-1. **Maven enforcer rejects Java 22+ immediately** — pin `java-version: '21'` in `setup-java`; never use `'latest'`, `'22'`, or any unversioned string. The enforcer runs at the `validate` phase before any code compiles. Recovery is a one-line YAML fix but wastes a 5-minute runner startup on every failed attempt. Phase 1.
+27 pitfalls are catalogued across v1.0 (P1–P14) and v1.1 (P15–P27). The 8 highest-severity v1.1 pitfalls that must ship together with definer rights as a single atomic implementation phase:
 
-2. **Dockerfile `wget DOWNLOAD_URL` is incompatible with CI local builds** — the existing Dockerfile is designed to download from `download.dremio.com`; there is no remote URL for a runner-local artifact. Replace `ARG DOWNLOAD_URL` + `RUN wget` with `ARG TARBALL_PATH` + `COPY`. This is the most important Dockerfile change and must precede any Docker step in the workflow. Phase 2.
+1. **P25 — Inner VDS check fires under definer (breaks VDS-over-VDS):** During definer expansion, the inner `CatalogImpl` resolves nested views. `isRbacDeniedForVds()` fires on those nested views against the definer's identity — but the definer never needed SELECT on the inner view. VDS-over-VDS queries fail entirely. Prevention: add `boolean isInDefinerContext` field to `CatalogImpl`; in `isRbacDeniedForVds()` return false when this flag is true (only `isRbacDeniedForPds()` checks run during definer expansion). Flag must propagate through nested `resolveCatalog()` calls.
 
-3. **Maven cold builds are 45-90 minutes without cache** — configure `actions/setup-java@v5` with `cache: 'maven'`; it keys automatically on `**/pom.xml`. Also pass `-Drevision` explicitly so Maven-installed `com.dremio:*` artifacts in `~/.m2` don't accumulate different version strings and inflate the cache. Phase 1.
+2. **P23 — Plan cache excludes definer identity chain:** `PlanCacheUtils.generateCacheKey()` does not include view owner identities. Two users querying the same VDS may hit the same cached plan even if the definer's grants changed. Prevention: hash `getViewOwner()` usernames of all `ViewTable` nodes in the plan tree into the cache key; additionally call `LegacyPlanCache.invalidateCacheOnDataset()` when a view's owner changes.
 
-4. **ECR auth chain must stay in one job** — `configure-aws-credentials` + `ecr-login` + `build-push-action` must all be in the same job; the ECR token written to `~/.docker/config.json` does not cross job boundaries. Use `@v2` of `amazon-ecr-login` and reference `${{ steps.login-ecr.outputs.registry }}` (never a hardcoded ECR URI). Phase 3.
+3. **P24 — Deleted definer silently falls back to query user:** `ViewExpander.java` has an explicit `UserNotFoundException` catch block that falls back to `viewExpansionContext.getQueryUser()`. With deny-by-default RBAC, deleting a view owner silently grants the query user definer-level table access. Prevention: replace the fallback with `UserException.permissionError("View owner no longer exists; contact an administrator")`.
 
-5. **Docker image bloat from two-layer COPY + tar pattern** — naive `COPY tarball` then `RUN tar` produces two large layers; the tarball layer (~864MB) persists in image history after extraction, inflating the final image to 2.5-3GB. Use multi-stage build (extractor stage + runtime stage with `COPY --from=extractor`) to produce a final image under 1.5GB. Design multi-stage from the start — retrofitting is painful. Phase 2.
+4. **P22 — EXPLAIN PLAN reveals physical table paths via definer context:** `EXPLAIN PLAN FOR SELECT * FROM my_view` returns the full physical plan including scan paths (e.g., `raw.customer_pii`) that the invoker may have no SELECT on. The definer's granted access to those tables is reflected in the plan but should not be disclosed to the invoker. Prevention: restrict `EXPLAIN PLAN PHYSICAL` to ADMIN users or users with direct SELECT on all referenced tables when RBAC is enabled; allow `EXPLAIN PLAN LOGICAL` for view-level access holders.
 
-6. **Missing GitHub Secrets cause silent empty-string failures** — `${{ secrets.MISSING }}` evaluates to `""` without error. Create all secrets (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `ECR_REPOSITORY`) before pushing the workflow. Test IAM permissions locally with `aws ecr describe-repositories` before adding keys to GitHub. Phase 3.
+5. **P15 — Stale definer identity (frozen grant snapshot):** Store only the owner username string in `DatasetConfig.owner` — never store resolved grants. At expansion time, privilege checks run through the live `rbacService.hasPrivilege()` call against the current KV store. A revocation of the definer's underlying access must immediately break view queries.
 
----
+6. **P16 — Wrong CatalogImpl instance in inner definer check:** During expansion, the outer CatalogImpl (caller's identity) and inner CatalogImpl (definer's identity) are both live on the call stack simultaneously. Passing the wrong reference via lambda or callback causes inner checks to fire under the caller's identity, making definer rights ineffective. Prevention: trace the exact call graph; add a `@VisibleForTesting` userName accessor to assert in tests.
+
+7. **P17 — Missing cycle guard in VDS-over-VDS definer chain:** `ViewExpansionContext` counts per-owner tokens but does not detect revisiting the same view path. A cyclic view definition causes `StackOverflowError`. Prevention: add `Set<NamespaceKey>` to `ViewExpansionContext` tracking in-progress expansions; throw `UserException.validationError("View chain exceeds maximum depth")` on re-entry. Also add a hard depth counter (default max 50).
+
+8. **P27 — ViewExpansionContext not thread-safe under parallel planning:** `ObjectIntHashMap` in `ViewExpansionContext` is mutable and not synchronized. If Calcite's VolcanoPlanner triggers parallel `ViewTable.toRel()` calls within a single query, concurrent token mutations produce `ConcurrentModificationException` or incorrect token counts. Prevention: audit whether parallel planning rule application reaches `ViewTable.toRel()`; if yes, switch to `ConcurrentHashMap<CatalogIdentity, AtomicInteger>`.
+
+Additional active pitfalls from v1.0 that bear on v1.1:
+- **P3 — Check once at the outer layer only:** SELECT check must use the caller's identity at `getTable()` entry; definer rights handle inner expansion. The outer check and inner expansion are separate layers — do not double-check.
+- **P19 — Container visibility O(n) tree walk:** Use a single prefix-scan of the grant store (O(grants)), not a per-container recursive tree walk. Collect all matching path prefixes in one pass, intersect with the container list.
+- **P21 — PDS grant key collision with VDS objectType:** Use `"PDS"` as a distinct `objectType` string for physical table grants, never `"VDS"`. The grant key `role_id|PDS|source.schema.table|SELECT` must be distinct from `role_id|VDS|space.view|SELECT` even if the paths match.
 
 ## Implications for Roadmap
 
-The natural implementation sequence follows dependency order: validate Maven build in CI first, then validate the Dockerfile change locally, then wire up ECR authentication and the full push. This matches the Architecture research's explicit recommended build order.
+Based on combined research, the dependency order is clear and follows a strict partial order: the definer-rights safety cluster must ship as a single unit (P22, P23, P24, P25 cannot be partially deployed); VDS lifecycle is independent and low-risk (pure call-site additions); PDS enforcement depends on definer rights being tested first (the definer's PDS access must be correctly resolved); and container visibility is fully independent.
 
-### Phase 1: Maven Build in CI
+### Phase 1: VDS Lifecycle and CREATE_VIEW Gap Close
 
-**Rationale:** The Maven build is the longest step (45-90 minutes cold) and most likely to fail for project-specific reasons unrelated to Docker or AWS. Validating it first in isolation means Phases 2 and 3 start from a known-good foundation. The Java 21 enforcer and Maven revision handling must be correct before anything else is added.
+**Rationale:** Three v1.0 gaps are the cheapest fixes with the highest coherence value. `CREATE_VIEW` enforcement was never wired in `createView()`. `dropView()` and `updateView()` have no `validatePrivilege()` call despite the infrastructure existing. These are 1–3 line additions each and make the existing privilege model internally consistent before adding new features. No new design decisions are required.
 
-**Delivers:** A working GitHub Actions workflow that triggers on `v*` tags, installs Java 21 with Maven cache, and produces `distribution/server/target/dremio-community-{version}.tar.gz`. The workflow exits after Maven (no Docker or ECR steps). A post-Maven step lists the target directory to confirm the tarball exists at the expected path.
+**Delivers:** Complete VDS privilege lifecycle (CREATE, ALTER, DROP all enforced); closes the v1.0 CREATE_VIEW enforcement gap; makes the privilege model semantically coherent.
 
-**Addresses (P1 features):** Tag-triggered workflow, Java 21 setup, Maven dependency cache, Maven build producing tarball.
+**Addresses:** F1.5 (ALTER VIEW), F1.6 (DROP VIEW), F1.7 (CREATE_VIEW enforcement gap)
 
-**Avoids:**
-- Pitfall 1 (Java enforcer) — pin `java-version: '21'`
-- Pitfall 2 (Maven cold build) — `cache: 'maven'` in `setup-java`
-- Pitfall 10 (Maven `revision` cache pollution) — pass explicit `-Drevision=${{ steps.tag.outputs.VERSION }}`
+**Avoids:** P26 (ALTER/DROP grant stubs that activate silently — scan KV store for pre-existing ALTER/DROP grants before enabling enforcement in case test fixtures wrote them)
 
-**Key implementation decisions:**
-- Use `./mvnw` not `mvn` to pick up the project's pinned Maven 3.9.9
-- Derive version: `echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT`
-- Pass `-Drevision=${{ steps.tag.outputs.VERSION }}` to Maven
-- Verify that `-pl distribution/server -am` includes the RBAC and Iceberg REST Catalog modules added in v1.0 and v1.1 (run `./mvnw dependency:tree -pl distribution/server` before committing)
+**Files:** `CatalogImpl.java` (add `validatePrivilege()` in `dropView()` and `updateView()`), `CatalogImpl.resolveRbacObjectType()` (add explicit ALTER/DROP cases), verify `CreateOrUpdateViewHandler` enforcement is wired correctly
 
-### Phase 2: Dockerfile Adaptation
+**Research flag:** Standard patterns — skip research-phase. Pure call-site wiring of existing validated mechanism.
 
-**Rationale:** The Dockerfile change is a prerequisite for any Docker build step in the workflow. It is faster to validate locally (`docker build` on a developer machine) than to iterate in CI, where each attempt requires a full 30-45 minute Maven build before the Docker step is reached. Keeping this as a separate phase from Phase 3 means ECR credentials are not needed to test image correctness.
+### Phase 2: VDS Definer Rights Safety Cluster
 
-**Delivers:** A modified `distribution/docker/Dockerfile` using multi-stage build: `COPY` + extract in a build stage, final image from a clean `eclipse-temurin:17-jre-jammy` base. A locally buildable Docker image that starts Dremio correctly (`docker run -p 9047:9047 {image}` shows `Server is up` in logs). Image size under 1.5GB.
+**Rationale:** Definer rights is the highest-value feature and the highest-risk. Eight pitfalls (P15, P16, P17, P22, P23, P24, P25, P27) are interdependent and must all be addressed in this phase — none can safely be deferred. The `isInDefinerContext` flag design (P25) must be agreed before a single line is written because it defines the boundary between outer caller checks and inner definer checks for the entire codebase. Phase 1 must be complete first so the lifecycle enforcement is known-correct when integration tests run.
 
-**Addresses (P1 features):** Dockerfile COPY adaptation, Docker runtime base update (Java 11 JDK -> Java 17 JRE), image size optimization.
+**Delivers:** View expansion under creator's identity; VDS-over-VDS with different owners working correctly; plan cache correctly scoped to definer identity chains; safe deleted-owner handling; EXPLAIN PLAN leakage prevention; cycle detection in VDS chains.
 
-**Avoids:**
-- Pitfall 3 (wget incompatibility) — `COPY` replaces `wget`
-- Pitfall 4 (Java version mismatch) — base image `eclipse-temurin:17-jre-jammy`; runtime JRE not JDK
-- Pitfall 7 (Docker image size bloat) — multi-stage build eliminates tarball layer from final image
+**Addresses:** F1.1 (VDS definer rights)
 
-**Key implementation decisions:**
-- Multi-stage Dockerfile: Stage 1 extracts tarball; Stage 2 is the final runtime image with `COPY --from=stage1`
-- Use `ARG JAVA_IMAGE="eclipse-temurin:17-jre-jammy"` for future flexibility
-- Docker build command for local testing: `mkdir docker-context && cp distribution/server/target/dremio-community-*.tar.gz docker-context/dremio.tar.gz && docker build --build-arg TARBALL_PATH=dremio.tar.gz -f distribution/docker/Dockerfile docker-context`
+**Must ship together:** P15 (live grants, not snapshots), P16 (correct CatalogImpl instance), P17 (cycle guard), P22 (EXPLAIN PLAN restriction), P23 (plan cache key), P24 (deleted definer error), P25 (isInDefinerContext flag), P27 (thread-safety audit)
 
-### Phase 3: ECR Authentication and Push
+**Files:** `CatalogEntityOwnershipImpl.java` (return VDS owner — primary 1-line fix), `CatalogImpl.java` (add `isInDefinerContext` field and propagation), `ViewExpansionContext.java` (add `Set<NamespaceKey>` cycle guard and depth counter), `ViewExpander.java` (replace `UserNotFoundException` fallback), `PlanCacheUtils.java` (definer identity in cache key hash), `DACViewCreatorFactory.java` (verify `DatasetConfig.owner` is written on VDS create/update)
 
-**Rationale:** Requires AWS infrastructure (IAM user, ECR repository) and GitHub Secrets to exist. Depends on Phases 1 and 2 being proven working. This phase is the lowest-risk once prior phases are validated — the `aws-actions` auth chain is a well-documented, official pattern.
+**Research flag:** Needs research-phase during planning. The `isInDefinerContext` propagation semantics through nested `resolveCatalog()` calls need explicit design before coding. The threading model of Calcite's VolcanoPlanner at `ViewTable.toRel()` needs verification (affects P27 fix approach). The plan cache invalidation strategy on owner change needs a concrete design.
 
-**Delivers:** The complete end-to-end workflow. Tag push triggers Maven build, Docker image build, and ECR push. Image appears in ECR with tags `{version}` and `latest`. A full log audit confirms no secrets appear in workflow output.
+### Phase 3: UDF Rights Verification and Owner Resolution
 
-**Addresses (P1 features):** AWS credentials configuration, ECR login, image tag extraction, Docker push to ECR, versioned + latest tags.
+**Rationale:** Research revealed that UDFs already use definer semantics — the `withUser(owner)` call is already in `parseAndValidate()`. The v1.1 UDF work is verifying that `CatalogEntityOwnershipImpl` correctly returns the owner for `FUNCTION` type (currently also returns `Optional.empty()`, same bug as VDS) and writing tests documenting the definer model. This shares the `CatalogEntityOwnershipImpl` fix location with Phase 2 and should come after Phase 2 is stable.
 
-**Avoids:**
-- Pitfall 5 (ECR auth token version mismatch) — use `amazon-ecr-login@v2`; reference registry as `${{ steps.login-ecr.outputs.registry }}`
-- Pitfall 6 (missing/misconfigured IAM secrets) — create all secrets and test IAM locally before first workflow run
-- Pitfall 8 (tag parsing edge cases) — add validation step: regex check `^v[0-9]+\.[0-9]+\.[0-9]+$` before version is used downstream
-- Pitfall 9 (secrets leaked in logs) — never pass `AWS_*` keys as Docker `--build-arg`; add `::add-mask::` for ECR registry URI
+**Delivers:** Confirmed and tested UDF definer semantics; `FunctionConfig.owner` correctly resolved for all UDF creation paths; integration tests documenting expected behavior (caller needs EXECUTE; body runs as UDF owner).
 
-**Key implementation decisions:**
-- IAM policy: use `AmazonEC2ContainerRegistryPowerUser` managed policy for the CI user; scope `ecr:*` image actions to the specific repository ARN; `ecr:GetAuthorizationToken` must be `Resource: "*"`
-- Create the ECR repository in AWS before the first pipeline run (it does not auto-create on push)
-- Tag the image with both `{version}` and `latest`; decide before Phase 3 whether pre-release tags (e.g., `v1.2-rc1`) should move `latest`
-- Add `echo "Pushed: $IMAGE_URI" >> $GITHUB_STEP_SUMMARY` for traceability
+**Addresses:** F1.2 (UDF rights — semantic confirmation + owner resolution hardening)
+
+**Avoids:** P18 (unresolved UDF rights design — the answer is definer semantics by design; document and test, do not change the expansion path)
+
+**Files:** `CatalogEntityOwnershipImpl.java` (add FUNCTION case alongside the VIRTUAL_DATASET fix), `UserDefinedFunctionExpanderImpl.java` (verify owner resolution and add logging), integration tests for EXECUTE enforcement + body expansion identity
+
+**Research flag:** Standard patterns — skip research-phase. The code path is clear and well-understood from the Phase 2 investigation. Work is verification, owner resolution fix, and testing.
+
+### Phase 4: PDS SELECT Enforcement (Opt-in)
+
+**Rationale:** PDS enforcement must come after definer rights are confirmed working. If definer rights are not active, users granted SELECT on a VDS that wraps a PDS will fail at expansion because the definer's PDS grant is not checked. The opt-in design (restrict a PDS only if at least one PDS grant exists for that exact path) avoids the breaking-change risk of deny-by-default across all existing physical datasets.
+
+**Delivers:** Admins can grant SELECT on physical tables to specific roles; PDS that have explicit grants configured are inaccessible to users without those grants; PDS without any grants remain universally accessible (backward compatible).
+
+**Addresses:** F1.3 (PDS SELECT), D2.2 (PDS migration strategy)
+
+**Avoids:** P21 (grant key collision — use `"PDS"` not `"VDS"` as objectType), P7 (migration lock-out — opt-in design prevents it by default)
+
+**Key design decision that needs sign-off:** Use a separate `services.rbac.pds.enabled` config flag (not the existing `services.rbac.enabled` flag) to allow independent rollout. Without this, enabling VDS RBAC would simultaneously activate PDS enforcement, locking out all users from physical tables on day 1.
+
+**Files:** `CatalogImpl.java` (add `isRbacDeniedForPds()`, wire into `getTable()`, `getTableNoResolve()`, `getTableNoColumnCount()`, `bulkGetTables()`), `CatalogImpl.resolveRbacObjectType()` (distinguish VDS vs PDS by checking actual table type), `CatalogServiceHelper.java` (extend `isVisibleToUser()` for opt-in PDS visibility filtering)
+
+**Research flag:** Needs research-phase for the feature flag design and `bulkGetTables()` performance. The enforcement code pattern is standard (mirrors `isRbacDeniedForVds()`); the policy decisions (flag name, rollout migration, opt-in logic correctness with bulk operations) need explicit design review.
+
+### Phase 5: Container Visibility Filtering
+
+**Rationale:** Fully independent of all other phases. Can be developed in parallel with Phases 2–4 if resourcing allows. The design is settled: keep containers always visible, filter leaf objects. No recursive tree walk. No GRANT SHOW ON SPACE in this milestone.
+
+**Delivers:** `filterByVisibility()` in `CatalogServiceHelper` correctly applied at all catalog listing entry points; `isVisibleToUser()` for container types uses prefix-scan of grant store rather than always returning true; pagination shortfall documented as known limitation.
+
+**Addresses:** F1.4 (container visibility)
+
+**Avoids:** P19 (O(n) tree walk — single prefix-scan of grant store, collect matching prefixes, intersect with container list), P20 (pagination shortfall — document as known behavior; long-term fix is filter-then-paginate which is out of scope for v1.1)
+
+**Explicit non-scope:** Do NOT add "GRANT SHOW ON SPACE" or container-level cascade grants. Container visibility in this phase is a display filter, not an access grant. Document this distinction explicitly in code comments and operator documentation to prevent operator confusion (A3.4).
+
+**Files:** `CatalogServiceHelper.java` (extend `filterByVisibility()`, modify `isVisibleToUser()` for FOLDER/SPACE/SOURCE, audit `getChildrenForPath()`, `getCatalogEntityByPath()`, `getTopLevelEntities()`), `CatalogImpl.java` (filter `getSources()`, `getSpaces()`, `getFolders()` return values)
+
+**Research flag:** Standard patterns — skip research-phase. The design decision is settled (containers always visible, leaf filtering). Implementation follows the existing `filterByVisibility()` pattern.
+
+### Phase 6: Integration Testing and DESCRIBE/EXPLAIN Verification
+
+**Rationale:** Several v1.1 features are already correctly implemented and need only test coverage to confirm they work. DESCRIBE inherits SELECT via `catalog.getTable()` (no code change). EXPLAIN inherits through the full planning pipeline (no code change). This phase writes the complete integration test suite that proves all v1.1 features work correctly together, including the critical P3 correctness scenario.
+
+**Delivers:** End-to-end integration tests: definer chain with multiple view owners; PDS enforcement under definer context; VDS-over-VDS with different owners; container visibility with pagination behavior documented; VDS lifecycle privilege enforcement; DESCRIBE/EXPLAIN enforcement inheritance; regression tests for all 8 P15–P25 pitfall scenarios.
+
+**Addresses:** D2.1 (DESCRIBE/EXPLAIN verification)
+
+**Critical test:** User B has SELECT on view V; definer A has SELECT on underlying PDS T; user B has no SELECT on T directly. Assert: query of V succeeds for B. Assert: direct `SELECT * FROM T` fails for B. Assert: revoking A's SELECT on T causes V queries to fail for B.
+
+**Research flag:** Standard patterns — skip research-phase.
 
 ### Phase Ordering Rationale
 
-- Phase 1 before Phase 2: Maven must succeed before Docker can proceed; Maven failure modes (enforcer, module graph, caching) are independent of Dockerfile changes and faster to debug without Docker complexity in the loop.
-- Phase 2 before Phase 3: Dockerfile changes are faster to iterate locally than in CI; a broken Docker build in CI requires a full 30-45 minute Maven build before the failure is discovered.
-- All three phases are sequentially dependent: each phase's output is a hard prerequisite for the next.
+- Phase 1 first because it is low-risk, makes the existing model coherent, and produces a clean baseline before the high-risk Phase 2 work begins. One phase, testable independently.
+- Phase 2 (definer rights) before Phase 3 (UDF) because both share the `CatalogEntityOwnershipImpl` fix location, and the `isInDefinerContext` design from Phase 2 informs whether UDF expansion needs similar treatment.
+- Phase 2 before Phase 4 (PDS) because the definer's PDS access must be correctly resolved — the inner `CatalogImpl` running as the definer must check PDS grants against the definer's identity, which requires Phase 2's `isInDefinerContext` flag and owner resolution to be working first.
+- Phase 5 (container visibility) is fully independent and can run in parallel with Phases 2–4.
+- Phase 6 last, as integration tests require all features to be present.
 
 ### Research Flags
 
-Phases with standard, well-documented patterns (no deeper research needed):
-- **Phase 1 (Maven build):** All patterns verified. Java 21 enforcer constraint, Maven wrapper usage, `setup-java` cache configuration — no unknowns.
-- **Phase 2 (Dockerfile):** Multi-stage Dockerfile pattern is standard Docker. The wget-to-COPY substitution is mechanical. No unknowns once the build context strategy is decided.
-- **Phase 3 (ECR push):** The `aws-actions` auth chain is official and stable. No unknowns beyond AWS account setup (out-of-code scope).
+Phases needing deeper research during planning:
+- **Phase 2 (Definer Rights):** The `isInDefinerContext` propagation through nested `resolveCatalog()` chains is the key design question. Need to determine: does the flag survive re-entry into `resolveCatalog()` called from within definer expansion (for VDS-over-VDS)? Is Calcite's VolcanoPlanner single-threaded at `ViewTable.toRel()` invocation? What is the correct plan cache invalidation strategy when view ownership changes (hash all ViewOwner usernames vs. disable cache for views vs. call `invalidateCacheOnDataset()` on ownership change)? These answers drive the implementation architecture.
+- **Phase 4 (PDS Enforcement):** Two decisions need sign-off before coding: (1) which config flag controls PDS enforcement activation (`services.rbac.pds.enabled` separate flag is recommended); (2) does the opt-in logic in `bulkGetTables()` require an additional `listGrantsByObject()` call per table in a batch, and what is the performance profile at reflection planning scale?
 
-**One open decision to resolve before implementation begins:**
-- `configure-aws-credentials` version pin: STACK.md notes `v6.0.0` is the latest release tag but recommends `@v4`. Verify against the action's README before Phase 3 to confirm whether `@v4` or `@v6` is the correct pin for the `aws-access-key-id` + `aws-secret-access-key` input format.
-
----
+Phases with standard patterns (skip research-phase):
+- **Phase 1 (VDS Lifecycle):** Pure call-site wiring of existing validated mechanism. All APIs verified. No design decisions.
+- **Phase 3 (UDF Verification):** Code path is clear from Phase 2 investigation. Work is owner resolution fix and testing.
+- **Phase 5 (Container Visibility):** Design decision settled. Follows existing `filterByVisibility()` pattern.
+- **Phase 6 (Integration Tests):** Test writing. No design decisions.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All action versions verified via GitHub API; Docker Hub tag confirmed; project `pom.xml`, `.mvn/wrapper/`, and `distribution/docker/Dockerfile` inspected directly |
-| Features | HIGH | P1/P2/P3 feature set is unambiguous for this scope; all features are standard GitHub Actions / ECR patterns with no novel integration points |
-| Architecture | HIGH | Two-file change scope confirmed; all component boundaries and data flows based on direct codebase inspection and verified artifact paths |
-| Pitfalls | HIGH | Most pitfalls derived from direct codebase measurement (tarball 864MB, Maven repo 3.3GB, enforcer range `[21,22)`, existing Dockerfile `wget` pattern) |
+| Stack | HIGH | All findings from direct codebase inspection. No external dependencies. No new APIs needed. All file paths and line numbers verified. |
+| Features | HIGH | Feature gaps confirmed by code inspection (explicit `return false` guards, missing `validatePrivilege()` calls). Semantic correction on UDF rights (definer not invoker) confirmed from source. SQL standard behavioral references at MEDIUM. |
+| Architecture | HIGH | All integration points verified by reading source files. End-to-end data flows traced for all 4 features. Component boundaries confirmed. |
+| Pitfalls | HIGH for structural pitfalls (P1–P25 derived from code analysis) | P27 threading model of Calcite VolcanoPlanner is MEDIUM — inferred from architecture, not profiled or confirmed by test. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **`-pl distribution/server -am` module graph verification:** Confirm the RBAC and Iceberg REST Catalog modules added in v1.0 and v1.1 are in the transitive dependency graph of `distribution/server` before committing to the partial build flag. Run `./mvnw dependency:tree -pl distribution/server` locally. If they are missing, the tarball will silently lack custom features. A 5-minute verification that prevents a correctness bug.
+- **`DatasetConfig.owner` written on VDS create/update:** The field exists (proto L34) and `WriterUpdater.setOwner()` writes it for PDS. The trace through `DACViewCreatorFactory` → `datasetVersionMutator.save()` was not fully verified for the VDS path. Must be confirmed in Phase 2 before assuming the `CatalogEntityOwnershipImpl` fix produces non-null results.
 
-- **`configure-aws-credentials` major version pin:** STACK.md notes MEDIUM confidence on whether to pin `@v4` or `@v6`. Check the action README before Phase 3 implementation. If the `aws-access-key-id` / `aws-secret-access-key` input format is unchanged in v6, `@v6` is preferred. If there are breaking changes, use `@v4`.
+- **`FunctionConfig.owner` completeness across UDF creation paths:** `UserDefinedFunctionServiceImpl` L148 reads the owner field. The trace confirming this field is consistently written across all UDF creation paths was not completed. Verify in Phase 3.
 
-- **`latest` tag behavior on pre-release tags:** The workflow trigger `tags: ['v*']` matches `v1.2-rc1`. Decide before Phase 3 whether all `v*` tags move `latest`, or whether a semver condition should gate `latest` to production releases only (e.g., only tags matching `vX.Y.Z` without pre-release suffix). This is a policy decision, not a technical one.
+- **Calcite VolcanoPlanner threading at ViewTable.toRel():** P27 requires knowing whether view expansion can be triggered from parallel planning threads. This is a runtime behavior question that cannot be answered from static analysis. Audit this before committing to the `ViewExpansionContext` thread-safety approach in Phase 2.
 
----
+- **PDS enforcement flag design:** The choice between `services.rbac.pds.enabled` (recommended separate flag) versus activating PDS enforcement via the existing `services.rbac.enabled` flag affects rollout safety for all existing deployments. Must be signed off before Phase 4 starts.
+
+- **`bulkGetTables()` performance with opt-in PDS check:** The opt-in logic requires a `listGrantsByObject("PDS", path)` call per table. In `bulkGetTables()` this runs for every table in a batch (used by reflection planning). The performance profile needs measurement before shipping opt-in PDS enforcement.
+
+- **AT-specifier + definer rights for versioned sources (Nessie):** For Nessie-backed VDS, does the view snapshot include the definer at the snapshot time-travel point? Does `VersionedDatasetAdapter` populate the owner field consistently? Not resolved by current research; defer or flag as a known gap in Phase 2.
 
 ## Sources
 
-### Primary (HIGH confidence — live API verification + direct codebase inspection)
-- GitHub API: `actions/checkout@v6` (v6.0.2), `actions/setup-java@v5` (v5.2.0), `aws-actions/amazon-ecr-login@v2` (v2.0.1), `aws-actions/configure-aws-credentials` (v6.0.0 latest release), `docker/setup-buildx-action@v3` (v3.12.0), `docker/build-push-action@v6` (v6.19.2) — all verified Feb 2026
-- Docker Hub API: `eclipse-temurin:17-jre-jammy` — confirmed active, updated 2026-02-17
-- Repository `pom.xml` — Java 21 enforcer `[21,22)`, `maven.compiler.release=11`, 158 Maven modules
-- Repository `.mvn/wrapper/maven-wrapper.properties` — Maven 3.9.9
-- Repository `.mvn/maven.config` — `revision` property baseline value
-- Repository `distribution/server/target/dremio-community-26.0.5-*.tar.gz` — 864MB measured; naming pattern confirmed
-- Repository `distribution/docker/Dockerfile` — `ARG DOWNLOAD_URL` + `wget` pattern confirmed; `eclipse-temurin:11-jdk` base confirmed
-- Local `~/.m2/repository` — 3.3GB measured; Maven cache size baseline
-- GitHub runner-images README — `ubuntu-latest` = `ubuntu-24.04` as of Feb 2026; ~73GB disk available
+### Primary (HIGH confidence)
+- Dremio OSS codebase, branch `rbac`, commit `2cc3b3c3d` — all findings verified by direct file inspection
+- `CatalogEntityOwnershipImpl.java` L50–58 — explicit `Optional.empty()` for VIRTUAL_DATASET and FUNCTION
+- `ViewExpander.java` L152–154 — `builder.withUser(viewOwner)` identity switch
+- `UserDefinedFunctionExpanderImpl.java` L136 — `.withUser(dremioUdf.getOwner())` for UDF expansion
+- `CatalogImpl.java` L2871 — `if (!(table instanceof ViewTable)) return false` PDS bypass
+- `CatalogImpl.java` L2816 — `validatePrivilege()` enforcement hook
+- `DatasetManager.java` L922 — `getEntityOwner(CatalogEntityKey)` VDS owner resolution path
+- `CatalogServiceHelper.java` L3115, L3142 — `filterByVisibility()` and container always-visible return
+- `CatalogImpl.java` L3514, L3539, L3668 — `getSources()`, `getFolders()`, `getSpaces()` unfiltered delegation
+- `SqlGrant.java` L57, L51, L87 — DROP, ALTER, PDS enum values confirmed
+- `dataset.proto` L34 — `optional string owner = 3` field confirmed
+- `DropViewHandler.java` L55 — `validatePrivilege(path, ALTER)` already called
+- `CreateOrUpdateViewHandler.java` L105 — `validatePrivilege(path, CREATE_VIEW)` already called
+- `ViewExpansionContext.java` — `ObjectIntHashMap userTokens` mutable state, no cycle detection
+- `PlanCacheUtils.generateCacheKey()` — absence of user identity or definer chain confirmed
 
-### Secondary (HIGH confidence — official documentation, stable patterns)
-- `actions/setup-java` README — `cache: 'maven'`, `distribution: 'temurin'` inputs confirmed
-- `aws-actions/configure-aws-credentials` README — `aws-access-key-id` / `aws-secret-access-key` inputs confirmed
-- `aws-actions/amazon-ecr-login` README — `registry` step output confirmed
-- `docker/build-push-action` README — `setup-buildx-action` dependency confirmed
-- AWS ECR documentation — 12-hour authorization token lifetime; `ecr:GetAuthorizationToken` requires `Resource: "*"` (control-plane operation)
-- GitHub Actions documentation — `on.push.tags` syntax, `GITHUB_REF_NAME` env var, `GITHUB_OUTPUT` mechanism, secrets interpolation (`${{ secrets.MISSING }}` = `""` silently)
-- Docker documentation — multi-stage build layer isolation; `COPY` + separate `RUN tar` creates two immutable layers
+### Secondary (MEDIUM confidence)
+- SQL:1999 Section 11.53 — definer/invoker semantics for routines (training data, not verified against spec)
+- SQL:2003 `SQL SECURITY DEFINER` default for views (training data cross-referenced across PostgreSQL, Oracle, MySQL, Snowflake)
+- Container visibility conventions (PostgreSQL, Snowflake, Databricks Unity Catalog "at least one accessible descendant" rule) — training data, multiple sources agree
 
-### Gaps (MEDIUM confidence — needs verification before Phase 3)
-- `aws-actions/configure-aws-credentials` major version pin (`@v4` vs `@v6`) — verify against action README before Phase 3 implementation
+### Tertiary (LOW confidence)
+- Calcite VolcanoPlanner threading behavior at `ViewTable.toRel()` invocation — inferred from architecture; not profiled or confirmed by test
 
 ---
-
 *Research completed: 2026-02-20*
 *Ready for roadmap: yes*
