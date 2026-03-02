@@ -24,6 +24,7 @@ import com.dremio.exec.store.sys.accesscontrol.SysTablePrivilegeInfo;
 import com.dremio.exec.store.sys.accesscontrol.SysTableRoleInfo;
 import com.dremio.test.DremioTest;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import org.junit.After;
@@ -368,5 +369,89 @@ public class RbacServiceTest {
 
     // Alice should no longer have the privilege
     assertThat(rbacService.hasPrivilege("alice", "SELECT", "VDS", "schemas.my_view")).isFalse();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Container visibility: getAccessibleObjectPaths
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void testGetAccessibleObjectPaths_returnsGrantedPaths()
+      throws RbacEntityNotFoundException {
+    rbacService.createRole("analyst", "Analyst", "admin");
+    rbacService.addMembership("alice", "analyst", "admin");
+    rbacService.grantPrivilege("analyst", "VDS", "myspace.view1", "SELECT", "admin");
+    rbacService.grantPrivilege("analyst", "FUNCTION", "myspace.func1", "EXECUTE", "admin");
+
+    Set<String> paths = rbacService.getAccessibleObjectPaths("alice");
+
+    assertThat(paths).containsExactlyInAnyOrder("myspace.view1", "myspace.func1");
+  }
+
+  @Test
+  public void testGetAccessibleObjectPaths_includesPublicGrants()
+      throws RbacEntityNotFoundException {
+    rbacService.grantPrivilege(
+        RbacService.PUBLIC_ROLE_ID, "VDS", "shared.public_view", "SELECT", "admin");
+
+    Set<String> paths = rbacService.getAccessibleObjectPaths("bob");
+
+    assertThat(paths).contains("shared.public_view");
+  }
+
+  @Test
+  public void testGetAccessibleObjectPaths_emptyWhenNoGrants() {
+    Set<String> paths = rbacService.getAccessibleObjectPaths("charlie");
+
+    assertThat(paths).isEmpty();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Container visibility: hasAccessibleChildUnderPath
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void testHasAccessibleChildUnderPath_userHasGrantUnderContainer()
+      throws RbacEntityNotFoundException {
+    rbacService.createRole("analyst", "Analyst", "admin");
+    rbacService.addMembership("alice", "analyst", "admin");
+    rbacService.grantPrivilege("analyst", "VDS", "myspace.folderA.myview", "SELECT", "admin");
+
+    assertThat(rbacService.hasAccessibleChildUnderPath("alice", "myspace")).isTrue();
+    assertThat(rbacService.hasAccessibleChildUnderPath("alice", "myspace.folderA")).isTrue();
+    assertThat(rbacService.hasAccessibleChildUnderPath("alice", "myspace.folderB")).isFalse();
+    // dot-boundary safety: "myspace2" must not match "myspace.folderA.myview"
+    assertThat(rbacService.hasAccessibleChildUnderPath("alice", "myspace2")).isFalse();
+  }
+
+  @Test
+  public void testHasAccessibleChildUnderPath_adminAlwaysTrue() {
+    rbacService.assignBootstrapAdmin("admin");
+
+    // Admin should see any container, even with no grants
+    assertThat(rbacService.hasAccessibleChildUnderPath("admin", "any.container")).isTrue();
+  }
+
+  @Test
+  public void testHasAccessibleChildUnderPath_publicGrantVisible()
+      throws RbacEntityNotFoundException {
+    rbacService.grantPrivilege(
+        RbacService.PUBLIC_ROLE_ID, "VDS", "publicspace.view1", "SELECT", "admin");
+
+    assertThat(rbacService.hasAccessibleChildUnderPath("anyuser", "publicspace")).isTrue();
+  }
+
+  @Test
+  public void testHasAccessibleChildUnderPath_deepNesting_allAncestorsVisible()
+      throws RbacEntityNotFoundException {
+    rbacService.createRole("analyst", "Analyst", "admin");
+    rbacService.addMembership("alice", "analyst", "admin");
+    rbacService.grantPrivilege("analyst", "VDS", "myspace.a.b.c.deepview", "SELECT", "admin");
+
+    // All ancestor containers should be visible (CONT-04)
+    assertThat(rbacService.hasAccessibleChildUnderPath("alice", "myspace")).isTrue();
+    assertThat(rbacService.hasAccessibleChildUnderPath("alice", "myspace.a")).isTrue();
+    assertThat(rbacService.hasAccessibleChildUnderPath("alice", "myspace.a.b")).isTrue();
+    assertThat(rbacService.hasAccessibleChildUnderPath("alice", "myspace.a.b.c")).isTrue();
   }
 }

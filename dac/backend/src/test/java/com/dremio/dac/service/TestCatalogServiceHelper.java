@@ -37,6 +37,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -2371,9 +2372,13 @@ public class TestCatalogServiceHelper {
     assertThat(result.children()).isEmpty();
   }
 
-  /** META-03: Folders are always visible to non-admin users (containers are not RBAC-gated). */
+  /**
+   * Container visibility: folders with no accessible children are hidden. A folder is only visible
+   * if the user has grants on at least one child object inside it.
+   */
   @Test
-  public void testGetNamespaceChildren_nonAdmin_foldersAlwaysVisible() throws Exception {
+  public void testGetNamespaceChildren_nonAdmin_folderWithNoAccessibleChildren_hidden()
+      throws Exception {
     when(rbacService.isAdminMember("user")).thenReturn(false);
     when(rbacService.hasPrivilege("user", "SELECT", "VDS", "myspace.my_view")).thenReturn(false);
     NameSpaceContainer vds = vdsContainer("myspace", "my_view");
@@ -2383,23 +2388,218 @@ public class TestCatalogServiceHelper {
     CatalogListingResult result =
         rbacEnabledHelper.getChildrenForPath(new NamespaceKey("myspace"), null, 100);
 
-    // Only folder should be visible; VDS should be hidden
-    assertThat(result.children()).hasSize(1);
-    assertThat(result.children().get(0).getContainerType())
-        .isEqualTo(CatalogItem.ContainerSubType.FOLDER);
+    // Both folder and VDS hidden — no accessible children
+    assertThat(result.children()).isEmpty();
   }
 
-  /** META-03: Physical datasets (PDS) are always visible -- only VDS is RBAC-gated in v1. */
+  /** PDS visible when PDS enforcement is disabled (default). */
   @Test
-  public void testGetNamespaceChildren_nonAdmin_pdsAlwaysVisible() throws Exception {
+  public void testGetNamespaceChildren_nonAdmin_pdsAlwaysVisible_whenPdsEnforcementOff()
+      throws Exception {
     when(rbacService.isAdminMember("user")).thenReturn(false);
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(false);
     NameSpaceContainer pds = pdsContainer("myspace", "my_table");
     setupRbacMockNamespace("myspace", ImmutableList.of(pds));
 
     CatalogListingResult result =
         rbacEnabledHelper.getChildrenForPath(new NamespaceKey("myspace"), null, 100);
 
-    // PDS should be visible without any privilege check
     assertThat(result.children()).hasSize(1);
+  }
+
+  /** PDS hidden when PDS enforcement is enabled and user has no grant. */
+  @Test
+  public void testGetNamespaceChildren_nonAdmin_pdsHidden_whenPdsEnforcementOn_noGrant()
+      throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(false);
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege("user", "SELECT", "PDS", "myspace.my_table")).thenReturn(false);
+    NameSpaceContainer pds = pdsContainer("myspace", "my_table");
+    setupRbacMockNamespace("myspace", ImmutableList.of(pds));
+
+    CatalogListingResult result =
+        rbacEnabledHelper.getChildrenForPath(new NamespaceKey("myspace"), null, 100);
+
+    assertThat(result.children()).isEmpty();
+  }
+
+  /** PDS visible when PDS enforcement is enabled and user has SELECT grant. */
+  @Test
+  public void testGetNamespaceChildren_nonAdmin_pdsVisible_whenPdsEnforcementOn_withGrant()
+      throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(false);
+    when(dremioConfig.getBoolean(DremioConfig.RBAC_PDS_ENABLED)).thenReturn(true);
+    when(rbacService.hasPrivilege("user", "SELECT", "PDS", "myspace.my_table")).thenReturn(true);
+    NameSpaceContainer pds = pdsContainer("myspace", "my_table");
+    setupRbacMockNamespace("myspace", ImmutableList.of(pds));
+
+    CatalogListingResult result =
+        rbacEnabledHelper.getChildrenForPath(new NamespaceKey("myspace"), null, 100);
+
+    assertThat(result.children()).hasSize(1);
+  }
+
+  // --- createSource admin-only enforcement test (Phase 13: Finding 4) ---
+
+  /**
+   * Finding 4: A non-admin user calling createSource() must see "Permission denied: only
+   * administrators can create sources." instead of the existence-leaking "Source already exists"
+   * error. The admin guard fires before sourceService.createSource() is called.
+   */
+  @Test
+  public void testCreateSource_nonAdmin_getsPermissionDenied() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(false);
+
+    Source source = new Source();
+    source.setName("newsource");
+
+    assertThatThrownBy(
+            () ->
+                rbacEnabledHelper.createCatalogItem(
+                    source, SourceRefreshOption.BACKGROUND_DATASETS_CREATION))
+        .isInstanceOf(UserException.class)
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("administrators");
+
+    // Verify sourceService.createSource was never called (no metadata leak)
+    verify(sourceService, never()).createSource(any(), any(), any());
+  }
+
+  // --- FILE-01/FILE-02: File browse and promote RBAC enforcement tests (Phase 15) ---
+
+  @Test
+  public void testPromoteToDataset_nonAdmin_getsPermissionDenied() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(false);
+
+    Dataset dataset =
+        new Dataset(
+            "id",
+            Dataset.DatasetType.PHYSICAL_DATASET,
+            asList("src", "tbl"),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
+
+    assertThatThrownBy(() -> rbacEnabledHelper.promoteToDataset("internalId", dataset))
+        .isInstanceOf(UserException.class)
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("promote datasets");
+  }
+
+  @Test
+  public void testPromoteToDataset_admin_noBlock() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(true);
+
+    Dataset dataset =
+        new Dataset(
+            "id",
+            Dataset.DatasetType.PHYSICAL_DATASET,
+            asList("src", "tbl"),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
+
+    // Guard passes; method continues and may throw other exceptions from incomplete mocks
+    try {
+      rbacEnabledHelper.promoteToDataset("internalId", dataset);
+    } catch (Exception e) {
+      assertNotPermissionDenied(e);
+    }
+    verify(rbacService).isAdminMember("user");
+  }
+
+  @Test
+  public void testPromoteToDataset_rbacDisabled_noBlock() throws Exception {
+    Dataset dataset =
+        new Dataset(
+            "id",
+            Dataset.DatasetType.PHYSICAL_DATASET,
+            asList("src", "tbl"),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
+
+    // catalogServiceHelper has null rbacService — guard is no-op
+    try {
+      catalogServiceHelper.promoteToDataset("internalId", dataset);
+    } catch (Exception e) {
+      assertNotPermissionDenied(e);
+    }
+  }
+
+  @Test
+  public void testBrowseNonPromotedFileOrFolder_nonAdmin_getsPermissionDenied() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(false);
+    // Entity not in namespace → triggers getCatalogEntityFromNonPromotedFileOrFolder path
+    when(mockNamespaceService.getEntities(any())).thenReturn(Collections.singletonList(null));
+
+    assertThatThrownBy(
+            () ->
+                rbacEnabledHelper.getCatalogEntityByPath(
+                    asList("mySource", "folder"), Collections.emptyList(), Collections.emptyList()))
+        .isInstanceOf(UserException.class)
+        .hasMessageContaining("Permission denied")
+        .hasMessageContaining("browse source files");
+  }
+
+  @Test
+  public void testBrowseNonPromotedFileOrFolder_admin_noBlock() throws Exception {
+    when(rbacService.isAdminMember("user")).thenReturn(true);
+    when(mockNamespaceService.getEntities(any())).thenReturn(Collections.singletonList(null));
+
+    // Guard passes; method may throw other exceptions
+    try {
+      rbacEnabledHelper.getCatalogEntityByPath(
+          asList("mySource", "folder"), Collections.emptyList(), Collections.emptyList());
+    } catch (Exception e) {
+      assertNotPermissionDenied(e);
+    }
+    verify(rbacService).isAdminMember("user");
+  }
+
+  @Test
+  public void testBrowseNonPromotedFileOrFolder_rbacDisabled_noBlock() throws Exception {
+    when(mockNamespaceService.getEntities(any())).thenReturn(Collections.singletonList(null));
+
+    // catalogServiceHelperWithMockNs has null rbacService — guard is no-op
+    try {
+      catalogServiceHelperWithMockNs.getCatalogEntityByPath(
+          asList("mySource", "folder"), Collections.emptyList(), Collections.emptyList());
+    } catch (Exception e) {
+      assertNotPermissionDenied(e);
+    }
+  }
+
+  // getCatalogEntityFromCatalogItem guard shares the same pattern and is covered
+  // indirectly via getCatalogEntityFromNonPromotedFileOrFolder (which delegates to it).
+
+  private void assertNotPermissionDenied(Exception e) {
+    if (e instanceof UserException) {
+      String msg = e.getMessage();
+      if (msg != null && msg.contains("Permission denied")) {
+        throw new AssertionError("Expected no Permission denied, but got: " + msg, e);
+      }
+    }
   }
 }

@@ -21,6 +21,7 @@ import com.dremio.exec.planner.sql.handlers.direct.SimpleCommandResult;
 import com.dremio.exec.planner.sql.handlers.direct.SimpleDirectHandler;
 import com.dremio.exec.planner.sql.handlers.direct.SqlNodeUtil;
 import com.dremio.exec.planner.sql.parser.SqlCreateRole;
+import com.dremio.exec.rbac.RbacEntityAlreadyExistsException;
 import com.dremio.exec.rbac.RbacService;
 import java.util.Collections;
 import java.util.List;
@@ -47,7 +48,13 @@ public class RoleCreateHandler extends SimpleDirectHandler {
           .buildSilently();
     }
 
-    rbacService.createRole(roleName, roleName, userName);
+    try {
+      rbacService.createRole(roleName, roleName, userName);
+    } catch (RbacEntityAlreadyExistsException e) {
+      throw UserException.validationError()
+          .message("Role '%s' already exists.", roleName)
+          .buildSilently();
+    }
     return Collections.singletonList(
         SimpleCommandResult.successful("Role '%s' created.", roleName));
   }

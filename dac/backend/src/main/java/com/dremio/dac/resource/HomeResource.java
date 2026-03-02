@@ -94,6 +94,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.ConcurrentModificationException;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -605,6 +606,7 @@ public class HomeResource extends BaseResourceWithAllocator {
     if (rbacService.isAdminMember(userName)) {
       return children;
     }
+    Set<String> accessiblePaths = rbacService.getAccessibleObjectPaths(userName);
     return children.stream()
         .filter(
             c -> {
@@ -620,7 +622,11 @@ public class HomeResource extends BaseResourceWithAllocator {
                 String objectPath = String.join(".", c.getFullPathList());
                 return rbacService.hasPrivilege(userName, "EXECUTE", "FUNCTION", objectPath);
               }
-              return true; // folders always visible
+              if (c.getType() == NameSpaceContainer.Type.FOLDER) {
+                String folderPath = String.join(".", c.getFullPathList());
+                return rbacService.hasAccessibleChildUnderPath(accessiblePaths, folderPath);
+              }
+              return true; // other containers at child level
             })
         .collect(Collectors.toList());
   }

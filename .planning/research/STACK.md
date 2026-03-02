@@ -1,381 +1,368 @@
-# Technology Stack — v1.2 GitHub Actions CI/CD Pipeline
+# Technology Stack — RBAC v1.1 (Privilege Context Switching + PDS SELECT + VDS Lifecycle)
 
-**Project:** Dremio OSS Fork — Docker Distribution via GitHub Actions + ECR
-**Milestone:** v1.2 — CI/CD: Docker build on tag push, push to private AWS ECR
+**Project:** Dremio OSS RBAC v1.1
 **Researched:** 2026-02-20
-**Confidence:** HIGH (all versions verified via GitHub API and official docs)
+**Overall confidence:** HIGH (all findings based on direct codebase inspection)
 
 ---
 
-## Context
+## What this document covers
 
-This milestone adds a `.github/workflows/release.yml` that triggers on tag push (`v*`), runs a Maven build, packages a Docker image, and pushes to a private AWS ECR repository. The existing codebase has:
+This is a milestone-scoped stack document. v1.0 already shipped the following (DO NOT re-research): flat role management, KV store persistence, REST API, system tables, SQL DDL, deny-by-default enforcement via `CatalogImpl.validatePrivilege()`.
 
-- Maven wrapper at `./mvnw` using Maven 3.9.9
-- Enforcer requiring **Java 21** for the build (`[21,22)` range in root pom)
-- Bytecode compiled to **Java 11** target (`maven.compiler.release=11`)
-- Distribution artifact at `distribution/server/target/dremio-community-<VERSION>.tar.gz`
-- Existing Dockerfile at `distribution/docker/Dockerfile` that downloads from URL — needs to be **replaced** with a COPY-based Dockerfile
-- Git tags follow `v1.0`, `v1.1` pattern (strip `v` prefix for Docker tag)
+This document covers exactly what stack additions or changes are needed for v1.1:
 
----
-
-## Recommended Stack
-
-### GitHub Actions: Core Actions
-
-| Action | Version | Purpose | Why This Version |
-|--------|---------|---------|-----------------|
-| `actions/checkout` | `v6` | Checkout repo | Latest stable (v6.0.2 verified via GitHub API, Feb 2026) |
-| `actions/setup-java` | `v5` | Install Java 21 + cache Maven dependencies | v5 supports `cache: 'maven'` natively; avoids needing separate `actions/cache` |
-
-**Verified versions:** `actions/checkout@v6` (v6.0.2 released Feb 2026), `actions/setup-java@v5` (v5.2.0 released via GitHub API).
-
-### GitHub Actions: AWS + Docker
-
-| Action | Version | Purpose | Why This Version |
-|--------|---------|---------|-----------------|
-| `aws-actions/configure-aws-credentials` | `v4` | Configure static IAM access key credentials | v4 is latest stable (v6.0.0 released — major version tag is `v4`; verify: tags show v4.x.x series as latest non-v5/v6 for this action); supports `aws-access-key-id` + `aws-secret-access-key` inputs directly |
-| `aws-actions/amazon-ecr-login` | `v2` | Authenticate Docker to private ECR registry | v2.0.1 verified via GitHub API; outputs `registry` URL used in subsequent image tag step |
-| `docker/setup-buildx-action` | `v3` | Initialize Docker Buildx builder | Required by `docker/build-push-action`; v3.12.0 verified via GitHub API (Dec 2025) |
-| `docker/build-push-action` | `v6` | Build Docker image and push to ECR | v6.19.2 verified via GitHub API (Feb 2026); supports `push: true`, `tags:`, `context:` inputs |
-
-**Note on `configure-aws-credentials` version:** GitHub API reports `v6.0.0` as latest release tag, but the recommended major version alias for static IAM key workflows is `v4`. Versions v5 and v6 are recent; check the action's README for breaking changes before pinning to `v4` vs `v6`. **MEDIUM confidence — verify the major version alias in the action README before use.**
-
-### Docker: Runtime Base Image
-
-| Image | Tag | Purpose | Why |
-|-------|-----|---------|-----|
-| `eclipse-temurin` | `17-jre-jammy` | Docker runtime base | Dremio bytecode targets Java 11; Java 17 LTS is the minimum recommended runtime (not 11, which is EOL); `jammy` = Ubuntu 22.04 LTS for predictable package availability; verified active on Docker Hub (last updated 2026-02-17) |
-
-**Why not Java 21 for runtime?** The project context specifies Java 17. Bytecode is Java 11 compatible, so any JRE >= 11 works. Java 17 is LTS with security support through 2029. Java 21 would also work but is not required and adds container size.
-
-**Why JRE, not JDK?** Production containers need only the JRE (~200MB vs ~400MB for JDK). The Maven build runs on the GitHub Actions runner, not in the container.
-
-**Why `jammy` over bare `17-jre`?** The `17-jre` tag tracks the latest Debian base, which can change between builds. `jammy` pins to Ubuntu 22.04 LTS for reproducible builds.
+1. **VDS definer rights** — expand views under the view-creator's identity, not the query user
+2. **UDF invoker rights** — enforce that the caller has EXECUTE on the UDF (already partially done); the UDF body already expands under the UDF owner identity
+3. **SELECT on physical datasets (PDS)** — grant and enforce SELECT on promoted physical tables
+4. **Container visibility filtering** — hide containers (SPACE, SOURCE, FOLDER) when the user has no grants on anything inside them
+5. **VDS lifecycle privileges** — enforce ALTER and DROP on VDS beyond what already exists
 
 ---
 
-## Maven Build Configuration
+## Existing hooks — what NOT to touch
 
-### Build Command for CI
+The following already works correctly and must not be modified:
 
-```bash
-./mvnw package \
-  -DskipTests \
-  -Pdremio.no-lint \
-  -pl distribution/server \
-  -am
-```
-
-**Flag rationale:**
-
-| Flag | Reason |
-|------|--------|
-| `package` | Produces the `.tar.gz` in `distribution/server/target/`; no `install` needed (nothing depends on this artifact downstream in CI) |
-| `-DskipTests` | CI is a release pipeline, not a test pipeline; cuts build time significantly for a ~900MB artifact |
-| `-Pdremio.no-lint` | Profile defined in root pom; skips Spotless, Checkstyle, ErrorProne, license checks, and ForbiddenAPIs; acceptable for release builds since Java 21 build environment is controlled by CI |
-| `-pl distribution/server -am` | Builds only the `distribution/server` module and its dependencies (`-am`); avoids compiling unrelated modules |
-
-**Version pinning:** Maven 3.9.9 is bundled in the repository via `.mvn/wrapper/maven-wrapper.properties`. CI uses `./mvnw` — no separate Maven installation needed.
-
-### Artifact Path
-
-The Maven build produces:
-
-```
-distribution/server/target/dremio-community-${revision}.tar.gz
-```
-
-Where `${revision}` is set in `.mvn/maven.config` as `26.0.5-202509091642240013-f5051a07`. For CI, this value stays as-is — the Docker image tag is derived from the **git tag**, not the Maven revision.
-
-### Maven Caching
-
-Use `actions/setup-java` with `cache: 'maven'` — no separate `actions/cache` step needed. The action hashes all `**/pom.xml` files and caches `~/.m2/repository`. For this monorepo with hundreds of pom.xml files, this is the correct approach.
-
-```yaml
-- uses: actions/setup-java@v5
-  with:
-    java-version: '21'
-    distribution: 'temurin'
-    cache: 'maven'
-```
-
-**Why `temurin`?** Eclipse Temurin is the OpenJDK distribution from Adoptium (successor to AdoptOpenJDK). It is the standard, free, production-grade distribution. Supported explicitly in `actions/setup-java@v5`.
+| Component | What it does | File |
+|-----------|-------------|------|
+| `ViewExpander.expandRelNode()` | Calls `builder.withUser(viewOwner)` if viewOwner is non-null. This IS the definer-rights hook. | `sabot/kernel/src/main/java/com/dremio/exec/planner/sql/ViewExpander.java` L152-154 |
+| `UserDefinedFunctionExpanderImpl.parseAndValidate()` | Calls `.withUser(dremioUserDefinedFunction.getOwner())`. This is invoker-rights-compliant: expansion runs as the UDF owner's identity. | `sabot/kernel/src/main/java/com/dremio/exec/ops/UserDefinedFunctionExpanderImpl.java` L136 |
+| `CatalogImpl.validatePrivilege()` | Enforces CREATE_VIEW, ALTER, and other privileges via `rbacService.hasPrivilege()`. Already wired. | `sabot/kernel/src/main/java/com/dremio/exec/catalog/CatalogImpl.java` L2816 |
+| `CatalogImpl.isRbacDeniedForVds()` | Denies VDS access if no SELECT grant. Already filters all `getTable*()` calls. | `CatalogImpl.java` L2869 |
+| `CatalogImpl.isRbacDeniedForFunction()` | Denies EXECUTE on UDF if no grant. | `CatalogImpl.java` L2905 |
+| `CatalogServiceHelper.filterByVisibility()` | Filters VDS and FUNCTION in child listings. Already wired. | `dac/backend/src/main/java/com/dremio/dac/service/catalog/CatalogServiceHelper.java` L3115 |
+| `CatalogServiceHelper.isFunctionVisibleToUser()` | Filters top-level UDF listing. Already wired. | `CatalogServiceHelper.java` L3146 |
+| Grant key format | `role_id|object_type|object_path|privilege` — covers VDS, FUNCTION, and naturally extends to PDS | `RbacConfig.java` |
 
 ---
 
-## Dockerfile Changes Required
+## 1. VDS Definer Rights
 
-The existing `distribution/docker/Dockerfile` uses `wget` to download from `${DOWNLOAD_URL}`. This pattern is incompatible with local CI builds where the artifact is a local file. Replace it with a `COPY`-based Dockerfile:
+### Current state (verified by code inspection)
 
-### New Dockerfile Pattern
+`DatasetManager.createTableFromVirtualDataset()` builds `ViewTable` with the owner from `getEntityOwner(CatalogEntityKey)` (line 922). This calls `CatalogEntityOwnershipImpl.getCatalogEntityOwner()`.
 
-```dockerfile
-ARG JAVA_IMAGE="eclipse-temurin:17-jre-jammy"
-FROM ${JAVA_IMAGE}
+`CatalogEntityOwnershipImpl` at line 50-51 explicitly returns `Optional.empty()` for `VIRTUAL_DATASET`:
 
-LABEL maintainer="Dremio"
-
-ARG TARBALL_PATH
-
-RUN \
-  mkdir -p /opt/dremio \
-  && mkdir -p /var/lib/dremio \
-  && mkdir -p /var/run/dremio \
-  && mkdir -p /var/log/dremio \
-  && mkdir -p /opt/dremio/data \
-  && groupadd --system dremio --gid 999 \
-  && useradd --base-dir /var/lib/dremio --system --uid 999 --gid dremio dremio \
-  && chown -R dremio:dremio /opt/dremio/data \
-  && chown -R dremio:dremio /var/run/dremio \
-  && chown -R dremio:dremio /var/log/dremio \
-  && chown -R dremio:dremio /var/lib/dremio
-
-COPY ${TARBALL_PATH} /tmp/dremio.tar.gz
-RUN tar xfz /tmp/dremio.tar.gz -C /opt/dremio --strip-components=1 \
-  && rm -f /tmp/dremio.tar.gz
-
-EXPOSE 9047/tcp
-EXPOSE 31010/tcp
-EXPOSE 32010/tcp
-EXPOSE 45678/tcp
-
-USER dremio
-WORKDIR /opt/dremio
-ENV DREMIO_HOME=/opt/dremio
-ENV DREMIO_PID_DIR=/var/run/dremio
-ENV DREMIO_GC_LOGS_ENABLED="yes"
-ENV DREMIO_GC_LOG_TO_CONSOLE="yes"
-ENV DREMIO_LOG_DIR="/var/log/dremio"
-ENTRYPOINT ["bin/dremio", "start-fg"]
+```java
+case DATASET:
+  final DatasetConfig dataset = nameSpaceContainer.getDataset();
+  if (dataset.getType() == DatasetType.VIRTUAL_DATASET) {
+    return Optional.empty();  // VDS owner is NOT read
+  }
 ```
 
-**Key changes from existing Dockerfile:**
-1. Base image `eclipse-temurin:11-jdk` → `eclipse-temurin:17-jre-jammy` (JRE is sufficient; upgrade to Java 17 LTS)
-2. `wget` + URL download → `COPY` from build context (tar.gz copied into context before `docker build`)
-3. Remove `apt-get install wget` (no longer needed)
+So `viewOwner` in `ViewTable` is null for all VDS. In `ViewExpander.expandRelNode()`:
 
-**Docker build context:** The workflow must copy the tar.gz into a staging directory that becomes the Docker build context, or use `--build-arg` with the relative path. Recommended pattern:
-
-```bash
-# In the workflow:
-mkdir -p docker-context
-cp distribution/server/target/dremio-community-*.tar.gz docker-context/dremio.tar.gz
-# Then in build-push-action:
-# context: docker-context
-# file: distribution/docker/Dockerfile
-# build-args: TARBALL_PATH=dremio.tar.gz
-```
-
----
-
-## Workflow Trigger and Tag Handling
-
-### Trigger
-
-```yaml
-on:
-  push:
-    tags:
-      - 'v*'
-```
-
-This fires on any tag matching `v*` (e.g., `v1.2`, `v1.2.0`).
-
-### Image Tag Derivation (strip `v` prefix)
-
-```yaml
-- name: Extract tag
-  id: tag
-  run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
-```
-
-`GITHUB_REF_NAME` contains the full tag name (e.g., `v1.2`). `${GITHUB_REF_NAME#v}` strips the leading `v` to produce `1.2`. This is then used as the Docker image tag.
-
-**Full ECR image reference:** `<account-id>.dkr.ecr.<region>.amazonaws.com/<repo>:${VERSION}`
-
-The `amazon-ecr-login` action outputs `registry` (the base URL), so the full tag is:
-
-```
-${{ steps.login-ecr.outputs.registry }}/<ecr-repo-name>:${{ steps.tag.outputs.VERSION }}
-```
-
----
-
-## Secrets Required
-
-| Secret Name | Value | Where Set |
-|-------------|-------|-----------|
-| `AWS_ACCESS_KEY_ID` | IAM user access key ID | GitHub repo → Settings → Secrets |
-| `AWS_SECRET_ACCESS_KEY` | IAM user secret key | GitHub repo → Settings → Secrets |
-| `AWS_REGION` | e.g., `eu-west-1` | GitHub repo → Settings → Secrets (or hardcode in workflow) |
-| `ECR_REPOSITORY` | ECR repository name (not full URL) | GitHub repo → Settings → Secrets (or hardcode) |
-
-**IAM permissions required on the access key:**
-
-```json
-{
-  "Effect": "Allow",
-  "Action": [
-    "ecr:GetAuthorizationToken",
-    "ecr:BatchCheckLayerAvailability",
-    "ecr:GetDownloadUrlForLayer",
-    "ecr:BatchGetImage",
-    "ecr:InitiateLayerUpload",
-    "ecr:UploadLayerPart",
-    "ecr:CompleteLayerUpload",
-    "ecr:PutImage"
-  ],
-  "Resource": "*"
+```java
+if (viewOwner != null) {
+  builder = builder.withUser(viewOwner);   // SKIPPED when null
 }
 ```
 
-`ecr:GetAuthorizationToken` must be on `Resource: "*"` (it is a global API call). The other permissions can be scoped to the specific ECR repository ARN.
+The expansion runs under the query user's identity. This is invoker semantics today.
 
----
+The `DatasetConfig.owner` field DOES exist in the proto (`dataset.proto` line 34: `optional string owner = 3`). It is set when creating datasets via `WriterUpdater.setOwner(tableEntry.getUserName())`. It IS stored for physical datasets but not used for VDS by `CatalogEntityOwnershipImpl`.
 
-## GitHub Actions Runner
+### What to change
 
-| Setting | Value | Notes |
-|---------|-------|-------|
-| `runs-on` | `ubuntu-latest` | Maps to `ubuntu-24.04` as of Feb 2026 (verified via runner-images README) |
-| Disk space | ~73GB available | Sufficient for Maven local repo + 900MB tar.gz + Docker layers |
-| Architecture | `amd64` only | No multi-arch needed per project requirements |
+**Change `CatalogEntityOwnershipImpl.getCatalogEntityOwner()`** to also return the owner for VIRTUAL_DATASET:
 
----
-
-## Alternatives Considered
-
-| Category | Recommended | Alternative | Why Not |
-|----------|-------------|-------------|---------|
-| ECR auth | `aws-actions/configure-aws-credentials` + `amazon-ecr-login` | `docker/login-action` with ECR helper | The aws-actions pair is the AWS-official pattern; outputs ECR registry URL as a step output |
-| Docker build | `docker/build-push-action@v6` | Plain `docker build && docker push` shell | build-push-action handles auth token passthrough, retry, and BuildKit automatically |
-| Java runtime | `eclipse-temurin:17-jre-jammy` | `amazoncorretto:17` | Temurin is consistent with the build-time JDK; Corretto is AWS-specific but adds no value for a private ECR deployment |
-| Maven cache | `setup-java cache: 'maven'` | Separate `actions/cache` | setup-java built-in cache requires no additional configuration and generates correct cache keys from pom.xml hashes |
-| Buildx | `docker/setup-buildx-action@v3` | Docker daemon default builder | build-push-action requires Buildx; default builder lacks cache export and multi-platform support even for single-arch builds |
-| Auth method | Static IAM access keys | GitHub OIDC | Project context specifies IAM access keys; OIDC is architecturally superior but requires additional AWS trust policy configuration outside this milestone's scope |
-
----
-
-## What NOT to Add
-
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| `docker/metadata-action` | Overhead not needed for simple tag-only workflow; image tag is derived directly from `GITHUB_REF_NAME` | Direct shell extraction: `${GITHUB_REF_NAME#v}` |
-| `actions/upload-artifact` / `actions/download-artifact` | Single-job workflow; tar.gz stays on runner filesystem throughout | No inter-job artifact transfer needed |
-| Multi-arch build (`platforms: linux/amd64,linux/arm64`) | Not required per project context | Add `platforms:` input to build-push-action if needed later |
-| Docker layer cache to ECR | Adds ECR storage cost and complexity; build time is dominated by Maven, not Docker | Skip `cache-from`/`cache-to` on build-push-action for v1.2 |
-| `docker/login-action` | Redundant when using `aws-actions/amazon-ecr-login` which handles the login internally | Use amazon-ecr-login only |
-| Separate `actions/cache` step | Redundant with `setup-java cache: 'maven'` | Use setup-java's built-in caching |
-| `-Drevision` override in CI | `.mvn/maven.config` already sets the revision; overriding it in CI would change the artifact filename without benefit | Leave revision as-is; Docker tag comes from git tag |
-
----
-
-## Version Compatibility
-
-| Component | Version | Compatibility Notes |
-|-----------|---------|-------------------|
-| Java build (setup-java) | `21` (temurin) | Satisfies enforcer `[21,22)` exactly |
-| Maven (mvnw) | `3.9.9` | Bundled in repo; no installation needed |
-| Bytecode target | Java 11 (`maven.compiler.release=11`) | Runs on Java 17 JRE without issues |
-| Docker base | `eclipse-temurin:17-jre-jammy` | Ubuntu 22.04 LTS; actively maintained |
-| `build-push-action@v6` | Requires `setup-buildx-action@v3` | BuildKit backend; v6 is incompatible with the v2 builder format |
-| `configure-aws-credentials@v4` | Works with `amazon-ecr-login@v2` | Both from aws-actions org; tested together |
-
----
-
-## Complete Workflow Skeleton
-
-```yaml
-name: Release Docker Image
-
-on:
-  push:
-    tags:
-      - 'v*'
-
-jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Java 21
-        uses: actions/setup-java@v5
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: 'maven'
-
-      - name: Extract version from tag
-        id: tag
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
-
-      - name: Build distribution with Maven
-        run: |
-          ./mvnw package \
-            -DskipTests \
-            -Pdremio.no-lint \
-            -pl distribution/server \
-            -am
-
-      - name: Prepare Docker build context
-        run: |
-          mkdir -p docker-context
-          cp distribution/server/target/dremio-community-*.tar.gz docker-context/dremio.tar.gz
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: docker-context
-          file: distribution/docker/Dockerfile
-          push: true
-          build-args: TARBALL_PATH=dremio.tar.gz
-          tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${{ steps.tag.outputs.VERSION }}
-            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
+```java
+case DATASET:
+  final DatasetConfig dataset = nameSpaceContainer.getDataset();
+  if (dataset.getType() == DatasetType.VIRTUAL_DATASET) {
+    // VDS definer rights: return the stored owner
+    String owner = dataset.getOwner();
+    if (owner != null && !owner.isEmpty()) {
+      return Optional.of(new CatalogUser(owner));
+    }
+    return Optional.empty();  // no owner recorded (pre-v1.1 VDS)
+  }
 ```
 
-**Note on `latest` tag:** Pushing `:latest` alongside the versioned tag is a common convention. Omit it if the pipeline should not move `latest` (e.g., if pre-release tags `v1.2-rc1` should not become `latest`). In that case, add a condition on the tag pattern.
+No other code changes needed. The `ViewExpander` already switches identity when `viewOwner` is non-null.
+
+**Ensure `DatasetConfig.owner` is set on VDS creation.** Trace `DACViewCreatorFactory.ViewCreatorImpl.createView()` — it calls `tool.newUntitled()` which eventually calls `datasetVersionMutator.save()`. Verify `DatasetConfig.owner` is set to the creating user's name at the point of namespace write. If not, add `datasetConfig.setOwner(userName)` where the dataset is persisted.
+
+**Files to touch:**
+- `sabot/kernel/src/main/java/com/dremio/exec/catalog/CatalogEntityOwnershipImpl.java` — return owner for VDS (1-line change)
+- `dac/backend/src/main/java/com/dremio/dac/service/datasets/DACViewCreatorFactory.java` — confirm `owner` field is written on create/update
+
+**What NOT to change:** `ViewExpander.java`, `ViewExpansionContext.java`, `DatasetManager.java`. The machinery is there; only the ownership resolution is missing.
+
+**Confidence:** HIGH. The hook exists, the field exists, the gap is a single conditional in `CatalogEntityOwnershipImpl`.
 
 ---
 
-## Sources
+## 2. UDF Invoker Rights — EXECUTE Enforcement
 
-- GitHub API `repos/actions/checkout/releases/latest` → `v6.0.2` (HIGH confidence, live API)
-- GitHub API `repos/actions/setup-java/releases/latest` → `v5.2.0` (HIGH confidence, live API)
-- GitHub API `repos/aws-actions/amazon-ecr-login/releases/latest` → `v2.0.1` (HIGH confidence, live API)
-- GitHub API `repos/aws-actions/configure-aws-credentials/releases/latest` → `v6.0.0` (HIGH confidence, live API)
-- GitHub API `repos/docker/setup-buildx-action/releases/latest` → `v3.12.0` (HIGH confidence, live API)
-- GitHub API `repos/docker/build-push-action/releases/latest` → `v6.19.2` (HIGH confidence, live API)
-- `actions/setup-java` README (fetched live) — `cache: 'maven'` confirmed, `temurin` distribution confirmed for Java 21
-- `aws-actions/configure-aws-credentials` README (fetched live) — `aws-access-key-id` / `aws-secret-access-key` inputs confirmed
-- `aws-actions/amazon-ecr-login` README (fetched live) — `registry` output confirmed
-- `docker/build-push-action` README (fetched live) — `setup-buildx-action` dependency confirmed
-- Docker Hub API `repositories/library/eclipse-temurin/tags?name=17-jre-jammy` — tag exists, updated 2026-02-17 (HIGH confidence, live API)
-- GitHub runner-images README (fetched live) — `ubuntu-latest` = `ubuntu-24.04` confirmed
-- Repository `pom.xml` — Java 21 enforcer `[21,22)`, `maven.compiler.release=11` (HIGH confidence, direct inspection)
-- Repository `.mvn/wrapper/maven-wrapper.properties` — Maven 3.9.9 (HIGH confidence, direct inspection)
-- Repository `distribution/server/target/` — `dremio-community-26.0.5-*.tar.gz` artifact path confirmed (HIGH confidence, direct inspection)
-- Repository root `pom.xml` `dremio.no-lint` profile — skips Spotless, Checkstyle, ErrorProne (HIGH confidence, direct inspection)
+### Current state (verified)
+
+UDF body already expands under the UDF owner's identity — `UserDefinedFunctionExpanderImpl.parseAndValidate()` calls `.withUser(dremioUserDefinedFunction.getOwner())`. The `owner` for a UDF comes from `CatalogImpl.getUserDefinedFunctionOwner()` which delegates to `CatalogEntityOwnership.getCatalogEntityOwner()`.
+
+For namespace-stored UDFs (non-Nessie), `CatalogEntityOwnershipImpl.getCatalogEntityOwner()` handles `FUNCTION` type at line 56-58, returning `Optional.empty()`. This means UDF expansion also runs as the query user today, for the same reason as VDS.
+
+For the EXECUTE enforcement (caller must have EXECUTE privilege), `CatalogImpl.isRbacDeniedForFunction()` is already wired in `getFunctions()`.
+
+### What to change
+
+**For EXECUTE enforcement:** Already complete. No changes needed.
+
+**For UDF body expansion identity (if definer semantics are desired for UDFs):** Modify `CatalogEntityOwnershipImpl` to return the stored owner for FUNCTION type. The `FunctionConfig` proto has an `owner` field (verified via `UserDefinedFunctionServiceImpl` at line 148 which reads `getOwnerNameFromFunctionConfig(functionConfig)`). Return it as `CatalogUser`:
+
+```java
+case FUNCTION:
+  FunctionConfig functionConfig = nameSpaceContainer.getFunction();
+  String fnOwner = getOwnerNameFromFunctionConfig(functionConfig);
+  if (fnOwner != null) {
+    return Optional.of(new CatalogUser(fnOwner));
+  }
+  return Optional.empty();
+```
+
+However: UDF expansion under owner identity is already the design intent (the `withUser(owner)` call is in `parseAndValidate`). The gap is only whether the owner is correctly resolved. This is a v1.1 improvement, not a regression fix.
+
+**Confidence:** HIGH for enforcement (already done). MEDIUM for owner resolution completeness (depends on whether `FunctionConfig` consistently stores `owner`).
 
 ---
 
-*Stack research for: GitHub Actions CI/CD — Docker build + ECR push on tag*
-*Researched: 2026-02-20*
+## 3. SELECT Grants on Physical Datasets (PDS)
+
+### Current state (verified)
+
+`CatalogImpl.isRbacDeniedForVds()` at line 2871 explicitly skips enforcement for non-ViewTable:
+
+```java
+if (!(table instanceof ViewTable)) {
+  return false;  // Physical datasets are NOT checked
+}
+```
+
+`CatalogImpl.resolveRbacObjectType()` maps `SELECT` to `"VDS"` by default:
+
+```java
+case SELECT:
+default:
+  return "VDS";
+```
+
+The grant key format `role_id|object_type|object_path|privilege` supports any object type string. Adding `"PDS"` as a new type requires no schema migration.
+
+`SqlGrant.GrantType` already has `PDS` as an enum value (line 87). `SqlGrantOnCatalog` accepts it. `CatalogGrantHandler` passes the `GrantType.name()` directly to `rbacService.grantPrivilege()` — so `GRANT SELECT ON PDS my.table TO ROLE analyst` already stores `analyst|PDS|my.table|SELECT` in the grant store.
+
+### What to change
+
+**Change `isRbacDeniedForVds()` to also check PDS**, or create a separate `isRbacDeniedForPds()`:
+
+```java
+private boolean isRbacDeniedForPds(DremioTable table, NamespaceKey key) {
+  if (table instanceof ViewTable) {
+    return false;  // handled by isRbacDeniedForVds
+  }
+  // Only enforce RBAC on promoted physical datasets if explicitly configured
+  if (dremioConfig == null || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+    return false;
+  }
+  if (SystemUser.isSystemUserName(userName)) {
+    return false;
+  }
+  if (rbacService == null) {
+    return false;
+  }
+  // Check if any PDS grant exists for this table.
+  // If NO PDS grant is configured for this path at all, PDS remains visible (opt-in enforcement).
+  List<Grant> grants = rbacService.listGrantsByObject("PDS", key.getSchemaPath());
+  if (grants.isEmpty()) {
+    return false;  // No PDS grants configured: default-allow (backward-compat)
+  }
+  return !rbacService.hasPrivilege(userName, "SELECT", "PDS", key.getSchemaPath());
+}
+```
+
+This design choice matters: if you make PDS enforcement deny-by-default (like VDS), every existing physical dataset becomes invisible until an admin grants SELECT. That would be a breaking change for existing deployments. The safe approach is **opt-in PDS enforcement**: only restrict a PDS if at least one PDS grant exists for that path, which signals the admin has intentionally restricted it.
+
+**Change `resolveRbacObjectType()`** to return `"PDS"` for the `PDS` grant type when validation is called from `validatePrivilege()`. Currently, `validatePrivilege()` is called for ALTER on non-VDS paths; the object type resolution needs to distinguish VDS from PDS by checking the actual dataset type.
+
+**Add `listGrantsByObject(objectType, objectPath)` call** — already exists in `RbacService.listGrantsByObject()`. No new API needed.
+
+**Files to touch:**
+- `CatalogImpl.java` — add `isRbacDeniedForPds()`, call it from `getTableNoResolve()`, `getTableNoColumnCount()`, `getTable()`, `bulkGetTables()`
+- `CatalogImpl.resolveRbacObjectType()` — distinguish VDS vs PDS by checking the actual dataset type
+- `CatalogServiceHelper.isVisibleToUser()` — already passes physical datasets through unconditionally (line 3135-3136). For PDS visibility, apply same opt-in logic
+
+**What NOT to change:** `RbacService`, `GrantStore`, `RbacConfig`. The storage layer already handles `"PDS"` as an object type.
+
+**Confidence:** HIGH for storage (no changes needed). HIGH for enforcement design (opt-in is safer). MEDIUM for edge cases around Iceberg/versioned PDS paths where table resolution is more complex.
+
+---
+
+## 4. Container Visibility Filtering
+
+### Current state (verified)
+
+`CatalogServiceHelper.filterByVisibility()` (line 3115) filters VDS and FUNCTION items in child listings. Containers (`FOLDER`, `SPACE`, `SOURCE`, `HOME`) are always visible (line 3142).
+
+Top-level listing at lines 365-376 shows SPACEs and SOURCEs always, and applies `isFunctionVisibleToUser()` for top-level functions only.
+
+There is no concept of "a SPACE is only visible if the user has grants on something inside it."
+
+### What to change — the right approach
+
+**Do NOT implement recursive visibility propagation.** Computing "does the user have any grant anywhere under this space?" requires traversing the entire namespace subtree, which is O(N) where N is the total number of datasets. This will time out for large catalogs.
+
+**The correct model** is content-based: show all containers but hide the leaf objects (VDS, UDFs) the user has no grants on. The container structure (spaces, folders, sources) is always visible. This is the existing behavior and it is correct.
+
+**If a container-level SHOW privilege is needed** (e.g., `GRANT SHOW ON SPACE analytics TO ROLE analyst`), implement it as:
+1. Add `"SHOW"` privilege to the grant key format — already in `SqlGrant.Privilege` enum (line 74)
+2. Add a SPACE/SOURCE/FOLDER object type to the grant
+3. Filter top-level space/source listing against a SHOW grant
+
+This is a separate feature from what v1.0 shipped. Scope it as an explicit requirement, not an implicit part of VDS visibility. The risk is: if you add SHOW enforcement, every space becomes invisible until granted — same breaking-change risk as PDS deny-by-default.
+
+**Recommended scope for v1.1:** Keep containers always visible. Ensure the leaf-level filtering (VDS, UDF) is correctly applied at all listing entry points, including:
+- `CatalogServiceHelper.getChildrenForPath()` — already calls `filterByVisibility()` at line 1119
+- `CatalogServiceHelper.getCatalogEntityByPath()` — verify it also calls filtering
+- `CatalogServiceHelper.getTopLevelEntities()` — spaces and sources are unfiltered; top-level UDFs already filtered
+
+**Files to touch:**
+- `CatalogServiceHelper.java` — audit all listing paths for completeness; add PDS-grant-based filtering if implementing opt-in PDS enforcement
+
+**Confidence:** HIGH for "keep containers visible" design decision. LOW for "container-level SHOW privilege" — would need deeper research on impact.
+
+---
+
+## 5. VDS Lifecycle Privileges (ALTER and DROP)
+
+### Current state (verified)
+
+`CatalogImpl.validatePrivilege()` is called with `SqlGrant.Privilege.ALTER` at line 2444 (`dropPrimaryKey`). The `resolveRbacObjectType()` maps ALTER to `"VDS"` by default. This means ALTER enforcement is active but only for `dropPrimaryKey`.
+
+`CatalogImpl.dropView()` (line 1854) does NOT call `validatePrivilege()`. A user can drop any VDS they can access.
+
+`CatalogImpl.updateView()` (line 1790) does NOT call `validatePrivilege()`. A user can update any VDS.
+
+`CatalogImpl.createView()` (line 1740) relies on `CREATE_VIEW` being checked by the SQL handler before this method is called — but only if the handler was written to check it. Verify `CatalogGrantHandler` enforces this.
+
+### What to change
+
+**Add `validatePrivilege(key, SqlGrant.Privilege.DROP)` to `dropView()`:**
+
+```java
+public void dropView(final NamespaceKey key, ViewOptions viewOptions) throws IOException {
+  validatePrivilege(key, SqlGrant.Privilege.DROP);  // ADD THIS
+  switch (getRootType(key)) {
+    ...
+  }
+}
+```
+
+**Add `validatePrivilege(key, SqlGrant.Privilege.ALTER)` to `updateView()`:**
+
+```java
+public void updateView(NamespaceKey key, ...) throws IOException {
+  validatePrivilege(key, SqlGrant.Privilege.ALTER);  // ADD THIS
+  ...
+}
+```
+
+**Update `resolveRbacObjectType()`** to handle DROP and ALTER and return the correct object type. Currently, the switch maps everything unknown to `"VDS"`. That is correct for VDS, but needs an explicit case:
+
+```java
+private String resolveRbacObjectType(NamespaceKey key, SqlGrant.Privilege privilege) {
+  switch (privilege) {
+    case EXECUTE:
+      return "FUNCTION";
+    case CREATE_VIEW:
+    case SELECT:
+    case ALTER:
+    case DROP:
+    default:
+      return "VDS";  // already correct for views; PDS ALTER would need a check here
+  }
+}
+```
+
+**Grant side:** `GRANT ALTER ON VDS path TO ROLE editor` — already works with the existing `CatalogGrantHandler` since it stores `editor|VDS|path|ALTER`. No changes needed in grant/revoke handlers.
+
+**Files to touch:**
+- `CatalogImpl.java` — add `validatePrivilege()` calls in `dropView()` and `updateView()`
+
+**What NOT to change:** Grant storage, RbacService, handlers. The enforcement mechanism is already in place; only the call sites are missing.
+
+**Confidence:** HIGH. This is a straightforward call-site addition.
+
+---
+
+## 6. Supporting APIs — Changes Summary
+
+### APIs that already exist and work (no changes)
+
+| API | Location | Used for |
+|-----|----------|---------|
+| `RbacService.hasPrivilege(user, privilege, objectType, objectPath)` | `RbacService.java` | All enforcement checks |
+| `RbacService.listGrantsByObject(objectType, objectPath)` | `RbacService.java` | PDS opt-in check, REST display |
+| `CatalogImpl.validatePrivilege(key, privilege)` | `CatalogImpl.java` | Lifecycle privilege enforcement |
+| `CatalogImpl.isRbacDeniedForVds(table, key)` | `CatalogImpl.java` | VDS read access |
+| `CatalogImpl.isRbacDeniedForFunction(key)` | `CatalogImpl.java` | UDF access |
+| `CatalogServiceHelper.filterByVisibility(children)` | `CatalogServiceHelper.java` | Child listing filter |
+| `ViewExpander.expandRelNode()` with `withUser(viewOwner)` | `ViewExpander.java` | Definer rights expansion |
+| `UserDefinedFunctionExpanderImpl.parseAndValidate()` with `withUser(owner)` | `UserDefinedFunctionExpanderImpl.java` | UDF body expansion identity |
+| Grant key format supports any `objectType` string | `RbacConfig.grantKey()` | PDS as `"PDS"`, VDS as `"VDS"` |
+| `SqlGrant.GrantType.PDS` | `SqlGrant.java` L87 | SQL parser for PDS grants |
+| `SqlGrant.Privilege.DROP`, `ALTER` | `SqlGrant.java` L57, 51 | SQL parser for lifecycle grants |
+| `DatasetConfig.owner` field | `dataset.proto` L34 | VDS definer identity storage |
+| `CatalogIdentity` / `CatalogUser` | `CatalogIdentity.java`, `CatalogUser.java` | Identity type for definer |
+
+### New APIs needed
+
+None. All required interfaces exist. The work is wiring existing hooks, not adding new APIs.
+
+---
+
+## 7. Concrete File Change Manifest
+
+| File | Change | Risk |
+|------|--------|------|
+| `sabot/kernel/src/main/java/com/dremio/exec/catalog/CatalogEntityOwnershipImpl.java` | Return `Optional.of(new CatalogUser(owner))` for VIRTUAL_DATASET when `owner` is non-null | LOW — single conditional, backward-compatible (empty string falls through to existing null) |
+| `sabot/kernel/src/main/java/com/dremio/exec/catalog/CatalogImpl.java` | Add `isRbacDeniedForPds()`, call from all `getTable*()` methods; add `validatePrivilege()` in `dropView()` and `updateView()` | MEDIUM — touching hot path; needs careful guard conditions |
+| `dac/backend/src/main/java/com/dremio/dac/service/catalog/CatalogServiceHelper.java` | Audit listing paths; extend `filterByVisibility()` for opt-in PDS filtering | LOW — additive; existing VDS filter is not changed |
+| `dac/backend/src/main/java/com/dremio/dac/service/datasets/DACViewCreatorFactory.java` | Verify `DatasetConfig.owner` is written at VDS create/update | LOW — add one line if not already set; low blast radius |
+
+### Proto changes
+
+None. `rbac.proto` does not need new message types. `dataset.proto` `owner` field already exists. No new KV stores, no new proto messages.
+
+### SQL grammar changes
+
+None. `PDS`, `ALTER`, `DROP`, `SHOW` are already in the grammar. `SqlGrantOnCatalog` and `SqlRevokeOnCatalog` already accept these tokens.
+
+---
+
+## 8. Alternatives Considered
+
+| Decision | Chosen | Alternative | Why Not |
+|----------|--------|-------------|---------|
+| PDS enforcement | Opt-in (allow if no grants exist for the path) | Deny-by-default (like VDS) | Breaking: all existing physical datasets would disappear for non-admin users |
+| Container visibility | Keep containers always visible | Recursive SHOW privilege check | O(N) subtree scan — unacceptable at scale |
+| VDS owner resolution | Change `CatalogEntityOwnershipImpl` | Store owner in a new RBAC-specific store | Redundant; `DatasetConfig.owner` already exists and is the canonical source |
+| UDF invoker semantics | Enforce via existing `isRbacDeniedForFunction()` | Enforce at the Calcite function expansion layer | `isRbacDeniedForFunction()` already covers all paths; planner layer would be duplicate |
+| VDS DROP enforcement | Add call in `CatalogImpl.dropView()` | Add check in SQL handler before `dropView()` | Handler-only check misses REST API delete path |
+
+---
+
+## 9. Confidence Assessment
+
+| Area | Level | Reason |
+|------|-------|--------|
+| VDS definer rights hook | HIGH | `ViewExpander.expandRelNode()` already does `withUser(viewOwner)`. Gap is only in `CatalogEntityOwnershipImpl` returning empty for VDS. |
+| UDF owner resolution | MEDIUM | `FunctionConfig.owner` existence confirmed via `UserDefinedFunctionServiceImpl`; not traced through all UDF creation paths |
+| PDS SELECT enforcement | HIGH for storage, MEDIUM for opt-in design | Grant key supports PDS; opt-in vs deny-by-default is a policy choice that needs explicit sign-off |
+| Container visibility | HIGH | "Keep containers visible" is the correct design; recursive visibility would break at scale |
+| VDS ALTER/DROP enforcement | HIGH | Pure call-site addition to existing `validatePrivilege()` mechanism |
+| `DatasetConfig.owner` being written on VDS create | MEDIUM | Field exists but trace through `DACViewCreatorFactory` → `datasetVersionMutator.save()` was not fully verified |
+
+---
+
+*Research: 2026-02-20. Based on direct inspection of Dremio OSS codebase, branch `rbac`. All line numbers verified against live code.*
