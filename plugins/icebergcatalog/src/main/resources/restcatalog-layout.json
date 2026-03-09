@@ -36,6 +36,15 @@
                 "validate": { "isRequired": false }
               }
             ]
+          },
+          {
+            "name": "Nessie Options",
+            "elements": [
+              {
+                "propName": "config.enableNessie",
+                "validate": { "isRequired": false }
+              }
+            ]
           }
         ]
       },
