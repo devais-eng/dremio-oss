@@ -62,12 +62,12 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 
 </details>
 
-### 🚧 v1.4 Nessie Branch-Aware REST Catalog (In Progress)
+### v1.4 Nessie Branch-Aware REST Catalog (In Progress)
 
 **Milestone Goal:** Enable Nessie version-control features (AT BRANCH) through the existing RESTCATALOG source type, allowing multi-branch queries against Nessie REST catalog servers.
 
-- [ ] **Phase 21: Configuration and Nessie Detection** - enableNessie toggle, auto-detect Nessie backend, discover default branch
-- [ ] **Phase 22: Branch-Aware Catalog Infrastructure** - Per-branch RESTCatalog cache with Caffeine, branch-isolated table caching
+- [x] **Phase 21: Configuration and Nessie Detection** - enableNessie toggle, auto-detect Nessie backend, discover default branch (completed 2026-03-09)
+- [x] **Phase 22: Branch-Aware Catalog Infrastructure** - Per-branch RESTCatalog cache with Caffeine, branch-isolated table caching (completed 2026-03-09)
 - [ ] **Phase 23: CatalogImpl Integration and AT BRANCH Queries** - Wire SupportsBranchAwareRestCatalog into query pipeline, plan cache safety
 - [ ] **Phase 24: Multi-Branch Queries and Hardening** - Cross-branch JOINs, error handling, edge case hardening
 
@@ -96,11 +96,10 @@ Plans:
   1. Requesting a catalog accessor for a branch returns a RESTCatalog instance initialized with that branch's URI prefix, and repeated requests for the same branch return the cached instance
   2. The branch cache is bounded (max entries) and evicts stale entries by TTL, calling `close()` on evicted RESTCatalog instances to prevent connection pool exhaustion
   3. Table metadata loaded via one branch's accessor is never returned for a different branch -- each per-branch accessor has its own isolated table cache
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 22-01: TBD
-- [ ] 22-02: TBD
+- [ ] 22-01-PLAN.md — Per-branch RESTCatalog cache with Caffeine, plugin lifecycle integration
 
 ### Phase 23: CatalogImpl Integration and AT BRANCH Queries
 **Goal**: Users can run SELECT queries with AT BRANCH syntax on Nessie-enabled RESTCATALOG sources, with correct default branch behavior and plan cache safety
@@ -170,7 +169,7 @@ Phases execute in numeric order: 21 → 22 → 23 → 24
 | 18. Code Hardening | v1.3 | 1/1 | Complete | 2026-02-23 |
 | 19. Test Coverage and Documentation | v1.3 | 1/1 | Complete | 2026-02-23 |
 | 20. File Browse and Promote RBAC Enforcement | v1.3 | 2/2 | Complete | 2026-02-23 |
-| 21. Configuration and Nessie Detection | v1.4 | 0/2 | Not started | - |
-| 22. Branch-Aware Catalog Infrastructure | v1.4 | 0/? | Not started | - |
+| 21. Configuration and Nessie Detection | v1.4 | Complete    | 2026-03-09 | - |
+| 22. Branch-Aware Catalog Infrastructure | v1.4 | Complete    | 2026-03-09 | - |
 | 23. CatalogImpl Integration and AT BRANCH Queries | v1.4 | 0/? | Not started | - |
 | 24. Multi-Branch Queries and Hardening | v1.4 | 0/? | Not started | - |
