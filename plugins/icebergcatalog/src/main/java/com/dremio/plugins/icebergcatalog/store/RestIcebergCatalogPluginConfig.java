@@ -28,7 +28,7 @@ import javax.inject.Provider;
 public class RestIcebergCatalogPluginConfig extends IcebergCatalogPluginConfig {
 
   // 1-9   - IcebergCatalogPluginConfig
-  // 10-19 - RestIcebergCatalogPluginConfig
+  // 10-19 - RestIcebergCatalogPluginConfig (10=restEndpointUri, 11=allowedNamespaces, 12=isRecursiveAllowedNamespaces, 13=enableNessie)
   // 20-109 - Reserved by other plugins
 
   @Tag(10)
@@ -52,6 +52,10 @@ public class RestIcebergCatalogPluginConfig extends IcebergCatalogPluginConfig {
    * as NS separator regex sequence, by default "\\."
    */
   public boolean isRecursiveAllowedNamespaces = true;
+
+  @Tag(13)
+  @DisplayMetadata(label = "Enable Nessie Version Control")
+  public boolean enableNessie = false;
 
   public String getRestEndpointURI(DremioConfig dremioConfig) {
     return restEndpointUri;
