@@ -2,16 +2,35 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-01)
+See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** Planning next milestone
+**Current focus:** v1.4 Nessie Branch-Aware REST Catalog -- Phase 21
 
 ## Current Position
 
-Milestone: All milestones complete. Next milestone TBD.
-Status: All milestones complete (v1.0, v1.1, v1.2, v1.3). No active milestone.
-Last activity: 2026-03-02 - Completed quick task 8: Enable RBAC and PDS SELECT enforcement by default in dremio-reference.conf.
+Phase: 21 of 24 (Configuration and Nessie Detection)
+Plan: 1 of 2 complete
+Status: Executing
+Last activity: 2026-03-09 — Completed 21-01 (enableNessie config field)
+
+Progress: [█░░░░░░░░░] 10%
+
+## Performance Metrics
+
+**Velocity:**
+- Total plans completed: 38 (across v1.0-v1.3)
+- Average duration: ~15 min
+- Total execution time: ~9.5 hours
+
+**By Phase (v1.4):**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| 21 | 1/2 | 3min | 3min |
+| 22 | TBD | - | - |
+| 23 | TBD | - | - |
+| 24 | TBD | - | - |
 
 ## Shipped Milestones
 
@@ -20,24 +39,28 @@ Last activity: 2026-03-02 - Completed quick task 8: Enable RBAC and PDS SELECT e
 - v1.2 GitHub Actions Docker Distribution — 3 phases, 3 plans (shipped 2026-02-21)
 - v1.3 Privilege Context & Enforcement — 9 phases, 17 plans (shipped 2026-02-24)
 
-## Known Limitations / Future Improvements
+## Accumulated Context
 
-- **UI search for promoted PDS**: Non-admin users cannot discover promoted PDS via the global UI search bar. Users CAN still see and query granted PDS via the SQL editor left panel.
-- **Guard applies to all source types**: File browse/promote guards block non-admin access for ALL source types, including database/catalog sources where there are no files to browse.
-- **bulkGetTables() PDS performance**: One listGrantsByObject() call per table in batch — needs profiling at scale.
-- **Credential vending gap (v1.1)**: DremioFileIO discards vended credentials from Iceberg loadTable(); static fs.s3a.* workaround works for long-lived creds but fails for IAM/STS short-lived tokens.
+### Decisions
 
-### Quick Tasks Completed
+- v1.4 architecture: Narrow `SupportsBranchAwareRestCatalog` interface (3 methods) instead of full `VersionedPlugin` (25+ methods)
+- v1.4 caching: Per-branch `RESTCatalog` instances in Caffeine cache (bounded, TTL eviction)
+- v1.4 plan cache: Exclude Nessie-enabled RESTCATALOG sources entirely for MVP (same as native Nessie)
+- v1.4 compatibility: `enableNessie=false` (default) means zero new code paths execute
+- 21-01: Used primitive boolean (not Boolean wrapper) for enableNessie for backward-compatible protostuff deserialization
+- 21-01: Placed Nessie Options in General tab (not Advanced Options) for discoverability
 
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 4 | merge develop and align .planning directory. | 2026-03-01 | da7cb6b2c | [4-merge-develop-and-align-planning-directo](./quick/4-merge-develop-and-align-planning-directo/) |
-| 5 | remove .planning from .gitignore | 2026-03-01 | 6ca527087 | [5-remove-planning-from-gitignore](./quick/5-remove-planning-from-gitignore/) |
-| 6 | Read the opened pull requests and evaluate the comments of copilot. | 2026-03-02 | — | [6-read-the-opened-pull-requests-and-evalua](./quick/6-read-the-opened-pull-requests-and-evalua/) |
-| 7 | Apply all actionable Copilot review items (O(1) roleIds, precomputed-path overload, semicolon injection block). | 2026-03-02 | 246251057 | [7-apply-all-actionable-copilot-review-item](./quick/7-apply-all-actionable-copilot-review-item/) |
-| 8 | Enable RBAC and PDS SELECT enforcement by default (dremio-reference.conf). | 2026-03-02 | afb403227 | [8-enable-rbac-by-default](./quick/8-enable-rbac-by-default/) |
+### Pending Todos
+
+None yet.
+
+### Blockers/Concerns
+
+- Commit hash as REST prefix: Does Nessie accept commit hashes in Iceberg REST URI prefix? (AT COMMIT deferred to future, but verify during Phase 22)
+- OAuth token lifecycle: Each per-branch RESTCatalog may maintain its own OAuth2 session (verify during Phase 22)
 
 ## Session Continuity
 
-Last session: 2026-03-02
-Stopped at: Quick task 8 complete — Enabled RBAC enforcement by default: services.rbac.enabled and services.rbac.pds.enabled flipped to true in dremio-reference.conf.
+Last session: 2026-03-09
+Stopped at: Completed 21-01-PLAN.md (enableNessie config field). Ready for 21-02.
+Resume file: None
