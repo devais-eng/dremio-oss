@@ -61,5 +61,15 @@ public final class IcebergCatalogPluginOptions {
           new TypeValidators.PositiveLongValidator(
               "plugins.restcatalog.catalog.expire_seconds", 3600 /* an hour */, 1800);
 
+  public static final TypeValidators.PositiveLongValidator
+      RESTCATALOG_PLUGIN_NESSIE_BRANCH_CACHE_MAX_SIZE =
+          new TypeValidators.PositiveLongValidator(
+              "plugins.restcatalog.nessie.branch_cache.max_size", 1000, 20);
+
+  public static final TypeValidators.PositiveLongValidator
+      RESTCATALOG_PLUGIN_NESSIE_BRANCH_CACHE_EXPIRE_AFTER_ACCESS_SECONDS =
+          new TypeValidators.PositiveLongValidator(
+              "plugins.restcatalog.nessie.branch_cache.expire_after_access_seconds", 7200, 1800);
+
   private IcebergCatalogPluginOptions() {}
 }
