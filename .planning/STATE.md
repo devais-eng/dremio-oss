@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.4 Nessie Branch-Aware REST Catalog -- Phase 21
+**Current focus:** v1.4 Nessie Branch-Aware REST Catalog -- Phase 22
 
 ## Current Position
 
-Phase: 21 of 24 (Configuration and Nessie Detection)
-Plan: 1 of 2 complete
-Status: Executing
-Last activity: 2026-03-09 — Completed 21-01 (enableNessie config field)
+Phase: 22 of 24 (Branch-Aware Catalog)
+Plan: 0 of TBD complete
+Status: Ready
+Last activity: 2026-03-09 — Completed Phase 21 (Configuration and Nessie Detection)
 
-Progress: [█░░░░░░░░░] 10%
+Progress: [██░░░░░░░░] 20%
 
 ## Performance Metrics
 
@@ -27,7 +27,7 @@ Progress: [█░░░░░░░░░] 10%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 21 | 1/2 | 3min | 3min |
+| 21 | 2/2 | 7min | 3.5min |
 | 22 | TBD | - | - |
 | 23 | TBD | - | - |
 | 24 | TBD | - | - |
@@ -49,6 +49,9 @@ Progress: [█░░░░░░░░░] 10%
 - v1.4 compatibility: `enableNessie=false` (default) means zero new code paths execute
 - 21-01: Used primitive boolean (not Boolean wrapper) for enableNessie for backward-compatible protostuff deserialization
 - 21-01: Placed Nessie Options in General tab (not Advanced Options) for discoverability
+- 21-02: Used volatile fields for isNessieDetected/defaultBranch for cross-thread visibility from start() to query threads
+- 21-02: Broad Exception catch in detectNessieBackend() ensures source startup never fails due to detection
+- 21-02: Used cached getCatalog() path (ExpiringCatalogCache) for property reads, not raw catalogSupplier
 
 ### Pending Todos
 
@@ -62,5 +65,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 21-01-PLAN.md (enableNessie config field). Ready for 21-02.
+Stopped at: Completed Phase 21 (21-02-PLAN.md, Nessie detection). Ready for Phase 22.
 Resume file: None
