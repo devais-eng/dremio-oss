@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 ## Current Position
 
 Phase: 22 of 24 (Branch-Aware Catalog)
-Plan: 0 of TBD complete
-Status: Ready
-Last activity: 2026-03-09 — Completed Phase 21 (Configuration and Nessie Detection)
+Plan: 1 of 1 complete
+Status: Phase 22 Complete
+Last activity: 2026-03-09 — Completed Phase 22, Plan 01 (Branch-Aware Catalog Infrastructure)
 
-Progress: [██░░░░░░░░] 20%
+Progress: [███░░░░░░░] 30%
 
 ## Performance Metrics
 
@@ -28,7 +28,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 21 | 2/2 | 7min | 3.5min |
-| 22 | TBD | - | - |
+| 22 | 1/1 | 5min | 5min |
 | 23 | TBD | - | - |
 | 24 | TBD | - | - |
 
@@ -52,6 +52,10 @@ Progress: [██░░░░░░░░] 20%
 - 21-02: Used volatile fields for isNessieDetected/defaultBranch for cross-thread visibility from start() to query threads
 - 21-02: Broad Exception catch in detectNessieBackend() ensures source startup never fails due to detection
 - 21-02: Used cached getCatalog() path (ExpiringCatalogCache) for property reads, not raw catalogSupplier
+- 22-01: expireAfterAccess (not expireAfterWrite) so actively-used branches stay cached
+- 22-01: Branch cache initialized only when isNessieDetected=true (zero new paths when Nessie not detected)
+- 22-01: Branch URI constructed by appending branchName to restEndpoint (no URL encoding)
+- 22-01: close() calls branchAccessorCache.close() before super.close()
 
 ### Pending Todos
 
@@ -65,5 +69,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed Phase 21 (21-02-PLAN.md, Nessie detection). Ready for Phase 22.
+Stopped at: Completed 22-01-PLAN.md (Branch-Aware Catalog Infrastructure). Ready for Phase 23.
 Resume file: None
