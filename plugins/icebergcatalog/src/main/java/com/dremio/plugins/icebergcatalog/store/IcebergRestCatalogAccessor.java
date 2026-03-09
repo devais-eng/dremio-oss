@@ -66,6 +66,18 @@ public class IcebergRestCatalogAccessor extends AbstractRestCatalogAccessor {
     return props.get(DEFAULT_BASE_LOCATION);
   }
 
+  /**
+   * Returns the properties from the underlying RESTCatalog instance. Uses the cached catalog path
+   * (ExpiringCatalogCache) to avoid creating throwaway instances. Package-private for use by
+   * RestIcebergCatalogPlugin.
+   */
+  Map<String, String> getRestCatalogProperties() {
+    Catalog catalog = getCatalog(); // Uses ExpiringCatalogCache (lazy init, cached)
+    Preconditions.checkState(
+        catalog instanceof RESTCatalog, "Catalog is not an instance of RESTCatalog");
+    return ((RESTCatalog) catalog).properties();
+  }
+
   @Override
   public Transaction createTableTransactionForNewTable(
       TableIdentifier tableIdentifier, Schema schema) {

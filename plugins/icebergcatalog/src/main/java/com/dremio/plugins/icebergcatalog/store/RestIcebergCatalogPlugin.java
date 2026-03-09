@@ -115,6 +115,7 @@ public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin {
   private final Provider<StoragePluginId> pluginIdProvider;
   private final List<Property> configPropertyList;
   private final String name;
+  private final boolean enableNessie;
 
   public RestIcebergCatalogPlugin(
       RestIcebergCatalogPluginConfig pluginConfig,
@@ -129,6 +130,7 @@ public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin {
     this.optionManager = sabotContext.getOptionManager();
     this.configPropertyList = getConfigPropertyList(pluginConfig);
     this.name = name;
+    this.enableNessie = pluginConfig.enableNessie;
   }
 
   private static List<Property> getConfigPropertyList(RestIcebergCatalogPluginConfig pluginConfig) {
