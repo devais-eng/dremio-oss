@@ -108,6 +108,13 @@ import org.apache.iceberg.rest.RESTCatalog;
 import org.apache.iceberg.types.Types;
 
 public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin {
+  private static final org.slf4j.Logger logger =
+      org.slf4j.LoggerFactory.getLogger(RestIcebergCatalogPlugin.class);
+
+  private static final String NESSIE_IS_NESSIE_CATALOG = "nessie.is-nessie-catalog";
+  private static final String NESSIE_DEFAULT_BRANCH_NAME = "nessie.default-branch.name";
+  private static final String DEFAULT_BRANCH_FALLBACK = "main";
+
   private final List<String> allowedNamespaces;
   private final boolean isRecursiveAllowedNamespaces;
   private final String restEndpoint;
@@ -116,6 +123,8 @@ public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin {
   private final List<Property> configPropertyList;
   private final String name;
   private final boolean enableNessie;
+  private volatile boolean isNessieDetected = false;
+  private volatile String defaultBranch = null;
 
   public RestIcebergCatalogPlugin(
       RestIcebergCatalogPluginConfig pluginConfig,
@@ -142,6 +151,77 @@ public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin {
       props.addAll(pluginConfig.secretPropertyList);
     }
     return props;
+  }
+
+  @Override
+  public void start() throws IOException {
+    super.start(); // Creates catalogAccessor, sets isOpen=true
+    detectNessieBackend();
+  }
+
+  private void detectNessieBackend() {
+    if (!enableNessie) {
+      return; // CMP-01: no new code runs when enableNessie=false
+    }
+
+    try {
+      CatalogAccessor accessor = getCatalogAccessor();
+      Preconditions.checkState(
+          accessor instanceof IcebergRestCatalogAccessor,
+          "Expected IcebergRestCatalogAccessor but got %s",
+          accessor.getClass().getSimpleName());
+      Map<String, String> props =
+          ((IcebergRestCatalogAccessor) accessor).getRestCatalogProperties();
+
+      String isNessieCatalog = props.get(NESSIE_IS_NESSIE_CATALOG);
+      if ("true".equals(isNessieCatalog)) {
+        this.isNessieDetected = true;
+        String branch = props.get(NESSIE_DEFAULT_BRANCH_NAME);
+        if (branch == null || branch.isEmpty()) {
+          logger.warn(
+              "Nessie backend detected but default branch name not found in config response. "
+                  + "Falling back to '{}'.",
+              DEFAULT_BRANCH_FALLBACK);
+          branch = DEFAULT_BRANCH_FALLBACK;
+        }
+        this.defaultBranch = branch;
+        logger.info(
+            "Nessie backend detected for source '{}'. Default branch: {}",
+            getName(),
+            this.defaultBranch);
+      } else {
+        logger.warn(
+            "enableNessie is true for source '{}' but backend does not appear to be Nessie "
+                + "(nessie.is-nessie-catalog not found in config response). "
+                + "Nessie features will be disabled.",
+            getName());
+        this.isNessieDetected = false;
+      }
+    } catch (Exception e) {
+      logger.warn(
+          "Failed to detect Nessie backend for source '{}'. "
+              + "Nessie features will be disabled.",
+          getName(),
+          e);
+      this.isNessieDetected = false;
+      this.defaultBranch = DEFAULT_BRANCH_FALLBACK;
+    }
+  }
+
+  /**
+   * Returns true if enableNessie is set AND the backend was confirmed to be Nessie during start().
+   * Phase 22+ uses this to decide whether to activate branch-aware behavior.
+   */
+  public boolean isNessieDetected() {
+    return isNessieDetected;
+  }
+
+  /**
+   * Returns the default branch name discovered from the Nessie server config, or "main" as
+   * fallback. Only meaningful when isNessieDetected() returns true.
+   */
+  public String getDefaultBranch() {
+    return defaultBranch;
   }
 
   @Override
