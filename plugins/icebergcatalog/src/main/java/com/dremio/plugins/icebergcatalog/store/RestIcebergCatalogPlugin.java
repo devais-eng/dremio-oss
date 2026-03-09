@@ -19,6 +19,8 @@ import static com.dremio.exec.catalog.CatalogOptions.RESTCATALOG_FOLDERS_SUPPORT
 import static com.dremio.exec.catalog.CatalogOptions.RESTCATALOG_VIEWS_SUPPORTED;
 import static com.dremio.exec.store.IcebergCatalogPluginOptions.RESTCATALOG_PLUGIN_ENABLED;
 import static com.dremio.exec.store.IcebergCatalogPluginOptions.RESTCATALOG_PLUGIN_MUTABLE_ENABLED;
+import static com.dremio.exec.store.IcebergCatalogPluginOptions.RESTCATALOG_PLUGIN_NESSIE_BRANCH_CACHE_EXPIRE_AFTER_ACCESS_SECONDS;
+import static com.dremio.exec.store.IcebergCatalogPluginOptions.RESTCATALOG_PLUGIN_NESSIE_BRANCH_CACHE_MAX_SIZE;
 import static com.dremio.plugins.icebergcatalog.store.IcebergCatalogPluginUtils.NAMESPACE_SEPARATOR;
 
 import com.dremio.catalog.exception.CatalogEntityAlreadyExistsException;
@@ -125,6 +127,7 @@ public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin {
   private final boolean enableNessie;
   private volatile boolean isNessieDetected = false;
   private volatile String defaultBranch = null;
+  private volatile BranchAwareCatalogAccessorCache branchAccessorCache;
 
   public RestIcebergCatalogPlugin(
       RestIcebergCatalogPluginConfig pluginConfig,
@@ -157,6 +160,20 @@ public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin {
   public void start() throws IOException {
     super.start(); // Creates catalogAccessor, sets isOpen=true
     detectNessieBackend();
+    if (isNessieDetected) {
+      branchAccessorCache =
+          new BranchAwareCatalogAccessorCache(
+              (int) optionManager.getOption(RESTCATALOG_PLUGIN_NESSIE_BRANCH_CACHE_MAX_SIZE),
+              optionManager.getOption(
+                  RESTCATALOG_PLUGIN_NESSIE_BRANCH_CACHE_EXPIRE_AFTER_ACCESS_SECONDS),
+              this::createBranchScopedAccessor);
+      logger.info(
+          "Branch accessor cache initialized for source '{}' (max={}, ttl={}s)",
+          getName(),
+          optionManager.getOption(RESTCATALOG_PLUGIN_NESSIE_BRANCH_CACHE_MAX_SIZE),
+          optionManager.getOption(
+              RESTCATALOG_PLUGIN_NESSIE_BRANCH_CACHE_EXPIRE_AFTER_ACCESS_SECONDS));
+    }
   }
 
   private void detectNessieBackend() {
@@ -222,6 +239,51 @@ public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin {
    */
   public String getDefaultBranch() {
     return defaultBranch;
+  }
+
+  /**
+   * Returns a CatalogAccessor scoped to the given branch. The accessor is cached -- repeated calls
+   * with the same branch return the same instance. Each branch accessor has its own isolated table
+   * cache (INF-02).
+   *
+   * @throws IllegalStateException if Nessie was not detected during start()
+   */
+  public CatalogAccessor getCatalogAccessorForBranch(String branchName) {
+    Preconditions.checkState(
+        isNessieDetected && branchAccessorCache != null,
+        "Branch-aware access requires Nessie-detected source. isNessieDetected=%s",
+        isNessieDetected);
+    return branchAccessorCache.getOrCreate(branchName);
+  }
+
+  private IcebergRestCatalogAccessor createBranchScopedAccessor(String branchName) {
+    Configuration config = getFsConfCopy();
+    Map<String, String> properties = buildCatalogProperties(config);
+    // Append branch name to base REST endpoint to create branch-scoped URI
+    // e.g., "http://nessie:19120/iceberg" -> "http://nessie:19120/iceberg/dev"
+    String branchUri = restEndpoint + "/" + branchName;
+    properties.put(CatalogProperties.URI, branchUri);
+
+    Supplier<Catalog> catalogSupplier =
+        () ->
+            CatalogUtil.loadCatalog(
+                restCatalogImpl().getName(), catalogName(), properties, config);
+
+    return new IcebergRestCatalogAccessor(
+        catalogSupplier, optionManager, getAllowedNamespaces(), isRecursiveAllowedNamespaces());
+  }
+
+  @Override
+  public void close() throws Exception {
+    try {
+      if (branchAccessorCache != null) {
+        branchAccessorCache.close();
+        branchAccessorCache = null;
+      }
+    } catch (Exception e) {
+      logger.warn("Failed to close branch accessor cache for source '{}'", getName(), e);
+    }
+    super.close();
   }
 
   @Override
