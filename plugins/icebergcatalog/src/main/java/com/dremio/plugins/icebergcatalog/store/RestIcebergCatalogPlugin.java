@@ -184,6 +184,11 @@ public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin
     }
   }
 
+  @Override
+  protected List<Property> getConfigProperties() {
+    return configPropertyList;
+  }
+
   private void detectNessieBackend() {
     if (!enableNessie) {
       return; // CMP-01: no new code runs when enableNessie=false

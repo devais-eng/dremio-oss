@@ -39,6 +39,7 @@ import com.dremio.exec.catalog.SupportsFolderIngestion;
 import com.dremio.exec.catalog.SupportsMutatingFolders;
 import com.dremio.exec.catalog.SupportsMutatingViews;
 import com.dremio.exec.catalog.SupportsRefreshViews;
+import com.dremio.exec.catalog.conf.Property;
 import com.dremio.exec.physical.base.OpProps;
 import com.dremio.exec.physical.config.TableFunctionConfig;
 import com.dremio.exec.planner.physical.PlannerSettings;
@@ -150,6 +151,31 @@ public abstract class IcebergCatalogPlugin
     hadoopConf.set(
         ExecConstants.ENABLE_S3_V2_CLIENT.getOptionName(),
         Boolean.toString(optionManager.getOption(ExecConstants.ENABLE_S3_V2_CLIENT)));
+  }
+
+  /**
+   * Returns plugin-specific properties to merge into the Hadoop Configuration during start(),
+   * before the filesystem cache is created. Subclasses override to supply their configPropertyList
+   * (e.g., fs.s3a.endpoint, credentials). Base implementation returns empty list (no extra
+   * properties).
+   */
+  protected List<Property> getConfigProperties() {
+    return Collections.emptyList();
+  }
+
+  /**
+   * Eagerly merges properties from {@link #getConfigProperties()} into the filesystem configuration
+   * adapter. Must be called in {@link #start()} before {@link #createFSCache()} so that
+   * getFsConfCopy() returns a fully-populated Configuration.
+   */
+  protected void mergeConfigPropertiesIntoFsConf() {
+    List<Property> properties = getConfigProperties();
+    if (properties != null && !properties.isEmpty()) {
+      Configuration conf = fsConfAdapter.getConfiguration();
+      for (Property p : properties) {
+        conf.set(p.name, p.value);
+      }
+    }
   }
 
   protected DatasetFileSystemCache createFSCache() {
@@ -272,6 +298,7 @@ public abstract class IcebergCatalogPlugin
   @Override
   public void start() throws IOException {
     validateOnStart();
+    mergeConfigPropertiesIntoFsConf(); // Eagerly merge config properties before FS cache creation
     catalogAccessor = createCatalog(fsConfAdapter.getConfiguration());
     hadoopFs = createFSCache();
     isOpen.set(true);
