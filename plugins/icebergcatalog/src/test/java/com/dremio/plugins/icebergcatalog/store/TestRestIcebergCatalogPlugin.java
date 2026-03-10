@@ -45,6 +45,7 @@ import com.dremio.context.UserContext;
 import com.dremio.exec.ExecConstants;
 import com.dremio.exec.catalog.PluginSabotContext;
 import com.dremio.exec.catalog.StoragePluginId;
+import com.dremio.exec.catalog.conf.Property;
 import com.dremio.exec.physical.base.ViewOptions;
 import com.dremio.exec.physical.base.WriterOptions;
 import com.dremio.exec.planner.physical.PlannerSettings;
@@ -697,6 +698,44 @@ public class TestRestIcebergCatalogPlugin extends BaseTestQuery {
         this.plugin
             .getFsConfCopy()
             .getBoolean(ExecConstants.ENABLE_S3_V2_CLIENT.getOptionName(), false));
+  }
+
+  @Test
+  public void testConfigPropertyListIsPropagatedToFsConf() throws Exception {
+    // Create a config with S3 properties in propertyList
+    RestIcebergCatalogPluginConfig config = new RestIcebergCatalogPluginConfig();
+    config.restEndpointUri = "http://localhost:8181/catalog/api";
+    config.propertyList = new java.util.ArrayList<>();
+    Property endpoint = new Property();
+    endpoint.name = "fs.s3a.endpoint";
+    endpoint.value = "http://minio:9000";
+    config.propertyList.add(endpoint);
+    Property pathStyle = new Property();
+    pathStyle.name = "fs.s3a.path.style.access";
+    pathStyle.value = "true";
+    config.propertyList.add(pathStyle);
+
+    // Also verify secretPropertyList propagation
+    config.secretPropertyList = new java.util.ArrayList<>();
+    Property accessKey = new Property();
+    accessKey.name = "fs.s3a.access.key";
+    accessKey.value = "minioadmin";
+    config.secretPropertyList.add(accessKey);
+    Property secretKey = new Property();
+    secretKey.name = "fs.s3a.secret.key";
+    secretKey.value = "minioadmin";
+    config.secretPropertyList.add(secretKey);
+
+    RestIcebergCatalogPlugin testPlugin =
+        new RestIcebergCatalogPluginMock(
+            config, pluginSabotContext, "s3-config-test", () -> storagePluginId);
+    testPlugin.start();
+
+    Configuration fsConf = testPlugin.getFsConfCopy();
+    assertThat(fsConf.get("fs.s3a.endpoint")).isEqualTo("http://minio:9000");
+    assertThat(fsConf.get("fs.s3a.path.style.access")).isEqualTo("true");
+    assertThat(fsConf.get("fs.s3a.access.key")).isEqualTo("minioadmin");
+    assertThat(fsConf.get("fs.s3a.secret.key")).isEqualTo("minioadmin");
   }
 
   // --- Nessie detection tests ---
