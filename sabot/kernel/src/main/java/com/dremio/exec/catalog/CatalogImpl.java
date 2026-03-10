@@ -1031,6 +1031,13 @@ public class CatalogImpl implements Catalog {
 
     if (managedStoragePlugin.getPlugin().get().isWrapperFor(VersionedPlugin.class)) {
       return getDatasetHandleForVersionedSource(managedStoragePlugin, key, context);
+    } else if (managedStoragePlugin
+            .getPlugin()
+            .get()
+            .isWrapperFor(SupportsBranchAwareRestCatalog.class)
+        && context != null
+        && !context.isTimeTravelType()) {
+      return getDatasetHandleForBranchAwareRestSource(managedStoragePlugin, key, context);
     } else {
       return getDatasetHandleForNonVersionedSource(managedStoragePlugin, key);
     }
@@ -1098,6 +1105,24 @@ public class CatalogImpl implements Catalog {
 
     Preconditions.checkState(handle.isPresent());
     return handle.get();
+  }
+
+  private DatasetHandle getDatasetHandleForBranchAwareRestSource(
+      ManagedStoragePlugin managedStoragePlugin,
+      NamespaceKey key,
+      TableVersionContext context) {
+    SupportsBranchAwareRestCatalog branchPlugin =
+        managedStoragePlugin.getPlugin().get().unwrap(SupportsBranchAwareRestCatalog.class);
+
+    VersionContext versionContext = context.asVersionContext();
+    ResolvedVersionContext resolved = branchPlugin.resolveVersionContext(versionContext);
+    String branchName = resolved.getRefName();
+
+    EntityPath entityPath = new EntityPath(key.getPathComponents());
+    Optional<DatasetHandle> handle =
+        branchPlugin.getDatasetHandleForBranch(branchName, entityPath);
+
+    return handle.orElse(null);
   }
 
   private Optional<VersionedDatasetAccessOptions> getVersionedPluginAccessOption(
