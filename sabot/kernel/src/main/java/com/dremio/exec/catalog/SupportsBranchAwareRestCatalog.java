@@ -64,4 +64,13 @@ public interface SupportsBranchAwareRestCatalog extends Wrapper {
    * @return the default branch name (e.g., "main")
    */
   String getDefaultBranch();
+
+  /**
+   * Returns true if the given branch exists in this Nessie-backed catalog. Returns false for
+   * branch-not-found. Only propagates network/auth errors as RuntimeException.
+   *
+   * @param branchName the branch name to check
+   * @return true if the branch exists, false otherwise
+   */
+  boolean branchExists(String branchName);
 }

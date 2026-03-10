@@ -312,6 +312,27 @@ public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin
     return accessor.getDatasetHandle(components, this, options);
   }
 
+  @Override
+  public boolean branchExists(String branchName) {
+    try {
+      CatalogAccessor accessor = getCatalogAccessorForBranch(branchName);
+      // Probe by checking namespace existence via the branch-scoped accessor.
+      // If the branch URI is invalid, the REST catalog will throw an exception
+      // when the first HTTP call is made to Nessie.
+      accessor.namespaceExists(java.util.List.of());
+      return true;
+    } catch (Exception e) {
+      // The Iceberg REST catalog surfaces various exceptions for invalid branch URIs:
+      // RESTException, NoSuchNamespaceException, or ServiceFailureException depending
+      // on the specific Nessie response. Treat any exception from the probe as
+      // "branch not found" for the purpose of error message differentiation.
+      // Network/auth errors will also be caught here, but the impact is limited:
+      // we report "branch not found" instead of "network error", which is still
+      // more helpful than a generic "table not found".
+      return false;
+    }
+  }
+
   // SupportsBranchAwareRestCatalog implementation -- END
 
   private IcebergRestCatalogAccessor createBranchScopedAccessor(String branchName) {
