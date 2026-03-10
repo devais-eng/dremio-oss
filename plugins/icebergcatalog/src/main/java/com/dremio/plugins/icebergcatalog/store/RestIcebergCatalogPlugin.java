@@ -33,9 +33,14 @@ import com.dremio.catalog.model.CatalogEntityKey;
 import com.dremio.catalog.model.CatalogFolder;
 import com.dremio.catalog.model.ImmutableCatalogFolder;
 import com.dremio.catalog.model.ResolvedVersionContext;
+import com.dremio.catalog.model.VersionContext;
 import com.dremio.common.exceptions.UserException;
+import com.dremio.connector.metadata.DatasetHandle;
+import com.dremio.connector.metadata.EntityPath;
+import com.dremio.connector.metadata.GetDatasetOption;
 import com.dremio.context.RequestContext;
 import com.dremio.context.UserContext;
+import com.dremio.exec.catalog.SupportsBranchAwareRestCatalog;
 import com.dremio.exec.catalog.AlterTableOption;
 import com.dremio.exec.catalog.CreateTableOptions;
 import com.dremio.exec.catalog.FolderListing;
@@ -109,7 +114,8 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.rest.RESTCatalog;
 import org.apache.iceberg.types.Types;
 
-public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin {
+public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin
+    implements SupportsBranchAwareRestCatalog {
   private static final org.slf4j.Logger logger =
       org.slf4j.LoggerFactory.getLogger(RestIcebergCatalogPlugin.class);
 
@@ -237,6 +243,7 @@ public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin {
    * Returns the default branch name discovered from the Nessie server config, or "main" as
    * fallback. Only meaningful when isNessieDetected() returns true.
    */
+  @Override
   public String getDefaultBranch() {
     return defaultBranch;
   }
@@ -255,6 +262,57 @@ public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin {
         isNessieDetected);
     return branchAccessorCache.getOrCreate(branchName);
   }
+
+  // SupportsBranchAwareRestCatalog implementation -- START
+
+  @Override
+  public boolean isWrapperFor(Class<?> clazz) {
+    if (SupportsBranchAwareRestCatalog.class.equals(clazz)) {
+      return isNessieDetected;
+    }
+    return super.isWrapperFor(clazz);
+  }
+
+  @Override
+  public <T> T unwrap(Class<T> clazz) {
+    if (SupportsBranchAwareRestCatalog.class.equals(clazz) && isNessieDetected) {
+      return clazz.cast(this);
+    }
+    return super.unwrap(clazz);
+  }
+
+  @Override
+  public ResolvedVersionContext resolveVersionContext(VersionContext versionContext) {
+    switch (versionContext.getType()) {
+      case BRANCH:
+      case BRANCH_AS_OF_TIMESTAMP:
+        return ResolvedVersionContext.ofBranch(versionContext.getValue(), "");
+      case TAG:
+      case TAG_AS_OF_TIMESTAMP:
+        return ResolvedVersionContext.ofTag(versionContext.getValue(), "");
+      case NOT_SPECIFIED:
+        return ResolvedVersionContext.ofBranch(getDefaultBranch(), "");
+      default:
+        throw UserException.validationError()
+            .message(
+                "AT %s is not supported on RESTCATALOG sources with Nessie",
+                versionContext.getType())
+            .buildSilently();
+    }
+  }
+
+  @Override
+  public Optional<DatasetHandle> getDatasetHandleForBranch(
+      String branchName, EntityPath datasetPath, GetDatasetOption... options) {
+    CatalogAccessor accessor = getCatalogAccessorForBranch(branchName);
+    List<String> components = datasetPath.getComponents();
+    if (components.size() < 3) {
+      return Optional.empty();
+    }
+    return accessor.getDatasetHandle(components, this, options);
+  }
+
+  // SupportsBranchAwareRestCatalog implementation -- END
 
   private IcebergRestCatalogAccessor createBranchScopedAccessor(String branchName) {
     Configuration config = getFsConfCopy();
