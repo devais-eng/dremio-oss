@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.4 Nessie Branch-Aware REST Catalog -- Phase 22
+**Current focus:** v1.4 Nessie Branch-Aware REST Catalog -- Phase 23
 
 ## Current Position
 
-Phase: 22 of 24 (Branch-Aware Catalog)
-Plan: 1 of 1 complete
-Status: Phase 22 Complete
-Last activity: 2026-03-09 — Completed Phase 22, Plan 01 (Branch-Aware Catalog Infrastructure)
+Phase: 23 of 24 (CatalogImpl Integration)
+Plan: 1 of 2 complete
+Status: In Progress
+Last activity: 2026-03-10 — Completed Phase 23, Plan 01 (CatalogImpl Integration and AT Branch Queries)
 
-Progress: [███░░░░░░░] 30%
+Progress: [████░░░░░░] 40%
 
 ## Performance Metrics
 
@@ -29,7 +29,7 @@ Progress: [███░░░░░░░] 30%
 |-------|-------|-------|----------|
 | 21 | 2/2 | 7min | 3.5min |
 | 22 | 1/1 | 5min | 5min |
-| 23 | TBD | - | - |
+| 23 | 1/2 | 10min | 10min |
 | 24 | TBD | - | - |
 
 ## Shipped Milestones
@@ -56,6 +56,9 @@ Progress: [███░░░░░░░] 30%
 - 22-01: Branch cache initialized only when isNessieDetected=true (zero new paths when Nessie not detected)
 - 22-01: Branch URI constructed by appending branchName to restEndpoint (no URL encoding)
 - 22-01: close() calls branchAccessorCache.close() before super.close()
+- 23-01: getDatasetHandleForBranch encapsulates branch accessor + table load within plugin to avoid kernel-to-plugin module dependency
+- 23-01: Separate requestedPluginSupportsBranchAwareRest method (not extending requestedPluginSupportsVersionedTables) for semantic clarity
+- 23-01: Lightweight resolveVersionContext with no server round-trip (empty commit hash, backend resolves via URI prefix)
 
 ### Pending Todos
 
@@ -68,6 +71,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09
-Stopped at: Completed 22-01-PLAN.md (Branch-Aware Catalog Infrastructure). Ready for Phase 23.
+Last session: 2026-03-10
+Stopped at: Completed 23-01-PLAN.md (CatalogImpl Integration and AT Branch Queries). Ready for Phase 23, Plan 02.
 Resume file: None
