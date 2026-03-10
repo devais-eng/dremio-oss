@@ -45,6 +45,9 @@ public final class NessieContainer extends GenericContainer<NessieContainer>
    * Configures Nessie to use an S3-compatible object store (e.g., MinIO) as warehouse storage. Must
    * be called before the container is started. Both containers must share a Docker network.
    *
+   * <p>Uses {@code STATIC} S3 auth so Nessie can vend credentials to Iceberg clients. Sets {@code
+   * nessie.catalog.service.s3.default-options.*} properties via Quarkus dotted env vars.
+   *
    * @param minioNetworkAlias the network alias of the MinIO container (e.g., "minio")
    * @param minioPort the MinIO S3 port inside the Docker network (typically 9000)
    * @param externalEndpoint the MinIO S3 endpoint reachable from the test JVM (e.g., {@code
@@ -59,15 +62,20 @@ public final class NessieContainer extends GenericContainer<NessieContainer>
       String externalEndpoint,
       String accessKey,
       String secretKey) {
+    // Nessie/Quarkus accepts lowercase dotted properties directly as environment variables.
+    // This is the same format used by other Nessie testcontainer configurations.
     String internalEndpoint = String.format("http://%s:%d", minioNetworkAlias, minioPort);
-    withEnv("NESSIE_CATALOG_DEFAULT_WAREHOUSE", DEFAULT_WAREHOUSE_NAME);
-    withEnv(
-        "NESSIE_CATALOG_WAREHOUSES__WAREHOUSE__LOCATION", "s3://" + DEFAULT_WAREHOUSE_NAME + "/");
-    withEnv("NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_ENDPOINT", internalEndpoint);
-    withEnv("NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_EXTERNAL_ENDPOINT", externalEndpoint);
-    withEnv("NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_PATH_STYLE_ACCESS", "true");
-    withEnv("NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_REGION", "us-east-1");
-    withEnv("NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_AUTH_TYPE", "APPLICATION_GLOBAL");
+    withEnv("nessie.catalog.default-warehouse", DEFAULT_WAREHOUSE_NAME);
+    withEnv("nessie.catalog.warehouses.warehouse.location", "s3://" + DEFAULT_WAREHOUSE_NAME + "/");
+    withEnv("nessie.catalog.service.s3.default-options.endpoint", internalEndpoint);
+    withEnv("nessie.catalog.service.s3.default-options.external-endpoint", externalEndpoint);
+    withEnv("nessie.catalog.service.s3.default-options.path-style-access", "true");
+    withEnv("nessie.catalog.service.s3.default-options.region", "us-east-1");
+    // Use APPLICATION_DEFAULT auth with AWS environment variables. This is simpler than
+    // STATIC auth (which uses Nessie's secrets system). The container picks up AWS credentials
+    // from standard env vars, which the test JVM also has access to.
+    withEnv("nessie.catalog.service.s3.default-options.auth-type", "APPLICATION_GLOBAL");
+    // Standard AWS SDK environment variables for MinIO credentials
     withEnv("AWS_ACCESS_KEY_ID", accessKey);
     withEnv("AWS_SECRET_ACCESS_KEY", secretKey);
     return this;

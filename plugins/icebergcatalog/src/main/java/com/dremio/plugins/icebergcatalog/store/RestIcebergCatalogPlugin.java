@@ -40,13 +40,13 @@ import com.dremio.connector.metadata.EntityPath;
 import com.dremio.connector.metadata.GetDatasetOption;
 import com.dremio.context.RequestContext;
 import com.dremio.context.UserContext;
-import com.dremio.exec.catalog.SupportsBranchAwareRestCatalog;
 import com.dremio.exec.catalog.AlterTableOption;
 import com.dremio.exec.catalog.CreateTableOptions;
 import com.dremio.exec.catalog.FolderListing;
 import com.dremio.exec.catalog.PluginSabotContext;
 import com.dremio.exec.catalog.RollbackOption;
 import com.dremio.exec.catalog.StoragePluginId;
+import com.dremio.exec.catalog.SupportsBranchAwareRestCatalog;
 import com.dremio.exec.catalog.TableMutationOptions;
 import com.dremio.exec.catalog.conf.DefaultCtasFormatSelection;
 import com.dremio.exec.catalog.conf.Property;
@@ -81,6 +81,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -222,8 +224,7 @@ public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin
       }
     } catch (Exception e) {
       logger.warn(
-          "Failed to detect Nessie backend for source '{}'. "
-              + "Nessie features will be disabled.",
+          "Failed to detect Nessie backend for source '{}'. " + "Nessie features will be disabled.",
           getName(),
           e);
       this.isNessieDetected = false;
@@ -316,16 +317,22 @@ public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin
   public boolean branchExists(String branchName) {
     try {
       CatalogAccessor accessor = getCatalogAccessorForBranch(branchName);
-      // Probe by checking namespace existence via the branch-scoped accessor.
-      // If the branch URI is invalid, the REST catalog will throw an exception
-      // when the first HTTP call is made to Nessie.
-      accessor.namespaceExists(java.util.List.of());
+      // Probe via datasetExists on a guaranteed-nonexistent table path.
+      // datasetExists(sourceName, probeNs, probeTable) calls tableExists() which issues
+      // GET /v1/{branch}/namespaces/{probeNs}/tables/{probeTable} to Nessie.
+      // - If the branch does NOT exist: Nessie returns 400 NoSuchReferenceException
+      //   → BadRequestException thrown (not caught by datasetExists) → caught here → false ✓
+      // - If the branch EXISTS but the probe table doesn't: Nessie returns 404
+      //   → datasetExists returns false (no exception) → branchExists returns true ✓
+      // namespaceFromPath and tableIdentifierFromDataset both strip the leading source name.
+      accessor.datasetExists(
+          java.util.Arrays.asList(this.name, "__branch_probe__", "__exists_check__"));
       return true;
     } catch (Exception e) {
       // The Iceberg REST catalog surfaces various exceptions for invalid branch URIs:
-      // RESTException, NoSuchNamespaceException, or ServiceFailureException depending
-      // on the specific Nessie response. Treat any exception from the probe as
-      // "branch not found" for the purpose of error message differentiation.
+      // BadRequestException (Nessie 400) for nonexistent branches,
+      // RESTException, ServiceFailureException for auth/config issues.
+      // Treat any exception from the probe as "branch not found" for error differentiation.
       // Network/auth errors will also be caught here, but the impact is limited:
       // we report "branch not found" instead of "network error", which is still
       // more helpful than a generic "table not found".
@@ -338,15 +345,19 @@ public class RestIcebergCatalogPlugin extends IcebergCatalogPlugin
   private IcebergRestCatalogAccessor createBranchScopedAccessor(String branchName) {
     Configuration config = getFsConfCopy();
     Map<String, String> properties = buildCatalogProperties(config);
-    // Append branch name to base REST endpoint to create branch-scoped URI
+    // Append branch name to base REST endpoint to create branch-scoped URI.
+    // URL-encode the branch name so slashes in names like "feature/my-branch" become
+    // "feature%2Fmy-branch", which Nessie's Iceberg REST API correctly maps to the branch.
     // e.g., "http://nessie:19120/iceberg" -> "http://nessie:19120/iceberg/dev"
-    String branchUri = restEndpoint + "/" + branchName;
+    //        "http://nessie:19120/iceberg" -> "http://nessie:19120/iceberg/feature%2Fmy-branch"
+    String encodedBranchName =
+        URLEncoder.encode(branchName, StandardCharsets.UTF_8).replace("+", "%20");
+    String branchUri = restEndpoint + "/" + encodedBranchName;
     properties.put(CatalogProperties.URI, branchUri);
 
     Supplier<Catalog> catalogSupplier =
         () ->
-            CatalogUtil.loadCatalog(
-                restCatalogImpl().getName(), catalogName(), properties, config);
+            CatalogUtil.loadCatalog(restCatalogImpl().getName(), catalogName(), properties, config);
 
     return new IcebergRestCatalogAccessor(
         catalogSupplier, optionManager, getAllowedNamespaces(), isRecursiveAllowedNamespaces());

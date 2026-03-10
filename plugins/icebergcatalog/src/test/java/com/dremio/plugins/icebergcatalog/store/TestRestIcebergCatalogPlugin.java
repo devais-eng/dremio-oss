@@ -771,8 +771,13 @@ public class TestRestIcebergCatalogPlugin extends BaseTestQuery {
 
   @Test
   public void testBranchExistsReturnsTrueForValidBranch() throws Exception {
-    // Arrange: accessor.namespaceExists() returns true (branch URI is valid)
-    when(mockNessieAccessor.namespaceExists(java.util.List.of())).thenReturn(true);
+    // Arrange: datasetExists() returns false for probe path (table doesn't exist, but branch does).
+    // branchExists calls datasetExists(List.of(pluginName, "__branch_probe__",
+    // "__exists_check__")).
+    // datasetExists returns false (404 NoSuchTableException) = branch exists but table absent.
+    when(mockNessieAccessor.datasetExists(
+            java.util.Arrays.asList("nessie-probe-test", "__branch_probe__", "__exists_check__")))
+        .thenReturn(false);
     RestIcebergCatalogPlugin branchProbePlugin = createBranchProbePlugin();
 
     // Act + Assert
@@ -781,9 +786,14 @@ public class TestRestIcebergCatalogPlugin extends BaseTestQuery {
 
   @Test
   public void testBranchExistsReturnsFalseForInvalidBranch() throws Exception {
-    // Arrange: accessor.namespaceExists() throws (simulating invalid branch URI)
-    when(mockNessieAccessor.namespaceExists(java.util.List.of()))
-        .thenThrow(new RuntimeException("Nessie branch 'nonexistent' not found"));
+    // Arrange: datasetExists() throws BadRequestException (400 NoSuchReferenceException from
+    // Nessie)
+    // for a nonexistent branch. branchExists catches it and returns false.
+    when(mockNessieAccessor.datasetExists(
+            java.util.Arrays.asList("nessie-probe-test", "__branch_probe__", "__exists_check__")))
+        .thenThrow(
+            new org.apache.iceberg.exceptions.BadRequestException(
+                "Named reference 'nonexistent' not found"));
     RestIcebergCatalogPlugin branchProbePlugin = createBranchProbePlugin();
 
     // Act + Assert
