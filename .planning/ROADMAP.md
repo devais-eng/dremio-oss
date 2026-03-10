@@ -68,7 +68,7 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 
 - [x] **Phase 21: Configuration and Nessie Detection** - enableNessie toggle, auto-detect Nessie backend, discover default branch (completed 2026-03-09)
 - [x] **Phase 22: Branch-Aware Catalog Infrastructure** - Per-branch RESTCatalog cache with Caffeine, branch-isolated table caching (completed 2026-03-09)
-- [ ] **Phase 23: CatalogImpl Integration and AT BRANCH Queries** - Wire SupportsBranchAwareRestCatalog into query pipeline, plan cache safety
+- [x] **Phase 23: CatalogImpl Integration and AT BRANCH Queries** - Wire SupportsBranchAwareRestCatalog into query pipeline, plan cache safety (completed 2026-03-10)
 - [ ] **Phase 24: Multi-Branch Queries and Hardening** - Cross-branch JOINs, error handling, edge case hardening
 
 ## Phase Details
@@ -110,12 +110,11 @@ Plans:
   2. User can execute `SELECT * FROM nessie_source.namespace.table` (no AT BRANCH) and get data from the server-defined default branch, with the default branch resolved fresh per query (never cached across queries)
   3. Running the same query twice against a branch where data changed between executions returns the updated data (plan cache does not serve stale cross-branch results)
   4. A Nessie-enabled source queried without AT BRANCH returns identical results to a non-Nessie source pointing at the same catalog endpoint (default branch serves same data as unversioned access)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 23-01: TBD
-- [ ] 23-02: TBD
-- [ ] 23-03: TBD
+- [ ] 23-01-PLAN.md — Interface definition, plugin implementation, CatalogUtil gate expansion, plan cache safety
+- [ ] 23-02-PLAN.md — CatalogImpl three-way dispatch for AT BRANCH queries
 
 ### Phase 24: Multi-Branch Queries and Hardening
 **Goal**: Users can join tables across different branches in a single query, with clear error messages for branch-related failures
@@ -171,5 +170,5 @@ Phases execute in numeric order: 21 → 22 → 23 → 24
 | 20. File Browse and Promote RBAC Enforcement | v1.3 | 2/2 | Complete | 2026-02-23 |
 | 21. Configuration and Nessie Detection | v1.4 | Complete    | 2026-03-09 | - |
 | 22. Branch-Aware Catalog Infrastructure | v1.4 | Complete    | 2026-03-09 | - |
-| 23. CatalogImpl Integration and AT BRANCH Queries | v1.4 | 0/? | Not started | - |
+| 23. CatalogImpl Integration and AT BRANCH Queries | v1.4 | Complete    | 2026-03-10 | - |
 | 24. Multi-Branch Queries and Hardening | v1.4 | 0/? | Not started | - |
