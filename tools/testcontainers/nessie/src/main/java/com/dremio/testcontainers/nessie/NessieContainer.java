@@ -34,9 +34,43 @@ public final class NessieContainer extends GenericContainer<NessieContainer>
       DockerImageName.parse("ghcr.io/projectnessie/nessie:0.100.3");
   private static final int NESSIE_PORT = 19120;
 
+  private static final String DEFAULT_WAREHOUSE_NAME = "warehouse";
+
   public NessieContainer() {
     super(IMAGE);
     addExposedPort(NESSIE_PORT);
+  }
+
+  /**
+   * Configures Nessie to use an S3-compatible object store (e.g., MinIO) as warehouse storage. Must
+   * be called before the container is started. Both containers must share a Docker network.
+   *
+   * @param minioNetworkAlias the network alias of the MinIO container (e.g., "minio")
+   * @param minioPort the MinIO S3 port inside the Docker network (typically 9000)
+   * @param externalEndpoint the MinIO S3 endpoint reachable from the test JVM (e.g., {@code
+   *     http://localhost:32789})
+   * @param accessKey the MinIO access key
+   * @param secretKey the MinIO secret key
+   * @return this container for fluent chaining
+   */
+  public NessieContainer withS3Warehouse(
+      String minioNetworkAlias,
+      int minioPort,
+      String externalEndpoint,
+      String accessKey,
+      String secretKey) {
+    String internalEndpoint = String.format("http://%s:%d", minioNetworkAlias, minioPort);
+    withEnv("NESSIE_CATALOG_DEFAULT_WAREHOUSE", DEFAULT_WAREHOUSE_NAME);
+    withEnv(
+        "NESSIE_CATALOG_WAREHOUSES__WAREHOUSE__LOCATION", "s3://" + DEFAULT_WAREHOUSE_NAME + "/");
+    withEnv("NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_ENDPOINT", internalEndpoint);
+    withEnv("NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_EXTERNAL_ENDPOINT", externalEndpoint);
+    withEnv("NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_PATH_STYLE_ACCESS", "true");
+    withEnv("NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_REGION", "us-east-1");
+    withEnv("NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_AUTH_TYPE", "APPLICATION_GLOBAL");
+    withEnv("AWS_ACCESS_KEY_ID", accessKey);
+    withEnv("AWS_SECRET_ACCESS_KEY", secretKey);
+    return this;
   }
 
   /** Returns the base URI, e.g., {@code http://host:mappedPort/}. */

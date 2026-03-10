@@ -77,6 +77,12 @@
       <version>${project.version}</version>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>com.dremio.tools</groupId>
+      <artifactId>dremio-testcontainers-minio</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
     <!-- + source code dependency on com.dremio.plugins:dremio-hive-plugin for copying sources only -->
   </dependencies>
 
