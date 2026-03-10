@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 ## Current Position
 
 Phase: 24 of 24 (End-to-End Testing)
-Plan: 2 of TBD complete
+Plan: 3 of TBD complete
 Status: In Progress
-Last activity: 2026-03-10 — Completed Phase 24, Plan 02 (NessieContainer Module)
+Last activity: 2026-03-10 — Completed Phase 24, Plan 03 (Integration Tests)
 
 Progress: [███████░░░] 65%
 
@@ -30,7 +30,7 @@ Progress: [███████░░░] 65%
 | 21 | 2/2 | 7min | 3.5min |
 | 22 | 1/1 | 5min | 5min |
 | 23 | 2/2 | 18min | 9min |
-| 24 | 2/TBD | 12min | 6min |
+| 24 | 3/TBD | ~120min total | 40min/plan |
 
 ## Shipped Milestones
 
@@ -54,7 +54,7 @@ Progress: [███████░░░] 65%
 - 21-02: Used cached getCatalog() path (ExpiringCatalogCache) for property reads, not raw catalogSupplier
 - 22-01: expireAfterAccess (not expireAfterWrite) so actively-used branches stay cached
 - 22-01: Branch cache initialized only when isNessieDetected=true (zero new paths when Nessie not detected)
-- 22-01: Branch URI constructed by appending branchName to restEndpoint (no URL encoding)
+- 22-01: Branch URI constructed by appending branchName to restEndpoint (URL-encoded in 24-03 deviation fix)
 - 22-01: close() calls branchAccessorCache.close() before super.close()
 - 23-01: getDatasetHandleForBranch encapsulates branch accessor + table load within plugin to avoid kernel-to-plugin module dependency
 - 23-01: Separate requestedPluginSupportsBranchAwareRest method (not extending requestedPluginSupportsVersionedTables) for semantic clarity
@@ -68,6 +68,10 @@ Progress: [███████░░░] 65%
 - [Phase 24]: 24-02: NessieContainer exposes getIcebergRestUri() and getNessieApiUri() separately for distinct use cases
 - [Phase 24]: 24-02: Image pinned to ghcr.io/projectnessie/nessie:0.100.3 matching project nessie.version property
 - [Phase 24]: 24-02: No test dependencies in nessie module itself (NessieContainer is a utility, not a test runner)
+- [Phase 24]: 24-03: IT tests use Iceberg Java RESTCatalog client for setup (creates real S3 metadata) not fake Nessie v1 commits
+- [Phase 24]: 24-03: NessieContainer uses APPLICATION_GLOBAL + AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY env vars (not STATIC secrets)
+- [Phase 24]: 24-03: branchExists probe changed from namespaceExists(root) to datasetExists(probe_path) for real 400/404 differentiation
+- [Phase 24]: 24-03: Branch names URL-encoded in createBranchScopedAccessor (slash -> %2F for feature/my-branch style names)
 
 ### Pending Todos
 
@@ -81,5 +85,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-10
-Stopped at: Completed 24-02-PLAN.md (NessieContainer testcontainers module). Ready for Phase 24 Plan 03.
+Stopped at: Completed 24-03-PLAN.md (Integration tests for branch-aware REST catalog). Phase 24 complete.
 Resume file: None
