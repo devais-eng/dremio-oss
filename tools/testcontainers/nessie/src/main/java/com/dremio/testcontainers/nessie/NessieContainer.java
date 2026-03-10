@@ -21,11 +21,11 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * Testcontainer for Nessie server. Serves both the Nessie REST API ({@code /api/v2})
- * and the Iceberg REST catalog ({@code /iceberg}) on port 19120.
+ * Testcontainer for Nessie server. Serves both the Nessie REST API ({@code /api/v2}) and the
+ * Iceberg REST catalog ({@code /iceberg}) on port 19120.
  *
- * <p>Use {@link #getIcebergRestUri()} to get the Iceberg REST endpoint for
- * RESTCATALOG source configuration.
+ * <p>Use {@link #getIcebergRestUri()} to get the Iceberg REST endpoint for RESTCATALOG source
+ * configuration.
  */
 public final class NessieContainer extends GenericContainer<NessieContainer>
     implements DremioContainer {
