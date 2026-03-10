@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 ## Current Position
 
 Phase: 24 of 24 (End-to-End Testing)
-Plan: 0 of TBD complete
+Plan: 1 of TBD complete
 Status: In Progress
-Last activity: 2026-03-10 — Completed Phase 23, Plan 02 (CatalogImpl Three-Way Dispatch)
+Last activity: 2026-03-10 — Completed Phase 24, Plan 01 (Branch Error Handling)
 
-Progress: [██████░░░░] 60%
+Progress: [███████░░░] 65%
 
 ## Performance Metrics
 
@@ -30,7 +30,7 @@ Progress: [██████░░░░] 60%
 | 21 | 2/2 | 7min | 3.5min |
 | 22 | 1/1 | 5min | 5min |
 | 23 | 2/2 | 18min | 9min |
-| 24 | TBD | - | - |
+| 24 | 1/TBD | 8min | 8min |
 
 ## Shipped Milestones
 
@@ -61,6 +61,10 @@ Progress: [██████░░░░] 60%
 - 23-01: Lightweight resolveVersionContext with no server round-trip (empty commit hash, backend resolves via URI prefix)
 - 23-02: No ConnectorException try/catch needed in branch-aware methods (interface does not declare checked exceptions)
 - 23-02: CMP-02 and BRQ-02 satisfied by design (no AT BRANCH = existing non-versioned path, default accessor = base REST endpoint)
+- 24-01: Used namespaceExists(List.of()) as branch probe (listNamespaces not in CatalogAccessor interface)
+- 24-01: Branch-not-found wraps ReferenceNotFoundException to match UseVersionHandler/CatalogUtil native Nessie pattern
+- 24-01: Table-not-found-on-branch does NOT wrap ReferenceNotFoundException (different error category)
+- 24-01: BranchProbePluginMock overrides getCatalogAccessorForBranch (public) not createBranchScopedAccessor (private) for testability
 
 ### Pending Todos
 
@@ -74,5 +78,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-10
-Stopped at: Completed 23-02-PLAN.md (CatalogImpl Three-Way Dispatch). Phase 23 complete. Ready for Phase 24.
+Stopped at: Completed 24-01-PLAN.md (Branch Error Handling). Ready for Phase 24 Plan 02.
 Resume file: None
