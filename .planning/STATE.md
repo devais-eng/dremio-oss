@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 ## Current Position
 
 Phase: 24 of 24 (End-to-End Testing)
-Plan: 1 of TBD complete
+Plan: 2 of TBD complete
 Status: In Progress
-Last activity: 2026-03-10 — Completed Phase 24, Plan 01 (Branch Error Handling)
+Last activity: 2026-03-10 — Completed Phase 24, Plan 02 (NessieContainer Module)
 
 Progress: [███████░░░] 65%
 
@@ -30,7 +30,7 @@ Progress: [███████░░░] 65%
 | 21 | 2/2 | 7min | 3.5min |
 | 22 | 1/1 | 5min | 5min |
 | 23 | 2/2 | 18min | 9min |
-| 24 | 1/TBD | 8min | 8min |
+| 24 | 2/TBD | 12min | 6min |
 
 ## Shipped Milestones
 
@@ -65,6 +65,9 @@ Progress: [███████░░░] 65%
 - 24-01: Branch-not-found wraps ReferenceNotFoundException to match UseVersionHandler/CatalogUtil native Nessie pattern
 - 24-01: Table-not-found-on-branch does NOT wrap ReferenceNotFoundException (different error category)
 - 24-01: BranchProbePluginMock overrides getCatalogAccessorForBranch (public) not createBranchScopedAccessor (private) for testability
+- [Phase 24]: 24-02: NessieContainer exposes getIcebergRestUri() and getNessieApiUri() separately for distinct use cases
+- [Phase 24]: 24-02: Image pinned to ghcr.io/projectnessie/nessie:0.100.3 matching project nessie.version property
+- [Phase 24]: 24-02: No test dependencies in nessie module itself (NessieContainer is a utility, not a test runner)
 
 ### Pending Todos
 
@@ -78,5 +81,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-10
-Stopped at: Completed 24-01-PLAN.md (Branch Error Handling). Ready for Phase 24 Plan 02.
+Stopped at: Completed 24-02-PLAN.md (NessieContainer testcontainers module). Ready for Phase 24 Plan 03.
 Resume file: None
