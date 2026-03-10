@@ -32,6 +32,7 @@
   <modules>
     <module>core</module>
     <module>nats</module>
+    <module>nessie</module>
     <module>opensearch</module>
     <module>zookeeper</module>
   </modules>
