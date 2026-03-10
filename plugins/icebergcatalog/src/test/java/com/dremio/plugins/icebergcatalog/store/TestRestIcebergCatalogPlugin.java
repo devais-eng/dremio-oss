@@ -100,6 +100,7 @@ public class TestRestIcebergCatalogPlugin extends BaseTestQuery {
 
   @Mock private RestIcebergCatalogPluginConfig mockPluginConfig;
   @Mock private CatalogAccessor mockCatalogAccessor;
+  @Mock private IcebergRestCatalogAccessor mockNessieAccessor;
   @Mock private PluginSabotContext pluginSabotContext;
   @Mock private OptionManager optionManager;
   @Mock private DatasetFileSystemCache mockFileSystemCache;
@@ -140,6 +141,111 @@ public class TestRestIcebergCatalogPlugin extends BaseTestQuery {
         Long fileLength) {
       return dremioFileIO;
     }
+  }
+
+  /** Mock subclass that overrides getCatalogAccessorForBranch to return a controllable accessor. */
+  private class BranchProbePluginMock extends RestIcebergCatalogPlugin {
+    protected BranchProbePluginMock(
+        RestIcebergCatalogPluginConfig pluginConfig,
+        PluginSabotContext sabotContext,
+        String name,
+        Provider<StoragePluginId> pluginIdProvider) {
+      super(pluginConfig, sabotContext, name, pluginIdProvider);
+    }
+
+    @Override
+    public CatalogAccessor createCatalog(Configuration config) {
+      return mockNessieAccessor;
+    }
+
+    @Override
+    public CatalogAccessor getCatalogAccessorForBranch(String branchName) {
+      return mockNessieAccessor;
+    }
+
+    @Override
+    public DatasetFileSystemCache getHadoopFileSystemCache() {
+      return mockFileSystemCache;
+    }
+
+    @Override
+    public FileSystem createFS(Builder b) throws IOException {
+      return fileSystem;
+    }
+
+    @Override
+    public FileIO createIcebergFileIO(
+        FileSystem fs,
+        OperatorContext context,
+        List<String> dataset,
+        String datasourcePluginUID,
+        Long fileLength) {
+      return dremioFileIO;
+    }
+  }
+
+  private RestIcebergCatalogPlugin createBranchProbePlugin() throws Exception {
+    RestIcebergCatalogPluginConfig nessieConfig = new RestIcebergCatalogPluginConfig();
+    nessieConfig.enableNessie = true;
+    nessieConfig.propertyList = new java.util.ArrayList<>();
+    nessieConfig.secretPropertyList = new java.util.ArrayList<>();
+    Map<String, String> props =
+        Map.of("nessie.is-nessie-catalog", "true", "nessie.default-branch.name", "main");
+    when(mockNessieAccessor.getRestCatalogProperties()).thenReturn(props);
+    RestIcebergCatalogPlugin branchProbePlugin =
+        new BranchProbePluginMock(
+            nessieConfig, pluginSabotContext, "nessie-probe-test", () -> storagePluginId);
+    branchProbePlugin.start();
+    return branchProbePlugin;
+  }
+
+  private class NessieAwarePluginMock extends RestIcebergCatalogPlugin {
+    protected NessieAwarePluginMock(
+        RestIcebergCatalogPluginConfig pluginConfig,
+        PluginSabotContext sabotContext,
+        String name,
+        Provider<StoragePluginId> pluginIdProvider) {
+      super(pluginConfig, sabotContext, name, pluginIdProvider);
+    }
+
+    @Override
+    public CatalogAccessor createCatalog(Configuration config) {
+      return mockNessieAccessor;
+    }
+
+    @Override
+    public DatasetFileSystemCache getHadoopFileSystemCache() {
+      return mockFileSystemCache;
+    }
+
+    @Override
+    public FileSystem createFS(Builder b) throws IOException {
+      return fileSystem;
+    }
+
+    @Override
+    public FileIO createIcebergFileIO(
+        FileSystem fs,
+        OperatorContext context,
+        List<String> dataset,
+        String datasourcePluginUID,
+        Long fileLength) {
+      return dremioFileIO;
+    }
+  }
+
+  private RestIcebergCatalogPlugin createNessiePlugin(Map<String, String> catalogProperties)
+      throws Exception {
+    RestIcebergCatalogPluginConfig nessieConfig = new RestIcebergCatalogPluginConfig();
+    nessieConfig.enableNessie = true;
+    nessieConfig.propertyList = new java.util.ArrayList<>();
+    nessieConfig.secretPropertyList = new java.util.ArrayList<>();
+    when(mockNessieAccessor.getRestCatalogProperties()).thenReturn(catalogProperties);
+    RestIcebergCatalogPlugin nessiePlugin =
+        new NessieAwarePluginMock(
+            nessieConfig, pluginSabotContext, "nessie-test", () -> storagePluginId);
+    nessiePlugin.start();
+    return nessiePlugin;
   }
 
   @Before
@@ -591,5 +697,96 @@ public class TestRestIcebergCatalogPlugin extends BaseTestQuery {
         this.plugin
             .getFsConfCopy()
             .getBoolean(ExecConstants.ENABLE_S3_V2_CLIENT.getOptionName(), false));
+  }
+
+  // --- Nessie detection tests ---
+
+  @Test
+  public void testNessieDetectionSkippedWhenEnableNessieIsFalse() throws Exception {
+    // Default mock has enableNessie=false (Mockito default for boolean fields)
+    // setUp() already called plugin.start(), so detection should have been skipped
+    assertFalse(plugin.isNessieDetected());
+    assertThat(plugin.getDefaultBranch()).isNull();
+  }
+
+  @Test
+  public void testNessieDetectionSucceedsWhenBackendIsNessie() throws Exception {
+    Map<String, String> props =
+        Map.of(
+            "nessie.is-nessie-catalog", "true",
+            "nessie.default-branch.name", "production");
+    RestIcebergCatalogPlugin nessiePlugin = createNessiePlugin(props);
+
+    assertTrue(nessiePlugin.isNessieDetected());
+    assertEquals("production", nessiePlugin.getDefaultBranch());
+  }
+
+  @Test
+  public void testNessieDetectionSucceedsWithDefaultBranchMain() throws Exception {
+    Map<String, String> props =
+        Map.of(
+            "nessie.is-nessie-catalog", "true",
+            "nessie.default-branch.name", "main");
+    RestIcebergCatalogPlugin nessiePlugin = createNessiePlugin(props);
+
+    assertTrue(nessiePlugin.isNessieDetected());
+    assertEquals("main", nessiePlugin.getDefaultBranch());
+  }
+
+  @Test
+  public void testNessieDetectionFallsBackToMainWhenBranchMissing() throws Exception {
+    Map<String, String> props = Map.of("nessie.is-nessie-catalog", "true");
+    RestIcebergCatalogPlugin nessiePlugin = createNessiePlugin(props);
+
+    assertTrue(nessiePlugin.isNessieDetected());
+    assertEquals("main", nessiePlugin.getDefaultBranch());
+  }
+
+  @Test
+  public void testNessieDetectionDisabledWhenBackendIsNotNessie() throws Exception {
+    Map<String, String> props = Map.of("some.other.key", "value");
+    RestIcebergCatalogPlugin nessiePlugin = createNessiePlugin(props);
+
+    assertFalse(nessiePlugin.isNessieDetected());
+  }
+
+  @Test
+  public void testNessieDetectionHandlesExceptionGracefully() throws Exception {
+    RestIcebergCatalogPluginConfig nessieConfig = new RestIcebergCatalogPluginConfig();
+    nessieConfig.enableNessie = true;
+    nessieConfig.propertyList = new java.util.ArrayList<>();
+    nessieConfig.secretPropertyList = new java.util.ArrayList<>();
+    when(mockNessieAccessor.getRestCatalogProperties())
+        .thenThrow(new RuntimeException("Connection refused"));
+    RestIcebergCatalogPlugin nessiePlugin =
+        new NessieAwarePluginMock(
+            nessieConfig, pluginSabotContext, "nessie-error-test", () -> storagePluginId);
+    nessiePlugin.start();
+
+    assertFalse(nessiePlugin.isNessieDetected());
+    assertEquals("main", nessiePlugin.getDefaultBranch());
+  }
+
+  // --- branchExists tests ---
+
+  @Test
+  public void testBranchExistsReturnsTrueForValidBranch() throws Exception {
+    // Arrange: accessor.namespaceExists() returns true (branch URI is valid)
+    when(mockNessieAccessor.namespaceExists(java.util.List.of())).thenReturn(true);
+    RestIcebergCatalogPlugin branchProbePlugin = createBranchProbePlugin();
+
+    // Act + Assert
+    assertTrue(branchProbePlugin.branchExists("main"));
+  }
+
+  @Test
+  public void testBranchExistsReturnsFalseForInvalidBranch() throws Exception {
+    // Arrange: accessor.namespaceExists() throws (simulating invalid branch URI)
+    when(mockNessieAccessor.namespaceExists(java.util.List.of()))
+        .thenThrow(new RuntimeException("Nessie branch 'nonexistent' not found"));
+    RestIcebergCatalogPlugin branchProbePlugin = createBranchProbePlugin();
+
+    // Act + Assert
+    assertFalse(branchProbePlugin.branchExists("nonexistent"));
   }
 }

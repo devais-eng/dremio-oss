@@ -893,13 +893,27 @@ public class CatalogImpl implements Catalog {
     VersionContext versionContext = tableVersionContext.asVersionContext();
     ResolvedVersionContext resolved = branchPlugin.resolveVersionContext(versionContext);
     String branchName = resolved.getRefName();
+    String sourceName = plugin.getName().getName();
+
+    // Validate branch exists before attempting table lookup
+    if (!branchPlugin.branchExists(branchName)) {
+      String msg =
+          String.format("Requested Branch '%s' not found in source '%s'.", branchName, sourceName);
+      throw UserException.validationError(new ReferenceNotFoundException(msg))
+          .message(msg)
+          .buildSilently();
+    }
 
     // Load table via branch-scoped accessor (encapsulated in plugin)
     EntityPath entityPath = new EntityPath(key.getPathComponents());
     Optional<DatasetHandle> handle = branchPlugin.getDatasetHandleForBranch(branchName, entityPath);
 
     if (handle.isEmpty()) {
-      return null;
+      throw UserException.validationError()
+          .message(
+              "Table '%s' not found on branch '%s' in source '%s'.",
+              key.toUnescapedString(), branchName, sourceName)
+          .buildSilently();
     }
 
     DatasetRetrievalOptions retrievalOptions = plugin.getDefaultRetrievalOptions();
@@ -1117,12 +1131,30 @@ public class CatalogImpl implements Catalog {
     VersionContext versionContext = context.asVersionContext();
     ResolvedVersionContext resolved = branchPlugin.resolveVersionContext(versionContext);
     String branchName = resolved.getRefName();
+    String sourceName = managedStoragePlugin.getName().getName();
+
+    // Validate branch exists before attempting table lookup
+    if (!branchPlugin.branchExists(branchName)) {
+      String msg =
+          String.format("Requested Branch '%s' not found in source '%s'.", branchName, sourceName);
+      throw UserException.validationError(new ReferenceNotFoundException(msg))
+          .message(msg)
+          .buildSilently();
+    }
 
     EntityPath entityPath = new EntityPath(key.getPathComponents());
     Optional<DatasetHandle> handle =
         branchPlugin.getDatasetHandleForBranch(branchName, entityPath);
 
-    return handle.orElse(null);
+    if (handle.isEmpty()) {
+      throw UserException.validationError()
+          .message(
+              "Table '%s' not found on branch '%s' in source '%s'.",
+              key.toUnescapedString(), branchName, sourceName)
+          .buildSilently();
+    }
+
+    return handle.get();
   }
 
   private Optional<VersionedDatasetAccessOptions> getVersionedPluginAccessOption(
