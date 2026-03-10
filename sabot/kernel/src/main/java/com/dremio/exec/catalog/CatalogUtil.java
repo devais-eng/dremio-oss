@@ -138,6 +138,23 @@ public final class CatalogUtil {
     }
   }
 
+  /**
+   * Checks whether the named source supports branch-aware REST catalog access (i.e., it is a
+   * Nessie-enabled RESTCATALOG source that implements SupportsBranchAwareRestCatalog).
+   */
+  @Deprecated(
+      since = "Catalog should be the only one running this business logic",
+      forRemoval = true)
+  public static boolean requestedPluginSupportsBranchAwareRest(
+      String sourceName, SourceCatalog catalog) {
+    try {
+      return catalog.getSource(sourceName) != null
+          && catalog.getSource(sourceName).isWrapperFor(SupportsBranchAwareRestCatalog.class);
+    } catch (UserException ignored) {
+      return false;
+    }
+  }
+
   public static String getDefaultBranch(String sourceName, SourceCatalog catalog) {
     if (!requestedPluginSupportsVersionedTables(sourceName, catalog)) {
       return null;
@@ -286,8 +303,12 @@ public final class CatalogUtil {
       CatalogEntityKey catalogEntityKey, SourceCatalog catalog) {
     boolean isVersionedTable =
         requestedPluginSupportsVersionedTables(catalogEntityKey.getRootEntity(), catalog);
+    boolean isBranchAwareRestCatalog =
+        requestedPluginSupportsBranchAwareRest(catalogEntityKey.getRootEntity(), catalog);
     return ((catalogEntityKey.hasTableVersionContext())
-        && (isVersionedTable || catalogEntityKey.getTableVersionContext().isTimeTravelType()));
+        && (isVersionedTable
+            || isBranchAwareRestCatalog
+            || catalogEntityKey.getTableVersionContext().isTimeTravelType()));
   }
 
   /**

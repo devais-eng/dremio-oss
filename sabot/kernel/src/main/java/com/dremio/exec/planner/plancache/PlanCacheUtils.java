@@ -308,12 +308,11 @@ public class PlanCacheUtils {
     PlannerCatalog plannerCatalog = sqlHandlerConfig.getConverter().getPlannerCatalog();
     Catalog catalog = sqlHandlerConfig.getContext().getCatalog();
     for (DremioTable table : plannerCatalog.getAllRequestedTables()) {
-      if (CatalogUtil.requestedPluginSupportsVersionedTables(table.getPath(), catalog)) {
-        // Versioned tables don't have a mtime - they have snapshot ids.  Since we don't have a
-        // way
-        // to invalidate
-        // cache entries containing versioned datasets, don't allow these plans to enter the
-        // cache.
+      if (CatalogUtil.requestedPluginSupportsVersionedTables(table.getPath(), catalog)
+          || CatalogUtil.requestedPluginSupportsBranchAwareRest(
+              table.getPath().getRoot(), catalog)) {
+        // Versioned tables and branch-aware REST sources don't have a reliable mtime for
+        // invalidation. Exclude them from plan cache to prevent stale cross-branch results.
         return true;
       }
     }
