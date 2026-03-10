@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.4 Nessie Branch-Aware REST Catalog -- Phase 24
+**Current focus:** v1.4 Nessie Branch-Aware REST Catalog -- Phase 25
 
 ## Current Position
 
-Phase: 24 of 24 (End-to-End Testing)
-Plan: 3 of TBD complete
-Status: In Progress
-Last activity: 2026-03-10 — Completed Phase 24, Plan 03 (Integration Tests)
+Phase: 25 of 25 (Fix RESTCATALOG S3 Config Propagation)
+Plan: 1 of 1 complete
+Status: Complete
+Last activity: 2026-03-11 — Completed 25-01: S3 filesystem config propagation fix
 
-Progress: [███████░░░] 65%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -31,6 +31,7 @@ Progress: [███████░░░] 65%
 | 22 | 1/1 | 5min | 5min |
 | 23 | 2/2 | 18min | 9min |
 | 24 | 3/TBD | ~120min total | 40min/plan |
+| 25 | 1/1 | 8min | 8min |
 
 ## Shipped Milestones
 
@@ -72,6 +73,13 @@ Progress: [███████░░░] 65%
 - [Phase 24]: 24-03: NessieContainer uses APPLICATION_GLOBAL + AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY env vars (not STATIC secrets)
 - [Phase 24]: 24-03: branchExists probe changed from namespaceExists(root) to datasetExists(probe_path) for real 400/404 differentiation
 - [Phase 24]: 24-03: Branch names URL-encoded in createBranchScopedAccessor (slash -> %2F for feature/my-branch style names)
+- 25-01: Eager merge in IcebergCatalogPlugin.start() via getConfigProperties() hook -- mirrors FileSystemPlugin.initializeFsConf() pattern
+- 25-01: Base getConfigProperties() returns emptyList -- zero code path impact on non-REST subclasses
+- 25-01: buildCatalogProperties() left unchanged in RestIcebergCatalogPlugin -- redundant after fix but preserves branch accessor compatibility
+
+### Roadmap Evolution
+
+- Phase 25 added: Fix RESTCATALOG S3 filesystem config propagation to execution path
 
 ### Pending Todos
 
@@ -84,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-10
-Stopped at: Completed 24-03-PLAN.md (Integration tests for branch-aware REST catalog). Phase 24 complete.
+Last session: 2026-03-11
+Stopped at: Completed 25-01-PLAN.md (S3 filesystem config propagation fix). Phase 25 complete. v1.4 milestone complete.
 Resume file: None
