@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.4 Nessie Branch-Aware REST Catalog -- Phase 23
+**Current focus:** v1.4 Nessie Branch-Aware REST Catalog -- Phase 24
 
 ## Current Position
 
-Phase: 23 of 24 (CatalogImpl Integration)
-Plan: 1 of 2 complete
+Phase: 24 of 24 (End-to-End Testing)
+Plan: 0 of TBD complete
 Status: In Progress
-Last activity: 2026-03-10 — Completed Phase 23, Plan 01 (CatalogImpl Integration and AT Branch Queries)
+Last activity: 2026-03-10 — Completed Phase 23, Plan 02 (CatalogImpl Three-Way Dispatch)
 
-Progress: [████░░░░░░] 40%
+Progress: [██████░░░░] 60%
 
 ## Performance Metrics
 
@@ -29,7 +29,7 @@ Progress: [████░░░░░░] 40%
 |-------|-------|-------|----------|
 | 21 | 2/2 | 7min | 3.5min |
 | 22 | 1/1 | 5min | 5min |
-| 23 | 1/2 | 10min | 10min |
+| 23 | 2/2 | 18min | 9min |
 | 24 | TBD | - | - |
 
 ## Shipped Milestones
@@ -59,6 +59,8 @@ Progress: [████░░░░░░] 40%
 - 23-01: getDatasetHandleForBranch encapsulates branch accessor + table load within plugin to avoid kernel-to-plugin module dependency
 - 23-01: Separate requestedPluginSupportsBranchAwareRest method (not extending requestedPluginSupportsVersionedTables) for semantic clarity
 - 23-01: Lightweight resolveVersionContext with no server round-trip (empty commit hash, backend resolves via URI prefix)
+- 23-02: No ConnectorException try/catch needed in branch-aware methods (interface does not declare checked exceptions)
+- 23-02: CMP-02 and BRQ-02 satisfied by design (no AT BRANCH = existing non-versioned path, default accessor = base REST endpoint)
 
 ### Pending Todos
 
@@ -72,5 +74,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-10
-Stopped at: Completed 23-01-PLAN.md (CatalogImpl Integration and AT Branch Queries). Ready for Phase 23, Plan 02.
+Stopped at: Completed 23-02-PLAN.md (CatalogImpl Three-Way Dispatch). Phase 23 complete. Ready for Phase 24.
 Resume file: None
