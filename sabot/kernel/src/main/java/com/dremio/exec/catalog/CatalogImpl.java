@@ -799,6 +799,10 @@ public class CatalogImpl implements Catalog {
 
     if (plugin.getPlugin().get().isWrapperFor(VersionedPlugin.class)) {
       return getTableSnapshotForVersionedSource(plugin, key, context);
+    } else if (plugin.getPlugin().get().isWrapperFor(SupportsBranchAwareRestCatalog.class)
+        && context != null
+        && !context.isTimeTravelType()) {
+      return getTableSnapshotForBranchAwareRestSource(plugin, key, context);
     } else {
       return getTableSnapshotForNonVersionedSource(plugin, key, context);
     }
@@ -878,6 +882,38 @@ public class CatalogImpl implements Catalog {
                         finalRetrievalOptions)
                     .get())
         .orElse(null);
+  }
+
+  private DremioTable getTableSnapshotForBranchAwareRestSource(
+      ManagedStoragePlugin plugin, NamespaceKey key, TableVersionContext tableVersionContext) {
+    SupportsBranchAwareRestCatalog branchPlugin =
+        plugin.getPlugin().get().unwrap(SupportsBranchAwareRestCatalog.class);
+
+    // Resolve version context (lightweight -- no server round-trip)
+    VersionContext versionContext = tableVersionContext.asVersionContext();
+    ResolvedVersionContext resolved = branchPlugin.resolveVersionContext(versionContext);
+    String branchName = resolved.getRefName();
+
+    // Load table via branch-scoped accessor (encapsulated in plugin)
+    EntityPath entityPath = new EntityPath(key.getPathComponents());
+    Optional<DatasetHandle> handle = branchPlugin.getDatasetHandleForBranch(branchName, entityPath);
+
+    if (handle.isEmpty()) {
+      return null;
+    }
+
+    DatasetRetrievalOptions retrievalOptions = plugin.getDefaultRetrievalOptions();
+    if (plugin.getPlugin().isEmpty()) {
+      return null;
+    }
+    return new MaterializedDatasetTableProvider(
+            null,
+            handle.get(),
+            plugin.getPlugin().get(),
+            plugin.getId(),
+            options.getSchemaConfig(),
+            retrievalOptions)
+        .get();
   }
 
   private MaterializedDatasetTable getTableSnapshotForNonVersionedSource(
