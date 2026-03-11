@@ -2881,10 +2881,10 @@ public class CatalogImpl implements Catalog {
     if (rbacService == null) {
       return;
     }
-    String containerPath = viewKey.getParent().getSchemaPath();
-    if (!rbacService.hasPrivilege(userName, "CREATE_VIEW", "VDS", containerPath)) {
+    String containerPath = viewKey.getRoot();
+    if (!rbacService.hasPrivilege(userName, "CREATE_VIEW", "SPACE", containerPath)) {
       logger.warn(
-          "RBAC: Access denied for user '{}' — privilege CREATE_VIEW on {}",
+          "RBAC: Access denied for user '{}' — privilege CREATE_VIEW on space '{}'",
           userName,
           containerPath);
       throw UserException.validationError()
