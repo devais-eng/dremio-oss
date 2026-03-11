@@ -14,7 +14,7 @@ Requirements for RBAC Issue Hardening. Each maps to roadmap phases.
 - [x] **UI-03**: Non-admin users cannot see the Add Space button in the sidebar unless they have space creation permission (Issue #3)
 - [x] **UI-04**: Non-admin users cannot see Delete, Rename, Move, Edit, or Settings context menu items on datasets they lack privileges for (Issues #6, #10)
 - [x] **UI-05**: Non-admin users cannot access admin-only Settings sub-pages (Node Activity, Engines, Queue Control, Users) (Issue #9)
-- [ ] **UI-06**: Non-admin users cannot access the space settings gear icon without space management permissions (Issue #11)
+- [x] **UI-06**: Non-admin users cannot access the space settings gear icon without space management permissions (Issue #11)
 
 ### Backend API Security
 
@@ -70,7 +70,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | UI-03 | Phase 23 | Complete |
 | UI-04 | Phase 24 | Complete |
 | UI-05 | Phase 23 | Complete |
-| UI-06 | Phase 24 | Pending |
+| UI-06 | Phase 24 | Complete |
 | API-01 | Phase 21 | Complete |
 | API-02 | Phase 21 | Complete |
 | API-03 | Phase 22 | Complete |
