@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RBAC Issue Hardening
-status: planning
-stopped_at: Completed 21-backend-api-critical-security-01-PLAN.md
-last_updated: "2026-03-11T13:22:23.318Z"
-last_activity: 2026-03-11 — Roadmap created for v1.4 (6 phases, 16 requirements)
+status: executing
+stopped_at: Completed 22-backend-api-high-security-01-PLAN.md
+last_updated: "2026-03-11T13:40:54Z"
+last_activity: "2026-03-11 — Phase 22 Plan 01: Collaboration API RBAC ALTER enforcement; Scripts API createdBy restriction for non-admins"
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 100
+  total_plans: 3
+  completed_plans: 2
+  percent: 67
 ---
 
 # Project State
@@ -21,17 +21,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.4 RBAC Issue Hardening — Phase 21 Plan 01 complete (API-01, API-02)
+**Current focus:** v1.4 RBAC Issue Hardening — Phase 22 Plan 01 complete (API-03, API-04)
 
 ## Current Position
 
 Milestone: v1.4 RBAC Issue Hardening
-Phase: 21 of 26 (Backend API Critical Security)
-Plan: 01 of 01 complete
+Phase: 22 of 26 (Backend API High Security)
+Plan: 01 of 02 complete
 Status: In progress
-Last activity: 2026-03-11 — Phase 21 Plan 01: UserResource write methods restricted to admin; CatalogServiceHelper mutation methods hardened with RBAC privilege enforcement
+Last activity: 2026-03-11 — Phase 22 Plan 01: Collaboration API RBAC ALTER enforcement; Scripts API createdBy restriction for non-admins
 
-Progress: [██████████] 100%
+Progress: [██████░░░░] 67%
 
 ## Shipped Milestones
 
@@ -59,5 +59,5 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-03-11T13:22:23.316Z
-Stopped at: Completed 21-backend-api-critical-security-01-PLAN.md
+Last session: 2026-03-11T13:40:54Z
+Stopped at: Completed 22-backend-api-high-security-01-PLAN.md

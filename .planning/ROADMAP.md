@@ -100,7 +100,7 @@ Plans:
   5. Admin calls to all of the above succeed without regression
 **Plans**: 2 plans
 Plans:
-- [ ] 22-01-PLAN.md — Add RBAC enforcement to Collaboration API (ALTER on tags/wiki) and Scripts API (createdBy restriction)
+- [x] 22-01-PLAN.md — Add RBAC enforcement to Collaboration API (ALTER on tags/wiki) and Scripts API (createdBy restriction)
 - [ ] 22-02-PLAN.md — Add RBAC enforcement to SpaceFolderResource (CREATE_FOLDER/ALTER on folders) and ReflectionResource (ALTER on dataset)
 
 ### Phase 23: UI Global Admin Gates
@@ -183,7 +183,7 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 19. Test Coverage and Documentation | v1.3 | 1/1 | Complete | 2026-02-23 |
 | 20. File Browse and Promote RBAC Enforcement | v1.3 | 2/2 | Complete | 2026-02-23 |
 | 21. Backend API Critical Security | v1.4 | 1/1 | Complete | 2026-03-11 |
-| 22. Backend API High Security | v1.4 | 0/2 | Not started | - |
+| 22. Backend API High Security | v1.4 | 1/2 | In progress | - |
 | 23. UI Global Admin Gates | v1.4 | 0/TBD | Not started | - |
 | 24. UI Dataset and Space Context Gates | v1.4 | 0/TBD | Not started | - |
 | 25. Backend Logic Fixes | v1.4 | 0/TBD | Not started | - |
