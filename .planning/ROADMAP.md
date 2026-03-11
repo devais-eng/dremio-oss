@@ -6,6 +6,7 @@
 - ✅ **v1.1 Enable Iceberg REST Catalog** — Phases 7-8 (shipped 2026-02-20)
 - ✅ **v1.2 GitHub Actions Docker Distribution** — Phases 9-11 (shipped 2026-02-21)
 - ✅ **v1.3 Privilege Context & Enforcement** — Phases 12-20 (shipped 2026-02-24)
+- 🚧 **v1.4 RBAC Issue Hardening** — Phases 21-26 (in progress)
 
 ## Phases
 
@@ -61,6 +62,88 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 
 </details>
 
+### 🚧 v1.4 RBAC Issue Hardening (In Progress)
+
+**Milestone Goal:** Fix all verified RBAC issues — UI permission gates, backend API authorization holes, and information disclosure bugs — to make the RBAC system production-ready.
+
+- [ ] **Phase 21: Backend API Critical Security** — Close write-path authorization holes in User API and Catalog API
+- [ ] **Phase 22: Backend API High Security** — Add method-level auth to Collaboration, Scripts, Folders, and Reflections APIs
+- [ ] **Phase 23: UI Global Admin Gates** — Hide admin-only Settings sub-pages, Add Source, and Add Space from non-admin users
+- [ ] **Phase 24: UI Dataset and Space Context Gates** — Remove unauthorized dataset context menu actions and space settings gear
+- [ ] **Phase 25: Backend Logic Fixes** — RBAC-aware dataset counts, accessible sys tables, and auto-grant on view creation
+- [ ] **Phase 26: Information Disclosure Fix** — Restrict Jobs page user filter to prevent username enumeration
+
+## Phase Details
+
+### Phase 21: Backend API Critical Security
+**Goal**: Users without admin role cannot create, update, delete, or promote catalog items or user accounts through the v3 API
+**Depends on**: Phase 20 (v1.3 complete)
+**Requirements**: API-01, API-02
+**Success Criteria** (what must be TRUE):
+  1. A non-admin API call to `POST /api/v3/user` or `PUT /api/v3/user/{id}` returns 403
+  2. A non-admin API call to create a catalog item returns 403 unless the user holds the required RBAC privilege on the target
+  3. A non-admin API call to delete or promote a catalog item returns 403 unless the user holds ALTER or DROP privilege
+  4. An admin API call to any of the above succeeds (no regression)
+**Plans**: 1 plan
+Plans:
+- [ ] 21-01-PLAN.md — Harden User API and Catalog API write paths with admin-only and RBAC privilege checks
+
+### Phase 22: Backend API High Security
+**Goal**: Collaboration, Scripts, Folders, and Reflections API endpoints enforce RBAC before mutating data
+**Depends on**: Phase 21
+**Requirements**: API-03, API-04, API-05, API-06
+**Success Criteria** (what must be TRUE):
+  1. A non-admin call to set tags or wiki on an entity returns 403 if the caller lacks ALTER privilege on that entity
+  2. A non-admin call to `GET /api/v3/scripts` with `createdBy` set to another user's name returns only the caller's own scripts or an empty list
+  3. A non-admin call to create or delete a folder in a space returns 403 if the caller lacks CREATE or ALTER privilege on the parent space
+  4. A non-admin call to create, edit, or delete a reflection returns 403 if the caller lacks ALTER privilege on the underlying dataset
+  5. Admin calls to all of the above succeed without regression
+**Plans**: TBD
+
+### Phase 23: UI Global Admin Gates
+**Goal**: Non-admin users see a UI that reflects only the actions they are authorized to take at the global navigation level
+**Depends on**: Phase 20 (v1.3 complete, can execute independently of Phase 21-22)
+**Requirements**: UI-01, UI-02, UI-03, UI-05
+**Success Criteria** (what must be TRUE):
+  1. A non-admin user navigating to Settings sees no Users tab and no Add User or Delete User controls
+  2. A non-admin user who lacks `canCreateSource` permission sees no Add Source button in the Sources panel
+  3. A non-admin user sees no Add Space button in the sidebar Spaces panel
+  4. A non-admin user navigating to Settings cannot reach Node Activity, Engines, Queue Control, or Users sub-pages (route is hidden or returns to home)
+  5. Admin users see all of the above controls normally (no regression)
+**Plans**: TBD
+
+### Phase 24: UI Dataset and Space Context Gates
+**Goal**: Dataset context menus and space settings controls expose only the actions the current user is authorized to perform
+**Depends on**: Phase 23
+**Requirements**: UI-04, UI-06
+**Success Criteria** (what must be TRUE):
+  1. A non-admin user opening a dataset context menu sees no Delete, Rename, Move, Edit, or Settings items for datasets they have no privileges on
+  2. A user with only SELECT on a dataset sees no destructive or mutating actions in the dataset context menu
+  3. A non-admin user who lacks space management permissions sees no settings gear icon on the space
+  4. A user with appropriate privileges still sees and can use the relevant context menu actions (no regression)
+**Plans**: TBD
+
+### Phase 25: Backend Logic Fixes
+**Goal**: Dataset counts, system table queries, and view creation reflect the caller's RBAC context correctly
+**Depends on**: Phase 21
+**Requirements**: LOGIC-01, LOGIC-02, LOGIC-03
+**Success Criteria** (what must be TRUE):
+  1. The dataset count displayed next to a space name matches the count of datasets the current user can actually see, not the total count
+  2. A non-admin user can query `sys.membership` and receives rows scoped to their own memberships
+  3. A non-admin user can query `sys.privileges` and receives rows scoped to their own grants
+  4. After a user creates a view via Save as View, that user immediately holds SELECT, ALTER, and DROP privileges on the new view without any additional grant step
+**Plans**: TBD
+
+### Phase 26: Information Disclosure Fix
+**Goal**: Non-admin users cannot use the Jobs page to enumerate all system usernames
+**Depends on**: Phase 25
+**Requirements**: DISC-01
+**Success Criteria** (what must be TRUE):
+  1. A non-admin user opening the Jobs page User filter sees only their own username in the dropdown or autocomplete list
+  2. An admin user sees all usernames in the Jobs page User filter (no regression)
+  3. A non-admin user cannot retrieve other users' job history by manipulating the User filter
+**Plans**: TBD
+
 ## Quick Tasks
 
 Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for details.
@@ -96,3 +179,9 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 18. Code Hardening | v1.3 | 1/1 | Complete | 2026-02-23 |
 | 19. Test Coverage and Documentation | v1.3 | 1/1 | Complete | 2026-02-23 |
 | 20. File Browse and Promote RBAC Enforcement | v1.3 | 2/2 | Complete | 2026-02-23 |
+| 21. Backend API Critical Security | v1.4 | 0/1 | In progress | - |
+| 22. Backend API High Security | v1.4 | 0/TBD | Not started | - |
+| 23. UI Global Admin Gates | v1.4 | 0/TBD | Not started | - |
+| 24. UI Dataset and Space Context Gates | v1.4 | 0/TBD | Not started | - |
+| 25. Backend Logic Fixes | v1.4 | 0/TBD | Not started | - |
+| 26. Information Disclosure Fix | v1.4 | 0/TBD | Not started | - |
