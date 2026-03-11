@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 Phase: 25 of 25 (Fix RESTCATALOG S3 Config Propagation)
 Plan: 1 of 1 complete
 Status: Complete
-Last activity: 2026-03-11 — Completed 25-01: S3 filesystem config propagation fix
+Last activity: 2026-03-11 — Completed quick task 9: Fix DROP TABLE AT BRANCH validation
 
 Progress: [██████████] 100%
 
@@ -89,6 +89,12 @@ None yet.
 
 - Commit hash as REST prefix: Does Nessie accept commit hashes in Iceberg REST URI prefix? (AT COMMIT deferred to future, but verify during Phase 22)
 - OAuth token lifecycle: Each per-branch RESTCatalog may maintain its own OAuth2 session (verify during Phase 22)
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 9 | Fix DROP TABLE AT BRANCH silently dropping from default branch on non-versioned REST catalog sources | 2026-03-11 | a638193fe | [9-fix-drop-table-at-branch-silently-droppi](./quick/9-fix-drop-table-at-branch-silently-droppi/) |
 
 ## Session Continuity
 
