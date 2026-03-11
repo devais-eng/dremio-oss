@@ -24,6 +24,8 @@ import com.dremio.common.exceptions.UserException;
 import com.dremio.exec.catalog.Catalog;
 import com.dremio.exec.catalog.CatalogUtil;
 import com.dremio.exec.catalog.TableMutationOptions;
+import com.dremio.exec.catalog.VersionedPlugin;
+import com.dremio.exec.store.StoragePlugin;
 import com.dremio.exec.planner.sql.parser.ReferenceTypeUtils;
 import com.dremio.exec.planner.sql.parser.SqlDropTable;
 import com.dremio.exec.planner.sql.parser.SqlGrant.Privilege;
@@ -87,6 +89,17 @@ public class DropTableHandler extends SimpleDirectHandler {
       }
     }
     catalog.validatePrivilege(path, Privilege.DROP);
+    if (dropTableNode.getRefType() != null) {
+      StoragePlugin source = catalog.getSource(path.getRoot());
+      if (source != null && !source.isWrapperFor(VersionedPlugin.class)) {
+        throw UserException.validationError()
+            .message(
+                String.format(
+                    "Source [%s] does not support AT [%s] version specification for DDL operations",
+                    path.getRoot(), dropTableNode.getRefType()))
+            .buildSilently();
+      }
+    }
     final String sourceName = path.getRoot();
     VersionContext statementSourceVersion =
         ReferenceTypeUtils.map(dropTableNode.getRefType(), dropTableNode.getRefValue(), null);
