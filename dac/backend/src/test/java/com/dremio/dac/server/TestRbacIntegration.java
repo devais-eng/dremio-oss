@@ -708,6 +708,85 @@ public class TestRbacIntegration extends BaseTestServer {
             .buildGet());
   }
 
+  // ===========================================================================
+  // Phase 28: DACSecurityContext @RolesAllowed enforcement tests
+  // ===========================================================================
+
+  @Test
+  public void testNonAdminCannotCreateUser() {
+    // API-01: Non-admin POST /api/v3/user must return 403 FORBIDDEN.
+    // With the fixed DACSecurityContext.isUserInRole("admin") this annotation is now enforced.
+    com.dremio.dac.api.User newUser =
+        new com.dremio.dac.api.User(
+            null, "testcreated28", "Test", "Created", "tc28@example.com", null, "Password1!", null);
+    try {
+      login(USER, PASSWORD);
+      Response response =
+          getBuilder(getHttpClient().getAPIv3().path("user"))
+              .buildPost(Entity.json(newUser))
+              .invoke();
+      assertThat(response.getStatus())
+          .as("Non-admin POST /api/v3/user must return 403 FORBIDDEN")
+          .isEqualTo(Response.Status.FORBIDDEN.getStatusCode());
+    } finally {
+      login(ADMIN, PASSWORD);
+    }
+  }
+
+  @Test
+  public void testNonAdminCannotUpdateUser() {
+    // API-01: Non-admin PUT /api/v3/user/{id} must return 403 FORBIDDEN.
+    // First, get the USER's id via GET /api/v3/user/by-name/{USER} as admin.
+    com.dremio.dac.api.User userInfo =
+        expectSuccess(
+            getBuilder(getHttpClient().getAPIv3().path("user").path("by-name").path(USER))
+                .buildGet(),
+            com.dremio.dac.api.User.class);
+    assertThat(userInfo).isNotNull();
+    assertThat(userInfo.getId()).isNotNull();
+
+    com.dremio.dac.api.User updatePayload =
+        new com.dremio.dac.api.User(
+            userInfo.getId(), USER, "Updated", "Name", "upd@example.com", userInfo.getTag(), null,
+            null);
+    try {
+      login(USER, PASSWORD);
+      Response response =
+          getBuilder(getHttpClient().getAPIv3().path("user").path(userInfo.getId()))
+              .buildPut(Entity.json(updatePayload))
+              .invoke();
+      assertThat(response.getStatus())
+          .as("Non-admin PUT /api/v3/user/{id} must return 403 FORBIDDEN")
+          .isEqualTo(Response.Status.FORBIDDEN.getStatusCode());
+    } finally {
+      login(ADMIN, PASSWORD);
+    }
+  }
+
+  @Test
+  public void testAdminCanCreateAndDeleteUser() throws Exception {
+    // API-01 regression guard: Admin POST /api/v3/user must still succeed (no regression).
+    com.dremio.dac.api.User newUser =
+        new com.dremio.dac.api.User(
+            null, "testcreated28adm", "Admin", "Created", "tc28adm@example.com", null,
+            "Password1!", null);
+    com.dremio.dac.api.User created =
+        expectSuccess(
+            getBuilder(getHttpClient().getAPIv3().path("user")).buildPost(Entity.json(newUser)),
+            com.dremio.dac.api.User.class);
+    assertThat(created).isNotNull();
+    assertThat(created.getId()).isNotNull();
+    assertThat(created.getName()).isEqualTo("testcreated28adm");
+
+    // Cleanup: delete the created user via userService directly.
+    try {
+      com.dremio.service.users.UserService userSvc = l(com.dremio.service.users.UserService.class);
+      userSvc.deleteUser(created.getName(), created.getTag());
+    } catch (Exception e) {
+      // Best-effort cleanup — test result is unaffected.
+    }
+  }
+
   @Test
   public void testCatalogUpdateRename_allowed_withAlter() throws Exception {
     // API-02 (regression guard): A user with ALTER privilege granted via role should still
