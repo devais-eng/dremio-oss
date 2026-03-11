@@ -29,6 +29,7 @@ import com.dremio.dac.server.GenericErrorMessage;
 import com.dremio.dac.server.tokens.TokenUtils;
 import com.dremio.dac.service.catalog.CatalogServiceHelper;
 import com.dremio.dac.support.SupportService;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.exec.server.SabotContext;
 import com.dremio.exec.server.options.ProjectOptionManager;
 import com.dremio.options.OptionManager;
@@ -121,24 +122,41 @@ public class LogInLogOutResource {
             .build();
       }
 
+      // Determine admin status via RBAC role membership.
+      // Default to true when RBAC is disabled for backward compatibility.
+      boolean isAdmin = true;
+      try {
+        if (dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+          RbacService rbacService = dContext.getRbacService();
+          if (rbacService != null) {
+            isAdmin = rbacService.isAdminMember(userConfig.getUserName());
+          }
+        }
+      } catch (Exception e) {
+        logger.warn(
+            "Could not determine admin status via RBAC for user {}, defaulting to admin=true",
+            userConfig.getUserName(),
+            e);
+      }
+
       SessionPermissions perms =
           new SessionPermissions(
               projectOptionManager.getOption(SupportService.USERS_UPLOAD),
               projectOptionManager.getOption(SupportService.USERS_DOWNLOAD),
               projectOptionManager.getOption(SupportService.USERS_EMAIL),
               projectOptionManager.getOption(SupportService.USERS_CHAT),
-              true,
-              true,
-              true,
-              true,
-              true,
-              true,
-              true,
-              true,
-              true,
-              true,
-              true,
-              true);
+              isAdmin, // canViewAllJobs
+              isAdmin, // canCreateUser
+              isAdmin, // canCreateRole
+              isAdmin, // canCreateSource
+              isAdmin, // canUploadFile
+              isAdmin, // canManageNodeActivity
+              isAdmin, // canManageEngines
+              isAdmin, // canManageQueues
+              isAdmin, // canManageEngineRouting
+              isAdmin, // canManageSupportSettings
+              isAdmin, // canConfigureSecurity
+              isAdmin); // canRunDiagnostic
 
       return Response.ok(
               new UserLoginSession(
@@ -149,7 +167,7 @@ public class LogInLogOutResource {
                   tokenDetails.expiresAt,
                   userConfig.getEmail(),
                   userConfig.getUID().getId(),
-                  true,
+                  isAdmin,
                   userConfig.getCreatedAt(),
                   support.getClusterId().getIdentity(),
                   support.getClusterId().getCreated(),
