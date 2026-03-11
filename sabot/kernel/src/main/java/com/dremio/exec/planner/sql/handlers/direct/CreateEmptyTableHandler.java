@@ -29,6 +29,8 @@ import com.dremio.exec.catalog.CatalogUtil;
 import com.dremio.exec.catalog.ColumnCountTooLargeException;
 import com.dremio.exec.catalog.DremioTable;
 import com.dremio.exec.catalog.TableMutationOptions;
+import com.dremio.exec.catalog.VersionedPlugin;
+import com.dremio.exec.store.StoragePlugin;
 import com.dremio.exec.ops.QueryContext;
 import com.dremio.exec.physical.base.IcebergWriterOptions;
 import com.dremio.exec.physical.base.ImmutableIcebergWriterOptions;
@@ -106,6 +108,20 @@ public class CreateEmptyTableHandler extends SimpleDirectHandlerWithValidator {
             sqlCreateEmptyTable.getRefType(), sqlCreateEmptyTable.getRefValue(), null);
     final VersionContext sessionVersion = userSession.getSessionVersionForSource(sourceName);
     VersionContext sourceVersion = statementSourceVersion.orElse(sessionVersion);
+
+    // Validate that AT BRANCH/TAG/etc. is only used on versioned sources
+    if (sqlCreateEmptyTable.getRefType() != null
+        && sqlCreateEmptyTable.getRefType() != VersionContext.Type.NOT_SPECIFIED) {
+      StoragePlugin source = catalog.getSource(sourceName);
+      if (source != null && !source.isWrapperFor(VersionedPlugin.class)) {
+        throw UserException.validationError()
+            .message(
+                String.format(
+                    "Source [%s] does not support AT [%s] version specification for DDL operations",
+                    sourceName, sqlCreateEmptyTable.getRefType()))
+            .buildSilently();
+      }
+    }
 
     // TODO: DX-94683: Should use CAC::canPerformOperation
     catalog.validatePrivilege(tableKey, SqlGrant.Privilege.CREATE_TABLE);

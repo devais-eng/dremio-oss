@@ -24,6 +24,8 @@ import com.dremio.exec.catalog.Catalog;
 import com.dremio.exec.catalog.DatasetCatalog;
 import com.dremio.exec.catalog.DremioTable;
 import com.dremio.exec.catalog.MutablePlugin;
+import com.dremio.exec.catalog.VersionedPlugin;
+import com.dremio.exec.store.StoragePlugin;
 import com.dremio.exec.physical.PhysicalPlan;
 import com.dremio.exec.planner.logical.CreateTableEntry;
 import com.dremio.exec.planner.sql.SqlExceptionHelper;
@@ -91,6 +93,20 @@ public class CreateTableHandler extends DataAdditionCmdHandler {
 
     // TODO: DX-94683: Should use CAC::canPerformOperation
     catalog.validatePrivilege(path, SqlGrant.Privilege.CREATE_TABLE);
+
+    // Validate that AT BRANCH/TAG/etc. is only used on versioned sources
+    if (sqlCreateTable.getRefType() != null
+        && sqlCreateTable.getRefType() != VersionContext.Type.NOT_SPECIFIED) {
+      StoragePlugin source = catalog.getSource(sourceName);
+      if (source != null && !source.isWrapperFor(VersionedPlugin.class)) {
+        throw UserException.validationError()
+            .message(
+                String.format(
+                    "Source [%s] does not support AT [%s] version specification for DDL operations",
+                    sourceName, sqlCreateTable.getRefType()))
+            .buildSilently();
+      }
+    }
 
     CatalogEntityKey catalogEntityKey =
         CatalogEntityKey.newBuilder()
