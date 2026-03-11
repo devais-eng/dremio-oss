@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 Phase: 25 of 25 (Fix RESTCATALOG S3 Config Propagation)
 Plan: 1 of 1 complete
 Status: Complete
-Last activity: 2026-03-11 — Completed quick task 9: Fix DROP TABLE AT BRANCH validation
+Last activity: 2026-03-11 — Completed quick task 10: Fix CREATE TABLE and CTAS AT BRANCH validation
 
 Progress: [██████████] 100%
 
@@ -95,9 +95,10 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 9 | Fix DROP TABLE AT BRANCH silently dropping from default branch on non-versioned REST catalog sources | 2026-03-11 | a638193fe | [9-fix-drop-table-at-branch-silently-droppi](./quick/9-fix-drop-table-at-branch-silently-droppi/) |
+| 10 | Fix CREATE TABLE and CTAS AT BRANCH silently ignoring branch on non-versioned REST catalog sources | 2026-03-11 | 15c852a53 | [10-fix-create-table-and-ctas-at-branch-vali](./quick/10-fix-create-table-and-ctas-at-branch-vali/) |
 
 ## Session Continuity
 
 Last session: 2026-03-11
-Stopped at: Completed 25-01-PLAN.md (S3 filesystem config propagation fix). Phase 25 complete. v1.4 milestone complete.
+Stopped at: Completed quick task 10 (CREATE TABLE and CTAS AT BRANCH validation fix).
 Resume file: None
