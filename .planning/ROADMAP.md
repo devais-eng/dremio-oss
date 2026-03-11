@@ -6,7 +6,7 @@
 - ✅ **v1.1 Enable Iceberg REST Catalog** — Phases 7-8 (shipped 2026-02-20)
 - ✅ **v1.2 GitHub Actions Docker Distribution** — Phases 9-11 (shipped 2026-02-21)
 - ✅ **v1.3 Privilege Context & Enforcement** — Phases 12-20 (shipped 2026-02-24)
-- 🚧 **v1.4 RBAC Issue Hardening** — Phases 21-26 (in progress)
+- 🚧 **v1.4 RBAC Issue Hardening** — Phases 21-27 (in progress)
 
 ## Phases
 
@@ -72,6 +72,7 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 - [x] **Phase 24: UI Dataset and Space Context Gates** — Remove unauthorized dataset context menu actions and space settings gear (completed 2026-03-11)
 - [x] **Phase 25: Backend Logic Fixes** — RBAC-aware dataset counts, accessible sys tables, and auto-grant on view creation (completed 2026-03-11)
 - [x] **Phase 26: Information Disclosure Fix** — Restrict Jobs page user filter to prevent username enumeration (completed 2026-03-11)
+- [ ] **Phase 27: Catalog API TOCTOU Fix** — Move RBAC privilege check before dataset rename to eliminate TOCTOU vulnerability (Gap Closure)
 
 ## Phase Details
 
@@ -158,6 +159,19 @@ Plans:
 Plans:
 - [ ] 26-01-PLAN.md — Add RBAC scoping to JobsFiltersResource.searchUsers() and integration tests
 
+### Phase 27: Catalog API TOCTOU Fix
+**Goal**: Eliminate the TOCTOU vulnerability where dataset rename is applied before RBAC privilege validation in the Catalog API v3 update path
+**Depends on**: Phase 21
+**Requirements**: API-02 (gap closure)
+**Gap Closure:** Closes TOCTOU gap from UAT Issue #13 — `PUT /api/v3/catalog/{id}` applies rename before ALTER privilege check
+**Success Criteria** (what must be TRUE):
+  1. A non-admin user without ALTER privilege calling `PUT /api/v3/catalog/{id}` with a new path receives 403 and the dataset is NOT renamed
+  2. A user with ALTER privilege can still rename datasets successfully (no regression)
+  3. The RBAC privilege check executes BEFORE any mutation (rename, SQL update, etc.)
+**Plans**: 1 plan
+Plans:
+- [ ] 27-01-PLAN.md — Move ALTER privilege validation before rename in updateNonVersionedDataset() and add TOCTOU regression test
+
 ## Quick Tasks
 
 Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for details.
@@ -198,4 +212,5 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 23. UI Global Admin Gates | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 24. UI Dataset and Space Context Gates | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 25. Backend Logic Fixes | v1.4 | Complete    | 2026-03-11 | 2026-03-11 |
-| 26. Information Disclosure Fix | 1/1 | Complete   | 2026-03-11 | - |
+| 26. Information Disclosure Fix | v1.4 | 1/1 | Complete | 2026-03-11 |
+| 27. Catalog API TOCTOU Fix | v1.4 | 0/1 | Pending | - |

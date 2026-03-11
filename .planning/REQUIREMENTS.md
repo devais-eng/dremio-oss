@@ -19,7 +19,7 @@ Requirements for RBAC Issue Hardening. Each maps to roadmap phases.
 ### Backend API Security
 
 - [x] **API-01**: The v3 User API `createUser()` and `updateUser()` methods require admin role (Issue #12)
-- [x] **API-02**: The v3 Catalog API `createCatalogItem()`, `updateCatalogItem()`, `deleteCatalogItem()`, `promoteToDataset()`, and `refreshCatalogItem()` enforce RBAC privileges (Issue #13)
+- [ ] **API-02**: The v3 Catalog API `createCatalogItem()`, `updateCatalogItem()`, `deleteCatalogItem()`, `promoteToDataset()`, and `refreshCatalogItem()` enforce RBAC privileges (Issue #13)
 - [x] **API-03**: The Collaboration API `setTagsForEntity()` and `setWikiForEntity()` require ALTER privilege on the target entity (Issue #14)
 - [x] **API-04**: The Scripts API `getScripts()` restricts the `createdBy` parameter to the current user for non-admin users (Issue #15)
 - [x] **API-05**: The `SpaceFolderResource` `createFolder()` and `deleteFolder()` methods verify ALTER/CREATE privilege on the parent space (Issue #16)
@@ -33,7 +33,7 @@ Requirements for RBAC Issue Hardening. Each maps to roadmap phases.
 
 ### Information Disclosure
 
-- [ ] **DISC-01**: The Jobs page User filter shows only the current user's name for non-admin users, preventing enumeration of all system usernames (Issue #8)
+- [x] **DISC-01**: The Jobs page User filter shows only the current user's name for non-admin users, preventing enumeration of all system usernames (Issue #8)
 
 ## Future Requirements
 
@@ -72,7 +72,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | UI-05 | Phase 23 | Complete |
 | UI-06 | Phase 24 | Complete |
 | API-01 | Phase 21 | Complete |
-| API-02 | Phase 21 | Complete |
+| API-02 | Phase 21, 27 | Pending |
 | API-03 | Phase 22 | Complete |
 | API-04 | Phase 22 | Complete |
 | API-05 | Phase 22 | Complete |
@@ -80,12 +80,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LOGIC-01 | Phase 25 | Complete |
 | LOGIC-02 | Phase 25 | Complete |
 | LOGIC-03 | Phase 25 | Complete |
-| DISC-01 | Phase 26 | Pending |
+| DISC-01 | Phase 26 | Complete |
 
 **Coverage:**
 - v1.4 requirements: 16 total
 - Mapped to phases: 16
-- Unmapped: 0
+- Complete: 15
+- Pending (gap closure): 1 (API-02)
 
 ---
 *Requirements defined: 2026-03-11*

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RBAC Issue Hardening
-status: completed
-stopped_at: Completed 26-information-disclosure-fix-01-PLAN.md
-last_updated: "2026-03-11T15:29:19.601Z"
-last_activity: "2026-03-11 — Phase 25 Plan 02: User-scoped sys.membership and sys.privileges access"
+status: in_progress
+stopped_at: Gap closure phase 27 created from UAT results
+last_updated: "2026-03-11T15:31:58.088Z"
+last_activity: "2026-03-11 — Phase 26 Plan 01: RBAC-scoped jobs filter user endpoint (DISC-01)"
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 6
-  total_plans: 10
+  total_plans: 11
   completed_plans: 10
-  percent: 90
+  percent: 91
 ---
 
 # Project State
@@ -26,12 +26,12 @@ See: .planning/PROJECT.md (updated 2026-03-11)
 ## Current Position
 
 Milestone: v1.4 RBAC Issue Hardening
-Phase: 26 of 26 (Information Disclosure Fix) -- COMPLETE
-Plan: 01 of 01 complete
-Status: All phases complete — v1.4 milestone complete
-Last activity: 2026-03-11 — Phase 26 Plan 01: RBAC-scoped jobs filter user endpoint (DISC-01)
+Phase: 27 of 27 (Catalog API TOCTOU Fix) -- PENDING
+Plan: 0 of 1 complete
+Status: Gap closure phase added from UAT audit
+Last activity: 2026-03-11 — Gap closure phase 27 created from UAT Issue #13
 
-Progress: [██████████] 100%
+Progress: [█████████░] 91%
 
 ## Shipped Milestones
 
