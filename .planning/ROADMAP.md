@@ -141,7 +141,10 @@ Plans:
   2. A non-admin user can query `sys.membership` and receives rows scoped to their own memberships
   3. A non-admin user can query `sys.privileges` and receives rows scoped to their own grants
   4. After a user creates a view via Save as View, that user immediately holds SELECT, ALTER, and DROP privileges on the new view without any additional grant step
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 25-01-PLAN.md — RBAC-aware dataset count in SpaceResource and auto-grant privileges on view creation
+- [ ] 25-02-PLAN.md — User-scoped sys.membership and sys.privileges access for non-admin users
 
 ### Phase 26: Information Disclosure Fix
 **Goal**: Non-admin users cannot use the Jobs page to enumerate all system usernames
@@ -191,6 +194,6 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 21. Backend API Critical Security | v1.4 | 1/1 | Complete | 2026-03-11 |
 | 22. Backend API High Security | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 23. UI Global Admin Gates | v1.4 | 2/2 | Complete | 2026-03-11 |
-| 24. UI Dataset and Space Context Gates | 2/2 | Complete   | 2026-03-11 | - |
-| 25. Backend Logic Fixes | v1.4 | 0/TBD | Not started | - |
+| 24. UI Dataset and Space Context Gates | v1.4 | 2/2 | Complete | 2026-03-11 |
+| 25. Backend Logic Fixes | v1.4 | 0/2 | Not started | - |
 | 26. Information Disclosure Fix | v1.4 | 0/TBD | Not started | - |
