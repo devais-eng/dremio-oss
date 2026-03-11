@@ -14,36 +14,43 @@
  * limitations under the License.
  */
 import * as adminPaths from "dremio-ui-common/paths/admin.js";
+import localStorageUtils from "#oss/utils/storageUtils/localStorageUtils";
 
 export default function () {
+  const isAdmin = localStorageUtils?.isUserAnAdmin();
+
   return Promise.resolve(
     [
-      {
+      // Admin-only sections: only include when user is admin
+      isAdmin && {
         icon: "settings/node-activity",
         title: "Admin.Engines.NodeActivity",
         url: adminPaths.nodeActivity.link(),
       },
-      {
+      isAdmin && {
         icon: "settings/engines",
         title: "Admin.Engines.ElasticEngines",
         url: adminPaths.engines.link(),
       },
+      // Support: accessible to all authenticated users
       {
         icon: "settings/support",
         title: "Admin.Engines.Support",
         url: adminPaths.support.link(),
       },
+      // Preferences: accessible to all authenticated users
       {
         icon: "settings/preferences",
         title: "Admin.Preferences.Title",
         url: adminPaths.preferences.link(),
       },
-      {
+      // Admin-only sections
+      isAdmin && {
         icon: "settings/queue-control",
         title: "Admin.Engines.QueueControl",
         url: adminPaths.advanced.link(),
       },
-      {
+      isAdmin && {
         icon: "settings/users",
         title: "Admin.UserManagement.Users",
         url: adminPaths.users.link(),

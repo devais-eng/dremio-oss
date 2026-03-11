@@ -30,6 +30,7 @@ import { pageContent, page } from "uiTheme/radium/general";
 import { DeleteButton } from "#oss/components/tableRowButtons/DeleteButton";
 import { IconButton, Button } from "dremio-ui-lib/components";
 import { getSonarContext } from "dremio-ui-common/contexts/SonarContext.js";
+import localStorageUtils from "#oss/utils/storageUtils/localStorageUtils";
 import * as adminPaths from "dremio-ui-common/paths/admin.js";
 import * as classes from "./UsersView.module.less";
 
@@ -139,12 +140,13 @@ class UsersView extends PureComponent {
               <dremio-icon name="interface/edit"></dremio-icon>
             </IconButton>
 
-            {this.context.loggedInUser.userName !== userName && (
-              <DeleteButton
-                onClick={this.props.removeUser.bind(this, user)}
-                dataQa="delete-user"
-              />
-            )}
+            {localStorageUtils?.isUserAnAdmin() &&
+              this.context.loggedInUser.userName !== userName && (
+                <DeleteButton
+                  onClick={this.props.removeUser.bind(this, user)}
+                  dataQa="delete-user"
+                />
+              )}
           </span>,
         ],
       };
@@ -152,6 +154,10 @@ class UsersView extends PureComponent {
   }
 
   renderAddUsersButton = () => {
+    const canCreateUser =
+      localStorageUtils?.getUserPermissions()?.canCreateUser;
+    if (!canCreateUser) return null;
+
     const addUserLinkTo = userLinkToSelector(this.context.location);
 
     return (
