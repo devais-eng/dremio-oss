@@ -80,7 +80,7 @@ public class UserResource {
     return User.fromUser(userGroupService.getUser(new UID(id)));
   }
 
-  @RolesAllowed({"admin", "user"})
+  @RolesAllowed("admin")
   @POST
   public User createUser(User user) throws IOException {
     final com.dremio.service.users.User userConfig =
@@ -141,7 +141,7 @@ public class UserResource {
     return savedUser;
   }
 
-  @RolesAllowed({"admin", "user"})
+  @RolesAllowed("admin")
   @PUT
   @Path("/{id}")
   public User updateUser(User user, @PathParam("id") String id)
