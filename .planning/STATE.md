@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RBAC Issue Hardening
 status: executing
-stopped_at: Completed 22-backend-api-high-security-01-PLAN.md
-last_updated: "2026-03-11T13:40:54Z"
-last_activity: "2026-03-11 — Phase 22 Plan 01: Collaboration API RBAC ALTER enforcement; Scripts API createdBy restriction for non-admins"
+stopped_at: Completed 22-backend-api-high-security-02-PLAN.md
+last_updated: "2026-03-11T13:47:03Z"
+last_activity: "2026-03-11 — Phase 22 Plan 02: SpaceFolderResource RBAC folder mutation enforcement; ReflectionResource RBAC ALTER enforcement on underlying dataset"
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 3
-  completed_plans: 2
-  percent: 67
+  completed_plans: 3
+  percent: 100
 ---
 
 # Project State
@@ -21,17 +21,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.4 RBAC Issue Hardening — Phase 22 Plan 01 complete (API-03, API-04)
+**Current focus:** v1.4 RBAC Issue Hardening — Phase 22 complete (API-03, API-04, API-05, API-06)
 
 ## Current Position
 
 Milestone: v1.4 RBAC Issue Hardening
 Phase: 22 of 26 (Backend API High Security)
-Plan: 01 of 02 complete
-Status: In progress
-Last activity: 2026-03-11 — Phase 22 Plan 01: Collaboration API RBAC ALTER enforcement; Scripts API createdBy restriction for non-admins
+Plan: 02 of 02 complete
+Status: Phase 22 complete
+Last activity: 2026-03-11 — Phase 22 Plan 02: SpaceFolderResource RBAC folder mutation enforcement; ReflectionResource RBAC ALTER enforcement on underlying dataset
 
-Progress: [██████░░░░] 67%
+Progress: [██████████] 100%
 
 ## Shipped Milestones
 
@@ -59,5 +59,5 @@ Progress: [██████░░░░] 67%
 
 ## Session Continuity
 
-Last session: 2026-03-11T13:40:54Z
-Stopped at: Completed 22-backend-api-high-security-01-PLAN.md
+Last session: 2026-03-11T13:47:03Z
+Stopped at: Completed 22-backend-api-high-security-02-PLAN.md

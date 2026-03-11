@@ -22,8 +22,8 @@ Requirements for RBAC Issue Hardening. Each maps to roadmap phases.
 - [x] **API-02**: The v3 Catalog API `createCatalogItem()`, `updateCatalogItem()`, `deleteCatalogItem()`, `promoteToDataset()`, and `refreshCatalogItem()` enforce RBAC privileges (Issue #13)
 - [x] **API-03**: The Collaboration API `setTagsForEntity()` and `setWikiForEntity()` require ALTER privilege on the target entity (Issue #14)
 - [x] **API-04**: The Scripts API `getScripts()` restricts the `createdBy` parameter to the current user for non-admin users (Issue #15)
-- [ ] **API-05**: The `SpaceFolderResource` `createFolder()` and `deleteFolder()` methods verify ALTER/CREATE privilege on the parent space (Issue #16)
-- [ ] **API-06**: The `ReflectionResource` `createReflection()`, `editReflection()`, and `deleteReflection()` methods verify ALTER privilege on the underlying dataset (Issue #17)
+- [x] **API-05**: The `SpaceFolderResource` `createFolder()` and `deleteFolder()` methods verify ALTER/CREATE privilege on the parent space (Issue #16)
+- [x] **API-06**: The `ReflectionResource` `createReflection()`, `editReflection()`, and `deleteReflection()` methods verify ALTER privilege on the underlying dataset (Issue #17)
 
 ### Backend Logic
 
@@ -75,8 +75,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | API-02 | Phase 21 | Complete |
 | API-03 | Phase 22 | Complete |
 | API-04 | Phase 22 | Complete |
-| API-05 | Phase 22 | Pending |
-| API-06 | Phase 22 | Pending |
+| API-05 | Phase 22 | Complete |
+| API-06 | Phase 22 | Complete |
 | LOGIC-01 | Phase 25 | Pending |
 | LOGIC-02 | Phase 25 | Pending |
 | LOGIC-03 | Phase 25 | Pending |
