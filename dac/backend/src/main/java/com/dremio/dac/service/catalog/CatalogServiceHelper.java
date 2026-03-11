@@ -1853,6 +1853,14 @@ public class CatalogServiceHelper {
     } else if (dataset.getType() == Dataset.DatasetType.VIRTUAL_DATASET) {
       Preconditions.checkArgument(type == VIRTUAL_DATASET, "Dataset type can not be modified");
       VirtualDataset virtualDataset = currentDatasetConfig.getVirtualDataset();
+      // RBAC: enforce ALTER privilege before any mutation (rename, SQL update).
+      // Validate against the CURRENT dataset path (not the requested/new path) to prevent
+      // privilege escalation via path manipulation (e.g. user has ALTER on target space but not
+      // on the source dataset).
+      catalogSupplier
+          .get()
+          .validatePrivilege(
+              new NamespaceKey(currentDatasetConfig.getFullPathList()), SqlGrant.Privilege.ALTER);
 
       // Check if the dataset is being renamed
       if (!Objects.equals(currentDatasetConfig.getFullPathList(), dataset.getPath())) {
@@ -1881,8 +1889,6 @@ public class CatalogServiceHelper {
               .batchSchema(getBatchSchema(dataset))
               .actionType(ViewOptions.ActionType.UPDATE_VIEW)
               .build();
-      // RBAC: enforce ALTER privilege on the view being updated
-      catalogSupplier.get().validatePrivilege(namespaceKey, SqlGrant.Privilege.ALTER);
       catalogSupplier
           .get()
           .updateView(
