@@ -68,7 +68,7 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 
 - [x] **Phase 21: Backend API Critical Security** — Close write-path authorization holes in User API and Catalog API (completed 2026-03-11)
 - [x] **Phase 22: Backend API High Security** — Add method-level auth to Collaboration, Scripts, Folders, and Reflections APIs (completed 2026-03-11)
-- [ ] **Phase 23: UI Global Admin Gates** — Hide admin-only Settings sub-pages, Add Source, and Add Space from non-admin users
+- [x] **Phase 23: UI Global Admin Gates** — Hide admin-only Settings sub-pages, Add Source, and Add Space from non-admin users (completed 2026-03-11)
 - [ ] **Phase 24: UI Dataset and Space Context Gates** — Remove unauthorized dataset context menu actions and space settings gear
 - [ ] **Phase 25: Backend Logic Fixes** — RBAC-aware dataset counts, accessible sys tables, and auto-grant on view creation
 - [ ] **Phase 26: Information Disclosure Fix** — Restrict Jobs page user filter to prevent username enumeration
@@ -187,7 +187,7 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 20. File Browse and Promote RBAC Enforcement | v1.3 | 2/2 | Complete | 2026-02-23 |
 | 21. Backend API Critical Security | v1.4 | 1/1 | Complete | 2026-03-11 |
 | 22. Backend API High Security | v1.4 | Complete    | 2026-03-11 | 2026-03-11 |
-| 23. UI Global Admin Gates | 1/2 | In Progress|  | - |
+| 23. UI Global Admin Gates | 2/2 | Complete   | 2026-03-11 | - |
 | 24. UI Dataset and Space Context Gates | v1.4 | 0/TBD | Not started | - |
 | 25. Backend Logic Fixes | v1.4 | 0/TBD | Not started | - |
 | 26. Information Disclosure Fix | v1.4 | 0/TBD | Not started | - |
