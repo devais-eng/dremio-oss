@@ -62,7 +62,7 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 
 </details>
 
-### 🚧 v1.4 RBAC Issue Hardening (In Progress)
+### v1.4 RBAC Issue Hardening (In Progress)
 
 **Milestone Goal:** Fix all verified RBAC issues — UI permission gates, backend API authorization holes, and information disclosure bugs — to make the RBAC system production-ready.
 
@@ -115,8 +115,8 @@ Plans:
   5. Admin users see all of the above controls normally (no regression)
 **Plans**: 2 plans
 Plans:
-- [ ] 23-01-PLAN.md — Make login endpoint RBAC-aware: set admin flag and SessionPermissions based on actual role membership
-- [ ] 23-02-PLAN.md — Filter admin-only Settings nav items, update route guards to allow non-admin access to Support/Preferences, gate UsersView controls
+- [x] 23-01-PLAN.md — Make login endpoint RBAC-aware: set admin flag and SessionPermissions based on actual role membership
+- [x] 23-02-PLAN.md — Filter admin-only Settings nav items, update route guards to allow non-admin access to Support/Preferences, gate UsersView controls
 
 ### Phase 24: UI Dataset and Space Context Gates
 **Goal**: Dataset context menus and space settings controls expose only the actions the current user is authorized to perform
@@ -127,7 +127,10 @@ Plans:
   2. A user with only SELECT on a dataset sees no destructive or mutating actions in the dataset context menu
   3. A non-admin user who lacks space management permissions sees no settings gear icon on the space
   4. A user with appropriate privileges still sees and can use the relevant context menu actions (no regression)
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 24-01-PLAN.md — Gate dataset context menu actions (Edit, Rename, Move, Settings, Delete) behind RBAC entity permissions
+- [ ] 24-02-PLAN.md — Hide space settings gear and Delete action from non-admin users in header, AllSpacesView, and space menu
 
 ### Phase 25: Backend Logic Fixes
 **Goal**: Dataset counts, system table queries, and view creation reflect the caller's RBAC context correctly
@@ -156,10 +159,10 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 
 | # | Description | Date | Status |
 |---|-------------|------|--------|
-| 1 | Fix Github Actions docker build ARG JAVA_IMAGE scope | 2026-02-25 | ✅ Done |
-| 2 | Split docker-ecr workflow into build and docker jobs | 2026-02-25 | ✅ Done |
-| 3 | Switch Docker push from ECR to GHCR | 2026-02-28 | ✅ Done |
-| 4 | Merge develop into rbac and align .planning directory | 2026-03-01 | ✅ Done |
+| 1 | Fix Github Actions docker build ARG JAVA_IMAGE scope | 2026-02-25 | Done |
+| 2 | Split docker-ecr workflow into build and docker jobs | 2026-02-25 | Done |
+| 3 | Switch Docker push from ECR to GHCR | 2026-02-28 | Done |
+| 4 | Merge develop into rbac and align .planning directory | 2026-03-01 | Done |
 
 ## Progress
 
@@ -186,8 +189,8 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 19. Test Coverage and Documentation | v1.3 | 1/1 | Complete | 2026-02-23 |
 | 20. File Browse and Promote RBAC Enforcement | v1.3 | 2/2 | Complete | 2026-02-23 |
 | 21. Backend API Critical Security | v1.4 | 1/1 | Complete | 2026-03-11 |
-| 22. Backend API High Security | v1.4 | Complete    | 2026-03-11 | 2026-03-11 |
-| 23. UI Global Admin Gates | 2/2 | Complete   | 2026-03-11 | - |
-| 24. UI Dataset and Space Context Gates | v1.4 | 0/TBD | Not started | - |
+| 22. Backend API High Security | v1.4 | 2/2 | Complete | 2026-03-11 |
+| 23. UI Global Admin Gates | v1.4 | 2/2 | Complete | 2026-03-11 |
+| 24. UI Dataset and Space Context Gates | v1.4 | 0/2 | Not started | - |
 | 25. Backend Logic Fixes | v1.4 | 0/TBD | Not started | - |
 | 26. Information Disclosure Fix | v1.4 | 0/TBD | Not started | - |
