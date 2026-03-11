@@ -187,7 +187,7 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 20. File Browse and Promote RBAC Enforcement | v1.3 | 2/2 | Complete | 2026-02-23 |
 | 21. Backend API Critical Security | v1.4 | 1/1 | Complete | 2026-03-11 |
 | 22. Backend API High Security | v1.4 | Complete    | 2026-03-11 | 2026-03-11 |
-| 23. UI Global Admin Gates | v1.4 | 0/2 | Not started | - |
+| 23. UI Global Admin Gates | 1/2 | In Progress|  | - |
 | 24. UI Dataset and Space Context Gates | v1.4 | 0/TBD | Not started | - |
 | 25. Backend Logic Fixes | v1.4 | 0/TBD | Not started | - |
 | 26. Information Disclosure Fix | v1.4 | 0/TBD | Not started | - |

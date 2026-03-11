@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RBAC Issue Hardening
 status: executing
-stopped_at: Completed 22-backend-api-high-security-02-PLAN.md
-last_updated: "2026-03-11T13:47:03Z"
-last_activity: "2026-03-11 — Phase 22 Plan 02: SpaceFolderResource RBAC folder mutation enforcement; ReflectionResource RBAC ALTER enforcement on underlying dataset"
+stopped_at: Completed 23-ui-global-admin-gates-01-PLAN.md
+last_updated: "2026-03-11T14:09:38.035Z"
+last_activity: "2026-03-11 — Phase 23 Plan 01: Login endpoint RBAC-aware admin flag and session permissions"
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 3
-  completed_plans: 3
-  percent: 100
+  total_plans: 5
+  completed_plans: 4
+  percent: 80
 ---
 
 # Project State
@@ -21,17 +21,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.4 RBAC Issue Hardening — Phase 22 complete (API-03, API-04, API-05, API-06)
+**Current focus:** v1.4 RBAC Issue Hardening — Phase 23 Plan 01 complete (UI-01, UI-02, UI-03)
 
 ## Current Position
 
 Milestone: v1.4 RBAC Issue Hardening
-Phase: 22 of 26 (Backend API High Security)
-Plan: 02 of 02 complete
-Status: Phase 22 complete
-Last activity: 2026-03-11 — Phase 22 Plan 02: SpaceFolderResource RBAC folder mutation enforcement; ReflectionResource RBAC ALTER enforcement on underlying dataset
+Phase: 23 of 26 (UI Global Admin Gates)
+Plan: 01 of 02 complete
+Status: In progress
+Last activity: 2026-03-11 — Phase 23 Plan 01: Login endpoint RBAC-aware admin flag and session permissions
 
-Progress: [██████████] 100%
+Progress: [████████░░] 80%
 
 ## Shipped Milestones
 
@@ -59,5 +59,5 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-03-11T13:47:03Z
-Stopped at: Completed 22-backend-api-high-security-02-PLAN.md
+Last session: 2026-03-11T14:09:38.033Z
+Stopped at: Completed 23-ui-global-admin-gates-01-PLAN.md
