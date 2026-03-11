@@ -213,4 +213,4 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 24. UI Dataset and Space Context Gates | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 25. Backend Logic Fixes | v1.4 | Complete    | 2026-03-11 | 2026-03-11 |
 | 26. Information Disclosure Fix | v1.4 | 1/1 | Complete | 2026-03-11 |
-| 27. Catalog API TOCTOU Fix | 1/1 | Complete   | 2026-03-11 | - |
+| 27. Catalog API TOCTOU Fix | 1/1 | Complete    | 2026-03-11 | - |

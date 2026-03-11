@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RBAC Issue Hardening
-status: complete
+status: completed
 stopped_at: Completed 27-catalog-api-toctou-fix-01-PLAN.md
-last_updated: "2026-03-11T16:40:05.828Z"
-last_activity: "2026-03-11 — Gap closure phase 27 created from UAT Issue #13"
+last_updated: "2026-03-11T16:43:13.844Z"
+last_activity: "2026-03-11 — Phase 27 Plan 01: TOCTOU fix in CatalogServiceHelper updateNonVersionedDataset() (API-02 gap closure)"
 progress:
   total_phases: 7
   completed_phases: 7
