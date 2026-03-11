@@ -18,7 +18,7 @@ Requirements for RBAC Issue Hardening. Each maps to roadmap phases.
 
 ### Backend API Security
 
-- [x] **API-01**: The v3 User API `createUser()` and `updateUser()` methods require admin role (Issue #12)
+- [ ] **API-01**: The v3 User API `createUser()` and `updateUser()` methods require admin role (Issue #12)
 - [x] **API-02**: The v3 Catalog API `createCatalogItem()`, `updateCatalogItem()`, `deleteCatalogItem()`, `promoteToDataset()`, and `refreshCatalogItem()` enforce RBAC privileges (Issue #13)
 - [x] **API-03**: The Collaboration API `setTagsForEntity()` and `setWikiForEntity()` require ALTER privilege on the target entity (Issue #14)
 - [x] **API-04**: The Scripts API `getScripts()` restricts the `createdBy` parameter to the current user for non-admin users (Issue #15)
@@ -27,9 +27,9 @@ Requirements for RBAC Issue Hardening. Each maps to roadmap phases.
 
 ### Backend Logic
 
-- [x] **LOGIC-01**: Dataset count shown next to space names reflects only RBAC-visible datasets, not all datasets (Issue #4)
-- [x] **LOGIC-02**: `sys.membership` and `sys.privileges` system tables are queryable by non-admin users (showing filtered or full data per policy) (Issue #5)
-- [x] **LOGIC-03**: After creating a view via Save as View, the creator is automatically granted SELECT, ALTER, and DROP privileges on the new view (Issue #7)
+- [ ] **LOGIC-01**: Dataset count shown next to space names reflects only RBAC-visible datasets, not all datasets (Issue #4)
+- [ ] **LOGIC-02**: `sys.membership` and `sys.privileges` system tables are queryable by non-admin users (showing filtered or full data per policy) (Issue #5)
+- [ ] **LOGIC-03**: After creating a view via Save as View, the creator is automatically granted SELECT, ALTER, and DROP privileges on the new view (Issue #7)
 
 ### Information Disclosure
 
@@ -71,22 +71,22 @@ Which phases cover which requirements. Updated during roadmap creation.
 | UI-04 | Phase 24 | Complete |
 | UI-05 | Phase 23 | Complete |
 | UI-06 | Phase 24 | Complete |
-| API-01 | Phase 21 | Complete |
+| API-01 | Phase 21, 28 | Pending |
 | API-02 | Phase 21, 27 | Complete |
-| API-03 | Phase 22 | Complete |
-| API-04 | Phase 22 | Complete |
-| API-05 | Phase 22 | Complete |
-| API-06 | Phase 22 | Complete |
-| LOGIC-01 | Phase 25 | Complete |
-| LOGIC-02 | Phase 25 | Complete |
-| LOGIC-03 | Phase 25 | Complete |
+| API-03 | Phase 22, 28 | Pending |
+| API-04 | Phase 22, 28 | Pending |
+| API-05 | Phase 22, 28 | Pending |
+| API-06 | Phase 22, 28 | Pending |
+| LOGIC-01 | Phase 25, 29 | Pending |
+| LOGIC-02 | Phase 25, 29 | Pending |
+| LOGIC-03 | Phase 25, 29 | Pending |
 | DISC-01 | Phase 26 | Complete |
 
 **Coverage:**
 - v1.4 requirements: 16 total
 - Mapped to phases: 16
-- Complete: 15
-- Pending (gap closure): 1 (API-02)
+- Complete: 8 (UI-01..06, API-02, DISC-01)
+- Pending (gap closure): 8 (API-01, API-03..06, LOGIC-01..03)
 
 ---
 *Requirements defined: 2026-03-11*

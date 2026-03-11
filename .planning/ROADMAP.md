@@ -6,7 +6,7 @@
 - ✅ **v1.1 Enable Iceberg REST Catalog** — Phases 7-8 (shipped 2026-02-20)
 - ✅ **v1.2 GitHub Actions Docker Distribution** — Phases 9-11 (shipped 2026-02-21)
 - ✅ **v1.3 Privilege Context & Enforcement** — Phases 12-20 (shipped 2026-02-24)
-- 🚧 **v1.4 RBAC Issue Hardening** — Phases 21-27 (in progress)
+- 🚧 **v1.4 RBAC Issue Hardening** — Phases 21-29 (in progress)
 
 ## Phases
 
@@ -73,6 +73,8 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 - [x] **Phase 25: Backend Logic Fixes** — RBAC-aware dataset counts, accessible sys tables, and auto-grant on view creation (completed 2026-03-11)
 - [x] **Phase 26: Information Disclosure Fix** — Restrict Jobs page user filter to prevent username enumeration (completed 2026-03-11)
 - [x] **Phase 27: Catalog API TOCTOU Fix** — Move RBAC privilege check before dataset rename to eliminate TOCTOU vulnerability (Gap Closure) (completed 2026-03-11)
+- [ ] **Phase 28: DACSecurityContext Role Enforcement** — Fix isUserInRole() to check actual admin membership, enabling all @RolesAllowed annotations (Gap Closure)
+- [ ] **Phase 29: Backend Logic Gaps v2** — Fix v3 catalog dataset count, sys table registration for non-admin, and CREATE_VIEW privilege resolution (Gap Closure)
 
 ## Phase Details
 
@@ -172,6 +174,34 @@ Plans:
 Plans:
 - [ ] 27-01-PLAN.md — Move ALTER privilege validation before rename in updateNonVersionedDataset() and add TOCTOU regression test
 
+### Phase 28: DACSecurityContext Role Enforcement
+**Goal**: Make JAX-RS `@RolesAllowed` annotations effective by fixing `DACSecurityContext.isUserInRole()` to check actual admin role membership instead of always returning `true`
+**Depends on**: Phase 21
+**Requirements**: API-01, API-03, API-04, API-05, API-06 (gap closure — annotations exist but are not enforced)
+**Gap Closure:** UAT retest revealed `DACSecurityContext.isUserInRole()` always returns `true`, making all `@RolesAllowed("admin")` annotations ineffective
+**Success Criteria** (what must be TRUE):
+  1. `DACSecurityContext.isUserInRole("admin")` returns `false` for non-admin users
+  2. A non-admin calling `PUT /api/v3/user/{id}` receives 403 (not 200)
+  3. A non-admin calling `POST /api/v3/user` receives 403 (not password validation error)
+  4. Admin calls to all protected endpoints still succeed (no regression)
+**Plans**: 1 plan
+Plans:
+- [ ] 28-01-PLAN.md — Fix DACSecurityContext.isUserInRole() to check admin role via RbacService and add regression tests
+
+### Phase 29: Backend Logic Gaps v2
+**Goal**: Fix remaining backend logic gaps: v3 catalog dataset count, sys table registration for non-admin, and CREATE_VIEW privilege resolution
+**Depends on**: Phase 28
+**Requirements**: LOGIC-01, LOGIC-02, LOGIC-03 (gap closure)
+**Gap Closure:** UAT retest revealed: (1) sidebar uses v3 catalog API not v2 SpaceResource for counts, (2) sys tables not registered for non-admin (row filtering never reached), (3) CREATE_VIEW privilege not resolved despite valid GRANT + role membership
+**Success Criteria** (what must be TRUE):
+  1. The sidebar dataset count next to a space reflects only RBAC-visible datasets (v3 catalog API path)
+  2. A non-admin user can query `sys.membership` and `sys.privileges` without "Object not found" error
+  3. A non-admin user with CREATE_VIEW privilege can create a view and immediately query it (auto-grant works end-to-end)
+**Plans**: 2 plans
+Plans:
+- [ ] 29-01-PLAN.md — Add RBAC-aware dataset count to v3 CatalogServiceHelper and fix sys table registration for non-admin
+- [ ] 29-02-PLAN.md — Fix CREATE_VIEW privilege resolution and verify auto-grant end-to-end
+
 ## Quick Tasks
 
 Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for details.
@@ -213,4 +243,6 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 24. UI Dataset and Space Context Gates | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 25. Backend Logic Fixes | v1.4 | Complete    | 2026-03-11 | 2026-03-11 |
 | 26. Information Disclosure Fix | v1.4 | 1/1 | Complete | 2026-03-11 |
-| 27. Catalog API TOCTOU Fix | 1/1 | Complete    | 2026-03-11 | - |
+| 27. Catalog API TOCTOU Fix | v1.4 | 1/1 | Complete | 2026-03-11 |
+| 28. DACSecurityContext Role Enforcement | v1.4 | 0/1 | Pending | - |
+| 29. Backend Logic Gaps v2 | v1.4 | 0/2 | Pending | - |
