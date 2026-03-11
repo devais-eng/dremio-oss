@@ -286,7 +286,7 @@ public class CatalogImpl implements Catalog {
 
   @Override
   public DremioTable getTableNoResolve(NamespaceKey key) {
-    if (isRbacDeniedForSysPrivileges(key)) {
+    if (isRbacDeniedForSysRoles(key)) {
       return null; // RBAC denied -- appear as "not found"
     }
     final DremioTable table = datasetManager.getTable(key, options, false);
@@ -298,7 +298,7 @@ public class CatalogImpl implements Catalog {
 
   @Override
   public DremioTable getTableNoColumnCount(NamespaceKey key) {
-    if (isRbacDeniedForSysPrivileges(key)) {
+    if (isRbacDeniedForSysRoles(key)) {
       return null; // RBAC denied -- appear as "not found"
     }
     final DremioTable table = datasetManager.getTable(key, options, true);
@@ -315,7 +315,7 @@ public class CatalogImpl implements Catalog {
     if (resolvedKey != null) {
       final DremioTable table = getTableHelper(resolvedKey);
       if (table != null) {
-        if (isRbacDeniedForSysPrivileges(resolvedKey)
+        if (isRbacDeniedForSysRoles(resolvedKey)
             || isRbacDeniedForVds(table, resolvedKey)
             || isRbacDeniedForPds(table, resolvedKey)) {
           return null; // RBAC denied -- appear as "not found"
@@ -324,7 +324,7 @@ public class CatalogImpl implements Catalog {
       }
     }
 
-    if (isRbacDeniedForSysPrivileges(key)) {
+    if (isRbacDeniedForSysRoles(key)) {
       return null; // RBAC denied -- appear as "not found"
     }
     final DremioTable table = getTableHelper(key);
@@ -341,7 +341,7 @@ public class CatalogImpl implements Catalog {
       try {
         DremioTable table = getTableSnapshot(catalogEntityKey);
         if (table != null
-            && (isRbacDeniedForSysPrivileges(namespaceKey)
+            && (isRbacDeniedForSysRoles(namespaceKey)
                 || isRbacDeniedForVds(table, namespaceKey)
                 || isRbacDeniedForPds(table, namespaceKey))) {
           return null; // RBAC denied -- appear as "not found"
@@ -384,11 +384,11 @@ public class CatalogImpl implements Catalog {
     }
 
     // define a value transformer which will update any view tables after retrieval
-    // and filter out RBAC-denied VDS, PDS, and sys.privileges entries
+    // and filter out RBAC-denied VDS, PDS, and sys.roles entries
     ValueTransformer<NamespaceKey, Optional<DremioTable>, NamespaceKey, Optional<DremioTable>>
         updateTableAfterRetrieval =
             (originalKey, resolvedKey, optTable) -> {
-              if (isRbacDeniedForSysPrivileges(resolvedKey)) {
+              if (isRbacDeniedForSysRoles(resolvedKey)) {
                 return Optional.empty(); // RBAC denied -- appear as "not found"
               }
               if (optTable.isPresent()) {
@@ -3032,15 +3032,17 @@ public class CatalogImpl implements Catalog {
   }
 
   /**
-   * Checks if RBAC denies the current user access to sys.privileges. Only ADMIN members may read
+   * Checks if RBAC denies the current user access to sys.roles. Only ADMIN members may read
    * this table. Non-admin users receive null (table not found).
+   * sys.privileges and sys.membership are now accessible to all users (with per-user row filtering
+   * in SystemTableScanCreator).
    *
    * @param key the namespace key being accessed
-   * @return true if access is denied (user is non-admin accessing sys.privileges)
+   * @return true if access is denied (user is non-admin accessing sys.roles)
    */
-  private boolean isRbacDeniedForSysPrivileges(NamespaceKey key) {
-    // Only applies to sys.privileges specifically
-    if (!"sys".equalsIgnoreCase(key.getRoot()) || !"privileges".equalsIgnoreCase(key.getLeaf())) {
+  private boolean isRbacDeniedForSysRoles(NamespaceKey key) {
+    // Only applies to sys.roles specifically
+    if (!"sys".equalsIgnoreCase(key.getRoot()) || !"roles".equalsIgnoreCase(key.getLeaf())) {
       return false;
     }
     // Feature flag OFF -> allow (RBAC disabled)
@@ -3057,7 +3059,7 @@ public class CatalogImpl implements Catalog {
     }
     // Admin -> allow; non-admin -> deny
     if (!rbacService.isAdminMember(userName)) {
-      logger.warn("RBAC: sys.privileges access denied for non-admin user '{}'", userName);
+      logger.warn("RBAC: sys.roles access denied for non-admin user '{}'", userName);
       return true;
     }
     return false;
