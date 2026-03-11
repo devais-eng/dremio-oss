@@ -554,4 +554,66 @@ public class TestRbacIntegration extends BaseTestServer {
       // Best-effort cleanup
     }
   }
+
+  // ===========================================================================
+  // Section 13: Jobs Filter User Enumeration (Phase 26 — DISC-01)
+  // ===========================================================================
+
+  @Test
+  public void testJobsFilterUsers_admin_seesAllUsers() {
+    // DISC-01: Admin should see all users in the jobs filter endpoint.
+    try {
+      login(ADMIN, PASSWORD);
+      String response =
+          expectSuccess(
+              getBuilder(getHttpClient().getAPIv2().path("jobs/filters/users"))
+                  .buildGet(),
+              String.class);
+      // Admin should see at least the admin user and the test user.
+      assertThat(response).contains(ADMIN);
+      assertThat(response).contains(USER);
+    } finally {
+      login(ADMIN, PASSWORD);
+    }
+  }
+
+  @Test
+  public void testJobsFilterUsers_nonAdmin_seesOnlySelf() {
+    // DISC-01: Non-admin should only see their own username — no other users.
+    try {
+      login(USER, PASSWORD);
+      String response =
+          expectSuccess(
+              getBuilder(getHttpClient().getAPIv2().path("jobs/filters/users"))
+                  .buildGet(),
+              String.class);
+      // User should see their own name.
+      assertThat(response).contains(USER);
+      // User should NOT see the admin username.
+      assertThat(response).doesNotContain("\"" + ADMIN + "\"");
+    } finally {
+      login(ADMIN, PASSWORD);
+    }
+  }
+
+  @Test
+  public void testJobsFilterUsers_nonAdmin_filterQueryCannotEnumerateOthers() {
+    // DISC-01: Non-admin cannot use the filter query param to discover other usernames.
+    try {
+      login(USER, PASSWORD);
+      String response =
+          expectSuccess(
+              getBuilder(
+                      getHttpClient()
+                          .getAPIv2()
+                          .path("jobs/filters/users")
+                          .queryParam("filter", ADMIN))
+                  .buildGet(),
+              String.class);
+      // Even when searching for the admin's name, non-admin gets empty or self only.
+      assertThat(response).doesNotContain("\"" + ADMIN + "\"");
+    } finally {
+      login(ADMIN, PASSWORD);
+    }
+  }
 }
