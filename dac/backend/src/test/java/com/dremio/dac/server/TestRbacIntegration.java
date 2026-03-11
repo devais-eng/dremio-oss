@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.fail;
 
 import com.dremio.config.DremioConfig;
+import com.dremio.dac.api.Dataset;
 import com.dremio.dac.daemon.DACDaemonModule;
 import com.dremio.dac.server.test.SampleDataPopulator;
 import com.dremio.exec.rbac.RbacService;
@@ -28,8 +29,12 @@ import com.dremio.service.jobs.SqlQuery;
 import com.dremio.service.namespace.NamespaceKey;
 import com.dremio.service.namespace.space.proto.SpaceConfig;
 import com.google.common.base.Throwables;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import javax.ws.rs.client.Entity;
+import javax.ws.rs.core.GenericType;
+import javax.ws.rs.core.Response;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -615,5 +620,160 @@ public class TestRbacIntegration extends BaseTestServer {
     } finally {
       login(ADMIN, PASSWORD);
     }
+  }
+
+  // ===========================================================================
+  // Section 14: Catalog API TOCTOU Regression (Phase 27 — API-02 gap closure)
+  // ===========================================================================
+
+  @Test
+  public void testCatalogUpdateRename_denied_withoutAlter() throws Exception {
+    // API-02 (TOCTOU fix): Non-admin user without ALTER privilege sends PUT
+    // /api/v3/catalog/{id} with a different path. The rename MUST be rejected AND the
+    // dataset must NOT be renamed in the namespace store.
+    createSpaceIfNotExists("toctou_test");
+    runSqlAsAdmin("CREATE VIEW toctou_test.original_name AS SELECT 1 AS id");
+
+    // Step 1: fetch the VDS catalog entity as admin (need id, tag, sql, type).
+    Dataset vds =
+        expectSuccess(
+            getBuilder(
+                    getHttpClient()
+                        .getCatalogApi()
+                        .path("by-path")
+                        .path("toctou_test")
+                        .path("original_name"))
+                .buildGet(),
+            new GenericType<Dataset>() {});
+    assertThat(vds).isNotNull();
+    assertThat(vds.getId()).isNotNull();
+
+    // Step 2: build a rename request as USER (no ALTER on toctou_test).
+    Dataset renameAttempt =
+        new Dataset(
+            vds.getId(),
+            vds.getType(),
+            Arrays.asList("toctou_test", "hacked_name"),
+            null,
+            null,
+            null,
+            vds.getTag(),
+            null,
+            vds.getSql(),
+            null,
+            null,
+            null,
+            false);
+
+    try {
+      login(USER, PASSWORD);
+      // The PUT must return an error (400 or 403) — privilege denied.
+      Response response =
+          getBuilder(getHttpClient().getCatalogApi().path(renameAttempt.getId()))
+              .buildPut(Entity.json(renameAttempt))
+              .invoke();
+      // Accept both BAD_REQUEST (400) and FORBIDDEN (403) as valid denial responses.
+      assertThat(response.getStatus())
+          .as("Expected 400 or 403 from unauthorized rename attempt")
+          .isIn(
+              Response.Status.BAD_REQUEST.getStatusCode(),
+              Response.Status.FORBIDDEN.getStatusCode());
+    } finally {
+      login(ADMIN, PASSWORD);
+    }
+
+    // Step 3: verify the dataset was NOT renamed — original_name must still exist.
+    // If TOCTOU bug is present, this GET would return 404 (dataset was silently renamed).
+    Dataset stillExists =
+        expectSuccess(
+            getBuilder(
+                    getHttpClient()
+                        .getCatalogApi()
+                        .path("by-path")
+                        .path("toctou_test")
+                        .path("original_name"))
+                .buildGet(),
+            new GenericType<Dataset>() {});
+    assertThat(stillExists.getId()).isEqualTo(vds.getId());
+
+    // Also verify the hacked_name does NOT exist.
+    expectStatus(
+        Response.Status.NOT_FOUND,
+        getBuilder(
+                getHttpClient()
+                    .getCatalogApi()
+                    .path("by-path")
+                    .path("toctou_test")
+                    .path("hacked_name"))
+            .buildGet());
+  }
+
+  @Test
+  public void testCatalogUpdateRename_allowed_withAlter() throws Exception {
+    // API-02 (regression guard): A user with ALTER privilege granted via role should still
+    // be able to rename a VDS via PUT /api/v3/catalog/{id}. This proves the fix does not
+    // break the authorized rename path.
+    createSpaceIfNotExists("toctou_allow");
+    runSqlAsAdmin("CREATE VIEW toctou_allow.rename_me AS SELECT 1 AS id");
+    runSqlAsAdmin("GRANT ALTER ON VDS toctou_allow.rename_me TO ROLE " + USER_ROLE);
+
+    // Step 1: fetch the VDS catalog entity as admin.
+    Dataset vds =
+        expectSuccess(
+            getBuilder(
+                    getHttpClient()
+                        .getCatalogApi()
+                        .path("by-path")
+                        .path("toctou_allow")
+                        .path("rename_me"))
+                .buildGet(),
+            new GenericType<Dataset>() {});
+    assertThat(vds).isNotNull();
+
+    // Step 2: send rename request as USER (who has ALTER via USER_ROLE).
+    Dataset renameRequest =
+        new Dataset(
+            vds.getId(),
+            vds.getType(),
+            Arrays.asList("toctou_allow", "renamed_ok"),
+            null,
+            null,
+            null,
+            vds.getTag(),
+            null,
+            vds.getSql(),
+            null,
+            null,
+            null,
+            false);
+
+    Dataset renamed;
+    try {
+      login(USER, PASSWORD);
+      renamed =
+          expectSuccess(
+              getBuilder(getHttpClient().getCatalogApi().path(renameRequest.getId()))
+                  .buildPut(Entity.json(renameRequest)),
+              new GenericType<Dataset>() {});
+    } finally {
+      login(ADMIN, PASSWORD);
+    }
+
+    // Step 3: verify the rename succeeded — dataset should now be at renamed_ok.
+    assertThat(renamed).isNotNull();
+    assertThat(renamed.getPath()).contains("renamed_ok");
+
+    // Cleanup: verify renamed_ok exists via admin GET.
+    Dataset renamedExists =
+        expectSuccess(
+            getBuilder(
+                    getHttpClient()
+                        .getCatalogApi()
+                        .path("by-path")
+                        .path("toctou_allow")
+                        .path("renamed_ok"))
+                .buildGet(),
+            new GenericType<Dataset>() {});
+    assertThat(renamedExists.getId()).isEqualTo(vds.getId());
   }
 }
