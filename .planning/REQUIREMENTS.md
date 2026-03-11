@@ -27,9 +27,9 @@ Requirements for RBAC Issue Hardening. Each maps to roadmap phases.
 
 ### Backend Logic
 
-- [ ] **LOGIC-01**: Dataset count shown next to space names reflects only RBAC-visible datasets, not all datasets (Issue #4)
+- [x] **LOGIC-01**: Dataset count shown next to space names reflects only RBAC-visible datasets, not all datasets (Issue #4)
 - [ ] **LOGIC-02**: `sys.membership` and `sys.privileges` system tables are queryable by non-admin users (showing filtered or full data per policy) (Issue #5)
-- [ ] **LOGIC-03**: After creating a view via Save as View, the creator is automatically granted SELECT, ALTER, and DROP privileges on the new view (Issue #7)
+- [x] **LOGIC-03**: After creating a view via Save as View, the creator is automatically granted SELECT, ALTER, and DROP privileges on the new view (Issue #7)
 
 ### Information Disclosure
 
@@ -77,9 +77,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | API-04 | Phase 22 | Complete |
 | API-05 | Phase 22 | Complete |
 | API-06 | Phase 22 | Complete |
-| LOGIC-01 | Phase 25 | Pending |
+| LOGIC-01 | Phase 25 | Complete |
 | LOGIC-02 | Phase 25 | Pending |
-| LOGIC-03 | Phase 25 | Pending |
+| LOGIC-03 | Phase 25 | Complete |
 | DISC-01 | Phase 26 | Pending |
 
 **Coverage:**

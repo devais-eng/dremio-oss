@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RBAC Issue Hardening
-status: completed
-stopped_at: Completed 24-ui-dataset-and-space-context-gates-02-PLAN.md
-last_updated: "2026-03-11T14:37:14.972Z"
-last_activity: "2026-03-11 — Phase 24 Plan 02: Space settings gear and Delete admin gates"
+status: in-progress
+stopped_at: Completed 25-backend-logic-fixes-01-PLAN.md
+last_updated: "2026-03-11T14:57:19Z"
+last_activity: "2026-03-11 — Phase 25 Plan 01: RBAC-aware dataset count and auto-grant on view creation"
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 7
-  completed_plans: 7
+  total_plans: 8
+  completed_plans: 8
   percent: 100
 ---
 
@@ -21,17 +21,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.4 RBAC Issue Hardening — Phase 24 complete (UI dataset/space context gates)
+**Current focus:** v1.4 RBAC Issue Hardening — Phase 25 in progress (Backend Logic Fixes)
 
 ## Current Position
 
 Milestone: v1.4 RBAC Issue Hardening
-Phase: 24 of 26 (UI Dataset and Space Context Gates)
-Plan: 02 of 02 complete
-Status: Phase 24 complete
-Last activity: 2026-03-11 — Phase 24 Plan 02: Space settings gear and Delete admin gates
+Phase: 25 of 26 (Backend Logic Fixes)
+Plan: 01 of 02 complete
+Status: Phase 25 in progress
+Last activity: 2026-03-11 — Phase 25 Plan 01: RBAC-aware dataset count and auto-grant on view creation
 
-Progress: [██████████] 100%
+Progress: [████████░░] 83%
 
 ## Shipped Milestones
 
@@ -57,7 +57,14 @@ Progress: [██████████] 100%
 | 7 | Apply all actionable Copilot review items (O(1) roleIds, precomputed-path overload, semicolon injection block). | 2026-03-02 | 246251057 | [7-apply-all-actionable-copilot-review-item](./quick/7-apply-all-actionable-copilot-review-item/) |
 | 8 | Enable RBAC and PDS SELECT enforcement by default (dremio-reference.conf). | 2026-03-02 | afb403227 | [8-enable-rbac-by-default](./quick/8-enable-rbac-by-default/) |
 
+## Decisions
+
+- (25-01) Compute dataset count from RBAC-filtered children list instead of namespaceService.getDatasetCount() for non-admin users
+- (25-01) Always fetch children list in getSpace() regardless of includeContents flag since RBAC filtering requires it
+- (25-01) Grant view creator privileges to ALL explicit roles with PUBLIC fallback
+- (25-01) Added listMembershipsByUser() to RbacService for efficient user role lookup
+
 ## Session Continuity
 
-Last session: 2026-03-11T14:37:14.969Z
-Stopped at: Completed 24-ui-dataset-and-space-context-gates-02-PLAN.md
+Last session: 2026-03-11T14:57:19Z
+Stopped at: Completed 25-backend-logic-fixes-01-PLAN.md
