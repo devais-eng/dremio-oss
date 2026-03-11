@@ -17,6 +17,7 @@ package com.dremio.dac.resource;
 
 import static com.dremio.service.namespace.proto.NameSpaceContainer.Type.FOLDER;
 
+import com.dremio.common.exceptions.UserException;
 import com.dremio.common.utils.PathUtils;
 import com.dremio.config.DremioConfig;
 import com.dremio.dac.annotations.RestResource;
@@ -123,6 +124,7 @@ public class SpaceFolderResource {
   @Produces(MediaType.APPLICATION_JSON)
   public void deleteFolder(@PathParam("path") String path, @QueryParam("version") String version)
       throws NamespaceException, FolderNotFoundException {
+    enforceSpacePrivilege("ALTER");
     FolderPath folderPath = FolderPath.fromURLPath(spaceName, path);
     if (version == null) {
       throw new ClientErrorException(GenericErrorMessage.MISSING_VERSION_PARAM_MSG);
@@ -143,6 +145,7 @@ public class SpaceFolderResource {
   @Consumes(MediaType.APPLICATION_JSON)
   public FolderModel createFolder(FolderName name, @PathParam("path") String path)
       throws NamespaceException {
+    enforceSpacePrivilege("CREATE_FOLDER");
     String fullPath = PathUtils.toFSPathString(Arrays.asList(path, name.toString()));
     FolderPath folderPath = FolderPath.fromURLPath(spaceName, fullPath);
 
@@ -183,6 +186,25 @@ public class SpaceFolderResource {
   protected NamespaceTree newNamespaceTree(List<NameSpaceContainer> children)
       throws DatasetNotFoundException, NamespaceException {
     return NamespaceTree.newInstance(datasetService, children, FOLDER, collaborationHelper);
+  }
+
+  private void enforceSpacePrivilege(String privilege) {
+    if (rbacService == null
+        || dremioConfig == null
+        || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return;
+    }
+    String userName = securityContext.getUserPrincipal().getName();
+    if (rbacService.isAdminMember(userName)) {
+      return;
+    }
+    if (!rbacService.hasPrivilege(userName, privilege, "SPACE", spaceName.getName())) {
+      throw UserException.validationError()
+          .message(
+              "Permission denied: %s privilege required on space '%s'.",
+              privilege, spaceName.getName())
+          .buildSilently();
+    }
   }
 
   private List<NameSpaceContainer> filterByRbacVisibility(List<NameSpaceContainer> children) {
