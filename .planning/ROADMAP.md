@@ -86,7 +86,7 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
   4. An admin API call to any of the above succeeds (no regression)
 **Plans**: 1 plan
 Plans:
-- [ ] 21-01-PLAN.md — Harden User API and Catalog API write paths with admin-only and RBAC privilege checks
+- [x] 21-01-PLAN.md — Harden User API and Catalog API write paths with admin-only and RBAC privilege checks
 
 ### Phase 22: Backend API High Security
 **Goal**: Collaboration, Scripts, Folders, and Reflections API endpoints enforce RBAC before mutating data
@@ -98,7 +98,10 @@ Plans:
   3. A non-admin call to create or delete a folder in a space returns 403 if the caller lacks CREATE or ALTER privilege on the parent space
   4. A non-admin call to create, edit, or delete a reflection returns 403 if the caller lacks ALTER privilege on the underlying dataset
   5. Admin calls to all of the above succeed without regression
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 22-01-PLAN.md — Add RBAC enforcement to Collaboration API (ALTER on tags/wiki) and Scripts API (createdBy restriction)
+- [ ] 22-02-PLAN.md — Add RBAC enforcement to SpaceFolderResource (CREATE_FOLDER/ALTER on folders) and ReflectionResource (ALTER on dataset)
 
 ### Phase 23: UI Global Admin Gates
 **Goal**: Non-admin users see a UI that reflects only the actions they are authorized to take at the global navigation level
@@ -179,8 +182,8 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 18. Code Hardening | v1.3 | 1/1 | Complete | 2026-02-23 |
 | 19. Test Coverage and Documentation | v1.3 | 1/1 | Complete | 2026-02-23 |
 | 20. File Browse and Promote RBAC Enforcement | v1.3 | 2/2 | Complete | 2026-02-23 |
-| 21. Backend API Critical Security | 1/1 | Complete   | 2026-03-11 | - |
-| 22. Backend API High Security | v1.4 | 0/TBD | Not started | - |
+| 21. Backend API Critical Security | v1.4 | 1/1 | Complete | 2026-03-11 |
+| 22. Backend API High Security | v1.4 | 0/2 | Not started | - |
 | 23. UI Global Admin Gates | v1.4 | 0/TBD | Not started | - |
 | 24. UI Dataset and Space Context Gates | v1.4 | 0/TBD | Not started | - |
 | 25. Backend Logic Fixes | v1.4 | 0/TBD | Not started | - |
