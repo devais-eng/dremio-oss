@@ -244,5 +244,5 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 25. Backend Logic Fixes | v1.4 | Complete    | 2026-03-11 | 2026-03-11 |
 | 26. Information Disclosure Fix | v1.4 | 1/1 | Complete | 2026-03-11 |
 | 27. Catalog API TOCTOU Fix | v1.4 | 1/1 | Complete | 2026-03-11 |
-| 28. DACSecurityContext Role Enforcement | v1.4 | 0/1 | Pending | - |
-| 29. Backend Logic Gaps v2 | v1.4 | 0/2 | Pending | - |
+| 28. DACSecurityContext Role Enforcement | v1.4 | Complete    | 2026-03-11 | - |
+| 29. Backend Logic Gaps v2 | 1/2 | In Progress|  | - |

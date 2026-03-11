@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.5
-milestone_name: RBAC Gap Closure (Phase 28+)
-status: in_progress
-stopped_at: Completed 28-dacsecuritycontext-role-enforcement-01-PLAN.md
-last_updated: "2026-03-11T17:42:31Z"
+milestone: v1.4
+milestone_name: RBAC Issue Hardening
+status: completed
+stopped_at: Completed 29-01-PLAN.md
+last_updated: "2026-03-11T20:35:19.429Z"
 last_activity: "2026-03-11 — Phase 28 Plan 01: Fix DACSecurityContext.isUserInRole() with RBAC admin check (API-01 gap closure)"
 progress:
-  total_phases: 8
+  total_phases: 9
   completed_phases: 8
-  total_plans: 12
-  completed_plans: 12
+  total_plans: 14
+  completed_plans: 13
   percent: 100
 ---
 
@@ -73,8 +73,10 @@ Progress: [██████████] 100%
 - [Phase 28-01]: user.getName() (UserUI implements Principal) instead of user.getUserPrincipal().getName() — UserUI has no getUserPrincipal() method
 - [Phase 28-01]: Only "admin" role delegates to rbacService.isAdminMember(); all other roles including "user" return true unconditionally to preserve @RolesAllowed({"admin","user"}) GET endpoint behavior
 - [Phase 28-01]: 3-arg DACSecurityContext constructor preserved for backward compatibility; all non-auth-filter call sites (TestResource, SampleDataPopulatorService, TestMultiMaster, TestMasterDown, TestCollaborationHelper) unchanged
+- [Phase 29-01]: Use namespaceService.list() + filterByVisibility() in DetailType.datasetCount instead of getDatasetCount() — reuses existing RBAC filter, ensures count matches visible children
+- [Phase 29-01]: Make SysFlightScanCreator filter methods package-private for direct unit testing without full scan operator infrastructure
 
 ## Session Continuity
 
-Last session: 2026-03-11T17:42:31Z
-Stopped at: Completed 28-dacsecuritycontext-role-enforcement-01-PLAN.md
+Last session: 2026-03-11T20:35:19.426Z
+Stopped at: Completed 29-01-PLAN.md
