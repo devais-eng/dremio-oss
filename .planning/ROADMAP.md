@@ -113,7 +113,10 @@ Plans:
   3. A non-admin user sees no Add Space button in the sidebar Spaces panel
   4. A non-admin user navigating to Settings cannot reach Node Activity, Engines, Queue Control, or Users sub-pages (route is hidden or returns to home)
   5. Admin users see all of the above controls normally (no regression)
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 23-01-PLAN.md — Make login endpoint RBAC-aware: set admin flag and SessionPermissions based on actual role membership
+- [ ] 23-02-PLAN.md — Filter admin-only Settings nav items, update route guards to allow non-admin access to Support/Preferences, gate UsersView controls
 
 ### Phase 24: UI Dataset and Space Context Gates
 **Goal**: Dataset context menus and space settings controls expose only the actions the current user is authorized to perform
@@ -183,8 +186,8 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 19. Test Coverage and Documentation | v1.3 | 1/1 | Complete | 2026-02-23 |
 | 20. File Browse and Promote RBAC Enforcement | v1.3 | 2/2 | Complete | 2026-02-23 |
 | 21. Backend API Critical Security | v1.4 | 1/1 | Complete | 2026-03-11 |
-| 22. Backend API High Security | v1.4 | 2/2 | Complete | 2026-03-11 |
-| 23. UI Global Admin Gates | v1.4 | 0/TBD | Not started | - |
+| 22. Backend API High Security | v1.4 | Complete    | 2026-03-11 | 2026-03-11 |
+| 23. UI Global Admin Gates | v1.4 | 0/2 | Not started | - |
 | 24. UI Dataset and Space Context Gates | v1.4 | 0/TBD | Not started | - |
 | 25. Backend Logic Fixes | v1.4 | 0/TBD | Not started | - |
 | 26. Information Disclosure Fix | v1.4 | 0/TBD | Not started | - |
