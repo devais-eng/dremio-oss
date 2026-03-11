@@ -226,17 +226,17 @@ public class CatalogServiceHelper {
         return items.map(
             builder -> {
               try {
-                final BoundedDatasetCount datasetCount =
-                    helper.namespaceService.getDatasetCount(
-                        new NamespaceKey(builder.getPath()),
-                        BoundedDatasetCount.SEARCH_TIME_LIMIT_MS,
-                        BoundedDatasetCount.COUNT_LIMIT_TO_STOP_SEARCH);
-
-                return builder
-                    .setDatasetCount(datasetCount.getCount())
-                    .setDatasetCountBounded(
-                        datasetCount.isCountBound() || datasetCount.isTimeBound());
-
+                final List<NameSpaceContainer> children =
+                    helper.namespaceService.list(
+                        new NamespaceKey(builder.getPath()), null, Integer.MAX_VALUE);
+                final List<NameSpaceContainer> visibleChildren =
+                    helper.filterByVisibility(children);
+                final int count =
+                    (int)
+                        visibleChildren.stream()
+                            .filter(c -> c.getType() == NameSpaceContainer.Type.DATASET)
+                            .count();
+                return builder.setDatasetCount(count).setDatasetCountBounded(false);
               } catch (NamespaceException e) {
                 throw new RuntimeException(e);
               }
