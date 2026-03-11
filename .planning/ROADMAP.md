@@ -72,7 +72,7 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 - [x] **Phase 24: UI Dataset and Space Context Gates** — Remove unauthorized dataset context menu actions and space settings gear (completed 2026-03-11)
 - [x] **Phase 25: Backend Logic Fixes** — RBAC-aware dataset counts, accessible sys tables, and auto-grant on view creation (completed 2026-03-11)
 - [x] **Phase 26: Information Disclosure Fix** — Restrict Jobs page user filter to prevent username enumeration (completed 2026-03-11)
-- [ ] **Phase 27: Catalog API TOCTOU Fix** — Move RBAC privilege check before dataset rename to eliminate TOCTOU vulnerability (Gap Closure)
+- [x] **Phase 27: Catalog API TOCTOU Fix** — Move RBAC privilege check before dataset rename to eliminate TOCTOU vulnerability (Gap Closure) (completed 2026-03-11)
 
 ## Phase Details
 
@@ -213,4 +213,4 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 24. UI Dataset and Space Context Gates | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 25. Backend Logic Fixes | v1.4 | Complete    | 2026-03-11 | 2026-03-11 |
 | 26. Information Disclosure Fix | v1.4 | 1/1 | Complete | 2026-03-11 |
-| 27. Catalog API TOCTOU Fix | v1.4 | 0/1 | Pending | - |
+| 27. Catalog API TOCTOU Fix | 1/1 | Complete   | 2026-03-11 | - |

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RBAC Issue Hardening
-status: in_progress
-stopped_at: Gap closure phase 27 created from UAT results
-last_updated: "2026-03-11T15:31:58.088Z"
-last_activity: "2026-03-11 — Phase 26 Plan 01: RBAC-scoped jobs filter user endpoint (DISC-01)"
+status: complete
+stopped_at: Completed 27-catalog-api-toctou-fix-01-PLAN.md
+last_updated: "2026-03-11T16:40:05.828Z"
+last_activity: "2026-03-11 — Gap closure phase 27 created from UAT Issue #13"
 progress:
   total_phases: 7
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 11
-  completed_plans: 10
-  percent: 91
+  completed_plans: 11
+  percent: 100
 ---
 
 # Project State
@@ -26,12 +26,12 @@ See: .planning/PROJECT.md (updated 2026-03-11)
 ## Current Position
 
 Milestone: v1.4 RBAC Issue Hardening
-Phase: 27 of 27 (Catalog API TOCTOU Fix) -- PENDING
-Plan: 0 of 1 complete
-Status: Gap closure phase added from UAT audit
-Last activity: 2026-03-11 — Gap closure phase 27 created from UAT Issue #13
+Phase: 27 of 27 (Catalog API TOCTOU Fix) -- COMPLETE
+Plan: 1 of 1 complete
+Status: All phases and plans complete — v1.4 milestone shipped
+Last activity: 2026-03-11 — Phase 27 Plan 01: TOCTOU fix in CatalogServiceHelper updateNonVersionedDataset() (API-02 gap closure)
 
-Progress: [█████████░] 91%
+Progress: [██████████] 100%
 
 ## Shipped Milestones
 
@@ -68,8 +68,10 @@ Progress: [█████████░] 91%
 - (25-02) Only sys.roles remains admin-only; sys.privileges and sys.membership open to all users with row scoping
 - [Phase 26-01]: Non-admin users receive only their own username from /api/v2/jobs/filters/users regardless of filter query param
 - [Phase 26-01]: Admin or RBAC-disabled path in JobsFiltersResource preserves original userService.searchUsers() behavior exactly
+- [Phase 27-01]: Validate ALTER privilege against current dataset path (currentDatasetConfig.getFullPathList()) not requested path to prevent privilege escalation via path manipulation
+- [Phase 27-01]: Single ALTER check at start of VDS branch — removed duplicate late-positioned check to fix TOCTOU vulnerability in updateNonVersionedDataset()
 
 ## Session Continuity
 
-Last session: 2026-03-11T15:29:19.598Z
-Stopped at: Completed 26-information-disclosure-fix-01-PLAN.md
+Last session: 2026-03-11T16:40:05.826Z
+Stopped at: Completed 27-catalog-api-toctou-fix-01-PLAN.md
