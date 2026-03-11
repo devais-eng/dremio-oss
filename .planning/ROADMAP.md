@@ -66,7 +66,7 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 
 **Milestone Goal:** Fix all verified RBAC issues — UI permission gates, backend API authorization holes, and information disclosure bugs — to make the RBAC system production-ready.
 
-- [ ] **Phase 21: Backend API Critical Security** — Close write-path authorization holes in User API and Catalog API
+- [x] **Phase 21: Backend API Critical Security** — Close write-path authorization holes in User API and Catalog API (completed 2026-03-11)
 - [ ] **Phase 22: Backend API High Security** — Add method-level auth to Collaboration, Scripts, Folders, and Reflections APIs
 - [ ] **Phase 23: UI Global Admin Gates** — Hide admin-only Settings sub-pages, Add Source, and Add Space from non-admin users
 - [ ] **Phase 24: UI Dataset and Space Context Gates** — Remove unauthorized dataset context menu actions and space settings gear
@@ -179,7 +179,7 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 18. Code Hardening | v1.3 | 1/1 | Complete | 2026-02-23 |
 | 19. Test Coverage and Documentation | v1.3 | 1/1 | Complete | 2026-02-23 |
 | 20. File Browse and Promote RBAC Enforcement | v1.3 | 2/2 | Complete | 2026-02-23 |
-| 21. Backend API Critical Security | v1.4 | 0/1 | In progress | - |
+| 21. Backend API Critical Security | 1/1 | Complete   | 2026-03-11 | - |
 | 22. Backend API High Security | v1.4 | 0/TBD | Not started | - |
 | 23. UI Global Admin Gates | v1.4 | 0/TBD | Not started | - |
 | 24. UI Dataset and Space Context Gates | v1.4 | 0/TBD | Not started | - |

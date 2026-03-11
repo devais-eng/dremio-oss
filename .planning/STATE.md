@@ -1,17 +1,37 @@
+---
+gsd_state_version: 1.0
+milestone: v1.4
+milestone_name: RBAC Issue Hardening
+status: planning
+stopped_at: Completed 21-backend-api-critical-security-01-PLAN.md
+last_updated: "2026-03-11T13:22:23.318Z"
+last_activity: 2026-03-11 — Roadmap created for v1.4 (6 phases, 16 requirements)
+progress:
+  total_phases: 6
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 100
+---
+
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-01)
+See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** Planning next milestone
+**Current focus:** v1.4 RBAC Issue Hardening — Phase 21 Plan 01 complete (API-01, API-02)
 
 ## Current Position
 
-Milestone: All milestones complete. Next milestone TBD.
-Status: All milestones complete (v1.0, v1.1, v1.2, v1.3). No active milestone.
-Last activity: 2026-03-02 - Completed quick task 8: Enable RBAC and PDS SELECT enforcement by default in dremio-reference.conf.
+Milestone: v1.4 RBAC Issue Hardening
+Phase: 21 of 26 (Backend API Critical Security)
+Plan: 01 of 01 complete
+Status: In progress
+Last activity: 2026-03-11 — Phase 21 Plan 01: UserResource write methods restricted to admin; CatalogServiceHelper mutation methods hardened with RBAC privilege enforcement
+
+Progress: [██████████] 100%
 
 ## Shipped Milestones
 
@@ -22,8 +42,8 @@ Last activity: 2026-03-02 - Completed quick task 8: Enable RBAC and PDS SELECT e
 
 ## Known Limitations / Future Improvements
 
-- **UI search for promoted PDS**: Non-admin users cannot discover promoted PDS via the global UI search bar. Users CAN still see and query granted PDS via the SQL editor left panel.
-- **Guard applies to all source types**: File browse/promote guards block non-admin access for ALL source types, including database/catalog sources where there are no files to browse.
+- **UI search for promoted PDS**: Non-admin users cannot discover promoted PDS via the global UI search bar.
+- **Guard applies to all source types**: File browse/promote guards block non-admin access for ALL source types, including database/catalog sources.
 - **bulkGetTables() PDS performance**: One listGrantsByObject() call per table in batch — needs profiling at scale.
 - **Credential vending gap (v1.1)**: DremioFileIO discards vended credentials from Iceberg loadTable(); static fs.s3a.* workaround works for long-lived creds but fails for IAM/STS short-lived tokens.
 
@@ -39,5 +59,5 @@ Last activity: 2026-03-02 - Completed quick task 8: Enable RBAC and PDS SELECT e
 
 ## Session Continuity
 
-Last session: 2026-03-02
-Stopped at: Quick task 8 complete — Enabled RBAC enforcement by default: services.rbac.enabled and services.rbac.pds.enabled flipped to true in dremio-reference.conf.
+Last session: 2026-03-11T13:22:23.316Z
+Stopped at: Completed 21-backend-api-critical-security-01-PLAN.md
