@@ -70,7 +70,7 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 - [x] **Phase 22: Backend API High Security** — Add method-level auth to Collaboration, Scripts, Folders, and Reflections APIs (completed 2026-03-11)
 - [x] **Phase 23: UI Global Admin Gates** — Hide admin-only Settings sub-pages, Add Source, and Add Space from non-admin users (completed 2026-03-11)
 - [x] **Phase 24: UI Dataset and Space Context Gates** — Remove unauthorized dataset context menu actions and space settings gear (completed 2026-03-11)
-- [ ] **Phase 25: Backend Logic Fixes** — RBAC-aware dataset counts, accessible sys tables, and auto-grant on view creation
+- [x] **Phase 25: Backend Logic Fixes** — RBAC-aware dataset counts, accessible sys tables, and auto-grant on view creation (completed 2026-03-11)
 - [ ] **Phase 26: Information Disclosure Fix** — Restrict Jobs page user filter to prevent username enumeration
 
 ## Phase Details
@@ -144,7 +144,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 25-01-PLAN.md — RBAC-aware dataset count in SpaceResource and auto-grant privileges on view creation
-- [ ] 25-02-PLAN.md — User-scoped sys.membership and sys.privileges access for non-admin users
+- [x] 25-02-PLAN.md — User-scoped sys.membership and sys.privileges access for non-admin users
 
 ### Phase 26: Information Disclosure Fix
 **Goal**: Non-admin users cannot use the Jobs page to enumerate all system usernames
@@ -195,5 +195,5 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 22. Backend API High Security | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 23. UI Global Admin Gates | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 24. UI Dataset and Space Context Gates | v1.4 | 2/2 | Complete | 2026-03-11 |
-| 25. Backend Logic Fixes | 1/2 | In Progress|  | - |
+| 25. Backend Logic Fixes | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 26. Information Disclosure Fix | v1.4 | 0/TBD | Not started | - |

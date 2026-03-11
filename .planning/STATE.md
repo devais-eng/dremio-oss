@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RBAC Issue Hardening
 status: in-progress
-stopped_at: Completed 25-backend-logic-fixes-01-PLAN.md
-last_updated: "2026-03-11T14:57:19Z"
-last_activity: "2026-03-11 — Phase 25 Plan 01: RBAC-aware dataset count and auto-grant on view creation"
+stopped_at: Completed 25-backend-logic-fixes-02-PLAN.md
+last_updated: "2026-03-11T15:03:21Z"
+last_activity: "2026-03-11 — Phase 25 Plan 02: User-scoped sys.membership and sys.privileges access"
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 8
-  completed_plans: 8
-  percent: 100
+  completed_plans: 9
+  percent: 90
 ---
 
 # Project State
@@ -26,12 +26,12 @@ See: .planning/PROJECT.md (updated 2026-03-11)
 ## Current Position
 
 Milestone: v1.4 RBAC Issue Hardening
-Phase: 25 of 26 (Backend Logic Fixes)
-Plan: 01 of 02 complete
-Status: Phase 25 in progress
-Last activity: 2026-03-11 — Phase 25 Plan 01: RBAC-aware dataset count and auto-grant on view creation
+Phase: 25 of 26 (Backend Logic Fixes) -- COMPLETE
+Plan: 02 of 02 complete
+Status: Phase 25 complete, Phase 26 next
+Last activity: 2026-03-11 — Phase 25 Plan 02: User-scoped sys.membership and sys.privileges access
 
-Progress: [████████░░] 83%
+Progress: [█████████░] 90%
 
 ## Shipped Milestones
 
@@ -63,8 +63,11 @@ Progress: [████████░░] 83%
 - (25-01) Always fetch children list in getSpace() regardless of includeContents flag since RBAC filtering requires it
 - (25-01) Grant view creator privileges to ALL explicit roles with PUBLIC fallback
 - (25-01) Added listMembershipsByUser() to RbacService for efficient user role lookup
+- (25-02) Cast AccessControlListingManager to RbacService via instanceof instead of adding getRbacService() to PluginSabotContext interface
+- (25-02) Filter sys.membership by member_name equals query user; filter sys.privileges by grantee in user's roleIds set
+- (25-02) Only sys.roles remains admin-only; sys.privileges and sys.membership open to all users with row scoping
 
 ## Session Continuity
 
-Last session: 2026-03-11T14:57:19Z
-Stopped at: Completed 25-backend-logic-fixes-01-PLAN.md
+Last session: 2026-03-11T15:03:21Z
+Stopped at: Completed 25-backend-logic-fixes-02-PLAN.md
