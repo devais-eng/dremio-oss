@@ -73,7 +73,7 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 - [x] **Phase 25: Backend Logic Fixes** — RBAC-aware dataset counts, accessible sys tables, and auto-grant on view creation (completed 2026-03-11)
 - [x] **Phase 26: Information Disclosure Fix** — Restrict Jobs page user filter to prevent username enumeration (completed 2026-03-11)
 - [x] **Phase 27: Catalog API TOCTOU Fix** — Move RBAC privilege check before dataset rename to eliminate TOCTOU vulnerability (Gap Closure) (completed 2026-03-11)
-- [ ] **Phase 28: DACSecurityContext Role Enforcement** — Fix isUserInRole() to check actual admin membership, enabling all @RolesAllowed annotations (Gap Closure)
+- [x] **Phase 28: DACSecurityContext Role Enforcement** — Fix isUserInRole() to check actual admin membership, enabling all @RolesAllowed annotations (Gap Closure) (completed 2026-03-11)
 - [ ] **Phase 29: Backend Logic Gaps v2** — Fix v3 catalog dataset count, sys table registration for non-admin, and CREATE_VIEW privilege resolution (Gap Closure)
 
 ## Phase Details
@@ -186,7 +186,7 @@ Plans:
   4. Admin calls to all protected endpoints still succeed (no regression)
 **Plans**: 1 plan
 Plans:
-- [ ] 28-01-PLAN.md — Fix DACSecurityContext.isUserInRole() to check admin role via RbacService and add regression tests
+- [x] 28-01-PLAN.md — Fix DACSecurityContext.isUserInRole() to check admin role via RbacService and add regression tests (1/1 plans complete)
 
 ### Phase 29: Backend Logic Gaps v2
 **Goal**: Fix remaining backend logic gaps: v3 catalog dataset count, sys table registration for non-admin, and CREATE_VIEW privilege resolution

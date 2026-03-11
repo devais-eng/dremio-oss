@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: RBAC Issue Hardening
-status: completed
-stopped_at: Completed 27-catalog-api-toctou-fix-01-PLAN.md
-last_updated: "2026-03-11T16:43:13.844Z"
-last_activity: "2026-03-11 — Phase 27 Plan 01: TOCTOU fix in CatalogServiceHelper updateNonVersionedDataset() (API-02 gap closure)"
+milestone: v1.5
+milestone_name: RBAC Gap Closure (Phase 28+)
+status: in_progress
+stopped_at: Completed 28-dacsecuritycontext-role-enforcement-01-PLAN.md
+last_updated: "2026-03-11T17:42:31Z"
+last_activity: "2026-03-11 — Phase 28 Plan 01: Fix DACSecurityContext.isUserInRole() with RBAC admin check (API-01 gap closure)"
 progress:
-  total_phases: 7
-  completed_phases: 7
-  total_plans: 11
-  completed_plans: 11
+  total_phases: 8
+  completed_phases: 8
+  total_plans: 12
+  completed_plans: 12
   percent: 100
 ---
 
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.4 RBAC Issue Hardening — ALL PHASES COMPLETE
+**Current focus:** v1.5 RBAC Gap Closure — Phase 28 complete
 
 ## Current Position
 
-Milestone: v1.4 RBAC Issue Hardening
-Phase: 27 of 27 (Catalog API TOCTOU Fix) -- COMPLETE
+Milestone: v1.5 RBAC Gap Closure (Phase 28+)
+Phase: 28 of 28 (DACSecurityContext Role Enforcement) -- COMPLETE
 Plan: 1 of 1 complete
-Status: All phases and plans complete — v1.4 milestone shipped
-Last activity: 2026-03-11 — Phase 27 Plan 01: TOCTOU fix in CatalogServiceHelper updateNonVersionedDataset() (API-02 gap closure)
+Status: Phase 28 plan 01 complete — @RolesAllowed("admin") enforcement now active
+Last activity: 2026-03-11 — Phase 28 Plan 01: Fix DACSecurityContext.isUserInRole() with RBAC admin check (API-01 gap closure)
 
 Progress: [██████████] 100%
 
@@ -70,8 +70,11 @@ Progress: [██████████] 100%
 - [Phase 26-01]: Admin or RBAC-disabled path in JobsFiltersResource preserves original userService.searchUsers() behavior exactly
 - [Phase 27-01]: Validate ALTER privilege against current dataset path (currentDatasetConfig.getFullPathList()) not requested path to prevent privilege escalation via path manipulation
 - [Phase 27-01]: Single ALTER check at start of VDS branch — removed duplicate late-positioned check to fix TOCTOU vulnerability in updateNonVersionedDataset()
+- [Phase 28-01]: user.getName() (UserUI implements Principal) instead of user.getUserPrincipal().getName() — UserUI has no getUserPrincipal() method
+- [Phase 28-01]: Only "admin" role delegates to rbacService.isAdminMember(); all other roles including "user" return true unconditionally to preserve @RolesAllowed({"admin","user"}) GET endpoint behavior
+- [Phase 28-01]: 3-arg DACSecurityContext constructor preserved for backward compatibility; all non-auth-filter call sites (TestResource, SampleDataPopulatorService, TestMultiMaster, TestMasterDown, TestCollaborationHelper) unchanged
 
 ## Session Continuity
 
-Last session: 2026-03-11T16:40:05.826Z
-Stopped at: Completed 27-catalog-api-toctou-fix-01-PLAN.md
+Last session: 2026-03-11T17:42:31Z
+Stopped at: Completed 28-dacsecuritycontext-role-enforcement-01-PLAN.md
