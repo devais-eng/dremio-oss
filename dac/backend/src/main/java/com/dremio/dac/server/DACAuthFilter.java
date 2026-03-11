@@ -18,12 +18,14 @@ package com.dremio.dac.server;
 import static com.dremio.dac.server.ContextualizedResourceMethodInvocationHandlerProvider.USER_CONTEXT_ATTRIBUTE;
 
 import com.dremio.common.collections.Tuple;
+import com.dremio.config.DremioConfig;
 import com.dremio.context.UserContext;
 import com.dremio.dac.annotations.Secured;
 import com.dremio.dac.annotations.TemporaryAccess;
 import com.dremio.dac.model.usergroup.UserName;
 import com.dremio.dac.server.tokens.TokenInfo;
 import com.dremio.dac.server.tokens.TokenUtils;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.service.tokens.TokenDetails;
 import com.dremio.service.tokens.TokenManager;
 import com.dremio.service.users.User;
@@ -32,6 +34,7 @@ import com.dremio.service.users.UserService;
 import com.google.common.base.Preconditions;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 import javax.annotation.Priority;
 import javax.inject.Inject;
 import javax.ws.rs.NotAuthorizedException;
@@ -51,6 +54,8 @@ public class DACAuthFilter implements ContainerRequestFilter {
   @Inject private javax.inject.Provider<UserService> userService;
   @Inject private TokenManager tokenManager;
   @Inject private ResourceInfo resourceInfo;
+  @Inject @Nullable private RbacService rbacService;
+  @Inject @Nullable private DremioConfig dremioConfig;
 
   public DACAuthFilter() {}
 
@@ -60,7 +65,7 @@ public class DACAuthFilter implements ContainerRequestFilter {
       final UserName userName = getUserNameFromToken(requestContext);
       final User userConfig = userService.get().getUser(userName.getName());
       requestContext.setSecurityContext(
-          new DACSecurityContext(userName, userConfig, requestContext));
+          new DACSecurityContext(userName, userConfig, requestContext, rbacService, dremioConfig));
       requestContext.setProperty(
           USER_CONTEXT_ATTRIBUTE, UserContext.of(userConfig.getUID().getId()));
     } catch (UserNotFoundException | NotAuthorizedException e) {
