@@ -71,7 +71,7 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 - [x] **Phase 23: UI Global Admin Gates** — Hide admin-only Settings sub-pages, Add Source, and Add Space from non-admin users (completed 2026-03-11)
 - [x] **Phase 24: UI Dataset and Space Context Gates** — Remove unauthorized dataset context menu actions and space settings gear (completed 2026-03-11)
 - [x] **Phase 25: Backend Logic Fixes** — RBAC-aware dataset counts, accessible sys tables, and auto-grant on view creation (completed 2026-03-11)
-- [ ] **Phase 26: Information Disclosure Fix** — Restrict Jobs page user filter to prevent username enumeration
+- [x] **Phase 26: Information Disclosure Fix** — Restrict Jobs page user filter to prevent username enumeration (completed 2026-03-11)
 
 ## Phase Details
 
@@ -154,7 +154,9 @@ Plans:
   1. A non-admin user opening the Jobs page User filter sees only their own username in the dropdown or autocomplete list
   2. An admin user sees all usernames in the Jobs page User filter (no regression)
   3. A non-admin user cannot retrieve other users' job history by manipulating the User filter
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 26-01-PLAN.md — Add RBAC scoping to JobsFiltersResource.searchUsers() and integration tests
 
 ## Quick Tasks
 
@@ -195,5 +197,5 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 22. Backend API High Security | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 23. UI Global Admin Gates | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 24. UI Dataset and Space Context Gates | v1.4 | 2/2 | Complete | 2026-03-11 |
-| 25. Backend Logic Fixes | v1.4 | 2/2 | Complete | 2026-03-11 |
-| 26. Information Disclosure Fix | v1.4 | 0/TBD | Not started | - |
+| 25. Backend Logic Fixes | v1.4 | Complete    | 2026-03-11 | 2026-03-11 |
+| 26. Information Disclosure Fix | 1/1 | Complete   | 2026-03-11 | - |

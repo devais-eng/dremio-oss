@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RBAC Issue Hardening
-status: in-progress
-stopped_at: Completed 25-backend-logic-fixes-02-PLAN.md
-last_updated: "2026-03-11T15:03:21Z"
+status: completed
+stopped_at: Completed 26-information-disclosure-fix-01-PLAN.md
+last_updated: "2026-03-11T15:29:19.601Z"
 last_activity: "2026-03-11 — Phase 25 Plan 02: User-scoped sys.membership and sys.privileges access"
 progress:
   total_phases: 6
-  completed_phases: 5
-  total_plans: 8
-  completed_plans: 9
+  completed_phases: 6
+  total_plans: 10
+  completed_plans: 10
   percent: 90
 ---
 
@@ -21,17 +21,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.4 RBAC Issue Hardening — Phase 25 in progress (Backend Logic Fixes)
+**Current focus:** v1.4 RBAC Issue Hardening — ALL PHASES COMPLETE
 
 ## Current Position
 
 Milestone: v1.4 RBAC Issue Hardening
-Phase: 25 of 26 (Backend Logic Fixes) -- COMPLETE
-Plan: 02 of 02 complete
-Status: Phase 25 complete, Phase 26 next
-Last activity: 2026-03-11 — Phase 25 Plan 02: User-scoped sys.membership and sys.privileges access
+Phase: 26 of 26 (Information Disclosure Fix) -- COMPLETE
+Plan: 01 of 01 complete
+Status: All phases complete — v1.4 milestone complete
+Last activity: 2026-03-11 — Phase 26 Plan 01: RBAC-scoped jobs filter user endpoint (DISC-01)
 
-Progress: [█████████░] 90%
+Progress: [██████████] 100%
 
 ## Shipped Milestones
 
@@ -66,8 +66,10 @@ Progress: [█████████░] 90%
 - (25-02) Cast AccessControlListingManager to RbacService via instanceof instead of adding getRbacService() to PluginSabotContext interface
 - (25-02) Filter sys.membership by member_name equals query user; filter sys.privileges by grantee in user's roleIds set
 - (25-02) Only sys.roles remains admin-only; sys.privileges and sys.membership open to all users with row scoping
+- [Phase 26-01]: Non-admin users receive only their own username from /api/v2/jobs/filters/users regardless of filter query param
+- [Phase 26-01]: Admin or RBAC-disabled path in JobsFiltersResource preserves original userService.searchUsers() behavior exactly
 
 ## Session Continuity
 
-Last session: 2026-03-11T15:03:21Z
-Stopped at: Completed 25-backend-logic-fixes-02-PLAN.md
+Last session: 2026-03-11T15:29:19.598Z
+Stopped at: Completed 26-information-disclosure-fix-01-PLAN.md
