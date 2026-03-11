@@ -74,7 +74,7 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 - [x] **Phase 26: Information Disclosure Fix** — Restrict Jobs page user filter to prevent username enumeration (completed 2026-03-11)
 - [x] **Phase 27: Catalog API TOCTOU Fix** — Move RBAC privilege check before dataset rename to eliminate TOCTOU vulnerability (Gap Closure) (completed 2026-03-11)
 - [x] **Phase 28: DACSecurityContext Role Enforcement** — Fix isUserInRole() to check actual admin membership, enabling all @RolesAllowed annotations (Gap Closure) (completed 2026-03-11)
-- [ ] **Phase 29: Backend Logic Gaps v2** — Fix v3 catalog dataset count, sys table registration for non-admin, and CREATE_VIEW privilege resolution (Gap Closure)
+- [x] **Phase 29: Backend Logic Gaps v2** — Fix v3 catalog dataset count, sys table registration for non-admin, and CREATE_VIEW privilege resolution (Gap Closure) (completed 2026-03-11)
 
 ## Phase Details
 
@@ -245,4 +245,4 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 26. Information Disclosure Fix | v1.4 | 1/1 | Complete | 2026-03-11 |
 | 27. Catalog API TOCTOU Fix | v1.4 | 1/1 | Complete | 2026-03-11 |
 | 28. DACSecurityContext Role Enforcement | v1.4 | Complete    | 2026-03-11 | - |
-| 29. Backend Logic Gaps v2 | 1/2 | In Progress|  | - |
+| 29. Backend Logic Gaps v2 | 2/2 | Complete   | 2026-03-11 | - |

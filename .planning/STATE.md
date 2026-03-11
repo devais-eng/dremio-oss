@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RBAC Issue Hardening
 status: completed
-stopped_at: Completed 29-01-PLAN.md
-last_updated: "2026-03-11T20:35:19.429Z"
+stopped_at: Completed 29-02-PLAN.md
+last_updated: "2026-03-11T20:42:48.770Z"
 last_activity: "2026-03-11 — Phase 28 Plan 01: Fix DACSecurityContext.isUserInRole() with RBAC admin check (API-01 gap closure)"
 progress:
   total_phases: 9
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 14
-  completed_plans: 13
+  completed_plans: 14
   percent: 100
 ---
 
@@ -75,8 +75,9 @@ Progress: [██████████] 100%
 - [Phase 28-01]: 3-arg DACSecurityContext constructor preserved for backward compatibility; all non-auth-filter call sites (TestResource, SampleDataPopulatorService, TestMultiMaster, TestMasterDown, TestCollaborationHelper) unchanged
 - [Phase 29-01]: Use namespaceService.list() + filterByVisibility() in DetailType.datasetCount instead of getDatasetCount() — reuses existing RBAC filter, ensures count matches visible children
 - [Phase 29-01]: Make SysFlightScanCreator filter methods package-private for direct unit testing without full scan operator infrastructure
+- [Phase 29-02]: Use viewKey.getRoot() and objectType=SPACE in validateCreateViewPrivilege() to match REST API grant storage format
 
 ## Session Continuity
 
-Last session: 2026-03-11T20:35:19.426Z
-Stopped at: Completed 29-01-PLAN.md
+Last session: 2026-03-11T20:42:48.767Z
+Stopped at: Completed 29-02-PLAN.md
