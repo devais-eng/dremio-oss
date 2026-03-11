@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RBAC Issue Hardening
-status: completed
-stopped_at: Completed 23-ui-global-admin-gates-02-PLAN.md
-last_updated: "2026-03-11T14:15:08.938Z"
-last_activity: "2026-03-11 — Phase 23 Plan 02: Settings navigation filtering and UsersView admin gates"
+status: executing
+stopped_at: Completed 24-ui-dataset-and-space-context-gates-01-PLAN.md
+last_updated: "2026-03-11T14:32:50.937Z"
+last_activity: "2026-03-11 — Phase 24 Plan 01: Dataset context menu and inline button RBAC gates"
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_plans: 7
+  completed_plans: 6
+  percent: 86
 ---
 
 # Project State
@@ -21,17 +21,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.4 RBAC Issue Hardening — Phase 23 complete (UI-01, UI-02, UI-03, UI-05)
+**Current focus:** v1.4 RBAC Issue Hardening — Phase 24 in progress (UI-04 dataset/space context gates)
 
 ## Current Position
 
 Milestone: v1.4 RBAC Issue Hardening
-Phase: 23 of 26 (UI Global Admin Gates)
-Plan: 02 of 02 complete
-Status: Phase 23 complete
-Last activity: 2026-03-11 — Phase 23 Plan 02: Settings navigation filtering and UsersView admin gates
+Phase: 24 of 26 (UI Dataset and Space Context Gates)
+Plan: 01 of 02 complete
+Status: Phase 24 in progress
+Last activity: 2026-03-11 — Phase 24 Plan 01: Dataset context menu and inline button RBAC gates
 
-Progress: [██████████] 100%
+Progress: [█████████░] 86%
 
 ## Shipped Milestones
 
@@ -59,5 +59,5 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-03-11T14:15:08.935Z
-Stopped at: Completed 23-ui-global-admin-gates-02-PLAN.md
+Last session: 2026-03-11T14:32:50.934Z
+Stopped at: Completed 24-ui-dataset-and-space-context-gates-01-PLAN.md
