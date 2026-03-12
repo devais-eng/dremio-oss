@@ -119,7 +119,7 @@ Plans:
   4. The local admin user can log in with username and password (form-based) when `auth.type=keycloak` is active
 **Plans:** 1/1 plans complete
 Plans:
-- [ ] 31-01-PLAN.md — TDD: DACAuthFilter eyJ-discriminated Keycloak JWT dispatch + unit tests
+- [x] 31-01-PLAN.md — TDD: DACAuthFilter eyJ-discriminated Keycloak JWT dispatch + unit tests
 
 ### Phase 32: JIT Provisioning + Role Mapping
 **Goal**: A Keycloak user who has never logged into Dremio is automatically provisioned on their first API call or login, with Keycloak realm roles synced to Dremio RBAC memberships
@@ -132,7 +132,12 @@ Plans:
   4. Keycloak `realm_access.roles` that match existing Dremio RBAC roles are granted to the user on every login; roles not present in Dremio are silently ignored
   5. In additive mode, manually-assigned Dremio role memberships not in the Keycloak token are preserved after re-login
   6. In authoritative mode, Dremio role memberships not present in the current Keycloak token are revoked on re-login
-**Plans**: TBD
+**Plans:** 4 plans
+Plans:
+- [ ] 32-01-PLAN.md — Foundation: Membership.source proto field, RbacService source overload, KeycloakTokenDetails, validateWithClaims()
+- [ ] 32-02-PLAN.md — TDD: JitUserProvisioner (REMOTE user creation with race-safe idempotency)
+- [ ] 32-03-PLAN.md — TDD: KeycloakRoleSyncer (additive/authoritative RBAC membership sync)
+- [ ] 32-04-PLAN.md — DACAuthFilter JIT+sync wiring, DACDaemonModule bindings, integration tests
 
 ### Phase 33: OIDC Redirect Web Flow
 **Goal**: A browser user can initiate login via Keycloak's authorization code flow, and after Keycloak authentication, land back in Dremio with a valid session token — with CSRF protection throughout
@@ -210,8 +215,8 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 28. DACSecurityContext Role Enforcement | v1.4 | 1/1 | Complete | 2026-03-11 |
 | 29. Backend Logic Gaps v2 | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 30. JWT Validation Infrastructure + Config | v1.5 | 2/2 | Complete | 2026-03-12 |
-| 31. REST API Bearer JWT Authentication | 1/1 | Complete   | 2026-03-12 | - |
-| 32. JIT Provisioning + Role Mapping | v1.5 | 0/TBD | Not started | - |
+| 31. REST API Bearer JWT Authentication | v1.5 | 1/1 | Complete | 2026-03-12 |
+| 32. JIT Provisioning + Role Mapping | v1.5 | 0/4 | In progress | - |
 | 33. OIDC Redirect Web Flow | v1.5 | 0/TBD | Not started | - |
 | 34. Web UI SSO Button | v1.5 | 0/TBD | Not started | - |
 | 35. Arrow Flight JDBC/ODBC + RP-Initiated Logout | v1.5 | 0/TBD | Not started | - |
