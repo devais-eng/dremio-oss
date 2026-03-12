@@ -1060,6 +1060,11 @@ ${errorprone.module.args}
         <version>${vertica-jdbc.version}</version>
       </dependency>
       <dependency>
+        <groupId>com.zaxxer</groupId>
+        <artifactId>HikariCP</artifactId>
+        <version>5.1.0</version>
+      </dependency>
+      <dependency>
         <groupId>org.antlr</groupId>
         <artifactId>antlr-runtime</artifactId>
         <version>3.4</version>
@@ -1100,6 +1105,11 @@ ${errorprone.module.args}
       <dependency>
         <groupId>org.apache.arrow</groupId>
         <artifactId>arrow-format</artifactId>
+        <version>${arrow.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.arrow</groupId>
+        <artifactId>arrow-jdbc</artifactId>
         <version>${arrow.version}</version>
       </dependency>
       <dependency>

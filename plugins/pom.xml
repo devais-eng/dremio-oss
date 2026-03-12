@@ -46,6 +46,7 @@
     <module>hive2</module>
     <module>hive3</module>
     <module>icebergcatalog</module>
+    <module>jdbc-base</module>
     <module>mongo</module>
     <module>nas</module>
     <module>pdfs</module>
