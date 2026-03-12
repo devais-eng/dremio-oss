@@ -84,7 +84,7 @@ See `milestones/v1.4-ROADMAP.md` for full phase details.
 
 **Milestone Goal:** Introduce a fully open-source JDBC storage plugin into Dremio OSS supporting PostgreSQL and Oracle, with HikariCP connection pooling, Arrow type conversion, basic pushdown, Testcontainers integration tests, and UI source creation wizards — eliminating dependency on the closed-source CE JDBC plugin.
 
-- [ ] **Phase 30: Base JDBC Framework** - Module structure, HikariCP pooling, schema discovery, type mapping, Arrow conversion, basic pushdown, health check
+- [x] **Phase 30: Base JDBC Framework** - Module structure, HikariCP pooling, schema discovery, type mapping, Arrow conversion, basic pushdown, health check (completed 2026-03-12)
 - [ ] **Phase 31: PostgreSQL Connector** - POSTGRES_DB source type with full PG type mapping, SSL/TLS, UI form, Testcontainers tests
 - [ ] **Phase 32: Oracle Connector** - ORACLE_DB source type with full Oracle type mapping, NUMBER handling, SSL/TLS, UI form, Testcontainers tests
 
@@ -100,7 +100,7 @@ See `milestones/v1.4-ROADMAP.md` for full phase details.
   3. A connector that extends the base can list schemas, tables, and columns by calling the base schema-discovery helper
   4. A connector that extends the base can execute a SELECT and receive Arrow RecordBatches with correctly typed columns (BOOLEAN through VARBINARY) streamed to the Dremio execution engine
   5. A connector that extends the base automatically rewrites queries to include WHERE, projected columns, and LIMIT clauses supplied by the Dremio planner
-**Plans:** 3 plans
+**Plans:** 3/3 plans complete
 Plans:
 - [ ] 30-01-PLAN.md — Maven module skeleton, HikariCP pooling, BaseJdbcConf, JdbcStoragePlugin lifecycle, health check
 - [ ] 30-02-PLAN.md — Schema discovery via DatabaseMetaData, JDBC-to-Arrow type mapping, execution pipeline (RecordReader, GroupScan, SubScan, ScanCreator)
@@ -177,6 +177,6 @@ Phases execute in numeric order: 30 → 31 → 32
 | 27. Catalog API TOCTOU Fix | v1.4 | 1/1 | Complete | 2026-03-11 |
 | 28. DACSecurityContext Role Enforcement | v1.4 | 1/1 | Complete | 2026-03-11 |
 | 29. Backend Logic Gaps v2 | v1.4 | 2/2 | Complete | 2026-03-11 |
-| 30. Base JDBC Framework | v1.5 | 0/3 | Not started | - |
+| 30. Base JDBC Framework | v1.5 | Complete    | 2026-03-12 | - |
 | 31. PostgreSQL Connector | v1.5 | 0/? | Not started | - |
 | 32. Oracle Connector | v1.5 | 0/? | Not started | - |
