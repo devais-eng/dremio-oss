@@ -157,6 +157,14 @@ public class DremioConfig extends NestedConfig {
    */
   public static final String RBAC_PDS_ENABLED = "services.rbac.pds.enabled";
 
+  /** Keycloak OIDC integration configuration. */
+  public static final String KEYCLOAK_ISSUER_URL = "services.keycloak.issuer-url";
+
+  public static final String KEYCLOAK_CLIENT_ID = "services.keycloak.client-id";
+  public static final String KEYCLOAK_CLIENT_SECRET = "services.keycloak.client-secret";
+  public static final String KEYCLOAK_REDIRECT_URI = "services.keycloak.redirect-uri";
+  public static final String KEYCLOAK_ROLE_SYNC_MODE = "services.keycloak.role.sync-mode";
+
   public static final String AUTOUPGRADE = "services.coordinator.auto-upgrade";
 
   public static final String REGISTRATION_ADDRESS = "registration.publish-host";
