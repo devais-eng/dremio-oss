@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Keycloak IdP Integration
-status: planning
-stopped_at: Completed 30-02-PLAN.md
-last_updated: "2026-03-12T16:09:00.000Z"
-last_activity: "2026-03-12 — Completed 30-02: OidcTokenValidator (RS256 JWT validation, JWKS key rotation), wired in DACDaemonModule"
+status: in_progress
+stopped_at: Completed 31-01-PLAN.md
+last_updated: "2026-03-12T16:43:00Z"
+last_activity: "2026-03-12 — Completed 31-01: DACAuthFilter eyJ-discriminated Keycloak JWT dispatch + 6 unit tests (TKN-02, COEX-01, COEX-02)"
 progress:
   total_phases: 6
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 100
+  completed_phases: 2
+  total_plans: 4
+  completed_plans: 4
+  percent: 67
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 
 ## Current Position
 
-Phase: 30 of 35 (JWT Validation Infrastructure + Config)
-Plan: 30-02 complete, phase complete
-Status: Phase complete — ready for Phase 31
-Last activity: 2026-03-12 — Completed 30-02: OidcTokenValidator (RS256 JWT validation, JWKS key rotation), wired in DACDaemonModule
+Phase: 31 of 35 (REST API Bearer JWT Authentication)
+Plan: 31-01 complete
+Status: Plan 31-01 complete — ready for Phase 32
+Last activity: 2026-03-12 — Completed 31-01: DACAuthFilter eyJ-discriminated Keycloak JWT dispatch + 6 unit tests (TKN-02, COEX-01, COEX-02)
 
 Progress: [██████████] 100%
 
@@ -55,6 +55,8 @@ Progress: [██████████] 100%
 - OidcTokenValidator uses JWKSourceBuilder.retrying(true) — no custom TTL/rate-limit needed; Nimbus defaults (5-min cache, 30-s rate limit) are sufficient for Phase 30
 - TestOidcTokenValidator uses @SuppressForbidden for com.sun.net.httpserver.HttpServer — internal JDK API but lightest in-process JWKS server, avoids adding WireMock/Jetty as test dep
 - OidcTokenValidator bound in DACDaemonModule as registry.bind(OidcTokenValidator.class, new OidcTokenValidator(jwksUri, issuerUrl, clientId)) — injectable by Phase 31 (DACAuthFilter) and Phase 35 (Arrow Flight)
+- DACAuthFilter uses OIDC-first with TokenManager fallback for eyJ tokens: Dremio's own JWTs start with eyJ too; Keycloak validator rejects them (wrong issuer/algorithm) so fallback to TokenManager is required for COEX-02
+- ParseException caught in getUserNameFromToken(), not filter(): filter() only catches UserNotFoundException|NotAuthorizedException; ParseException is checked and would produce 500 if it escaped
 
 ### Blockers/Concerns
 
@@ -74,6 +76,6 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-03-12T15:09:56.417Z
-Stopped at: Completed 30-02-PLAN.md
+Last session: 2026-03-12T16:43:00Z
+Stopped at: Completed 31-01-PLAN.md
 Resume file: None

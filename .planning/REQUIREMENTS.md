@@ -16,7 +16,7 @@ Requirements for Keycloak IdP Integration. Each maps to roadmap phases.
 ### Token Validation
 
 - [x] **TKN-01**: Dremio validates Keycloak-issued JWTs against Keycloak's JWKS endpoint (RS256 signature, expiry, issuer, audience)
-- [ ] **TKN-02**: DACAuthFilter accepts Keycloak Bearer tokens on REST API requests when auth.type=keycloak
+- [x] **TKN-02**: DACAuthFilter accepts Keycloak Bearer tokens on REST API requests when auth.type=keycloak
 - [x] **TKN-03**: JWKS cache auto-refreshes when a `kid` mismatch is detected (supports Keycloak key rotation)
 
 ### OIDC Login Flow
@@ -51,8 +51,8 @@ Requirements for Keycloak IdP Integration. Each maps to roadmap phases.
 
 ### Internal Auth Coexistence
 
-- [ ] **COEX-01**: When auth.type=keycloak, local admin user can still login with username/password for bootstrap/recovery
-- [ ] **COEX-02**: Dremio-issued session tokens continue to work alongside Keycloak tokens (DACAuthFilter tries Keycloak first, falls back to Dremio token manager)
+- [x] **COEX-01**: When auth.type=keycloak, local admin user can still login with username/password for bootstrap/recovery
+- [x] **COEX-02**: Dremio-issued session tokens continue to work alongside Keycloak tokens (DACAuthFilter tries Keycloak first, falls back to Dremio token manager)
 
 ### Logout
 
@@ -102,9 +102,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CFG-03 | Phase 30 | Complete |
 | TKN-01 | Phase 30 | Complete |
 | TKN-03 | Phase 30 | Complete |
-| TKN-02 | Phase 31 | Pending |
-| COEX-01 | Phase 31 | Pending |
-| COEX-02 | Phase 31 | Pending |
+| TKN-02 | Phase 31 | Complete |
+| COEX-01 | Phase 31 | Complete |
+| COEX-02 | Phase 31 | Complete |
 | JIT-01 | Phase 32 | Pending |
 | JIT-02 | Phase 32 | Pending |
 | JIT-03 | Phase 32 | Pending |

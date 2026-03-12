@@ -85,7 +85,7 @@ See `milestones/v1.4-ROADMAP.md` for full phase details.
 **Milestone Goal:** Make Dremio OSS authenticate users via Keycloak OIDC as a pluggable identity provider, with JIT provisioning, role mapping, and full login flow support (UI + API + JDBC/ODBC), while keeping internal auth and KVStore RBAC as the authorization layer.
 
 - [x] **Phase 30: JWT Validation Infrastructure + Config** — OIDC foundation: config constants, OidcTokenValidator, JWKS provider with kid-based refresh, DACDaemonModule wiring (completed 2026-03-12)
-- [ ] **Phase 31: REST API Bearer JWT Authentication** — DACAuthFilter OIDC branch accepting Keycloak JWTs, token type discriminator, internal auth coexistence
+- [x] **Phase 31: REST API Bearer JWT Authentication** — DACAuthFilter OIDC branch accepting Keycloak JWTs, token type discriminator, internal auth coexistence (completed 2026-03-12)
 - [ ] **Phase 32: JIT Provisioning + Role Mapping** — OidcJitProvisioner, KeycloakRoleMapper, additive-tagged sync, DACAuthFilter JIT trigger
 - [ ] **Phase 33: OIDC Redirect Web Flow** — OidcCallbackResource (login + callback endpoints), state/PKCE, code exchange, Dremio session issuance, id_token_hint storage
 - [ ] **Phase 34: Web UI SSO Button** — LoginForm SSO button, config-discovery endpoint, SSO landing page completes login saga
@@ -105,8 +105,8 @@ See `milestones/v1.4-ROADMAP.md` for full phase details.
   5. Role sync mode (`additive` vs `authoritative`) is readable from config and accessible to downstream components
 **Plans:** 2/2 plans complete
 Plans:
-- [ ] 30-01-PLAN.md — Maven module + KeycloakConfig + config constants + DACDaemonModule keycloak branch
-- [ ] 30-02-PLAN.md — OidcTokenValidator TDD (RS256 JWT validation against JWKS endpoint)
+- [x] 30-01-PLAN.md — Maven module + KeycloakConfig + config constants + DACDaemonModule keycloak branch
+- [x] 30-02-PLAN.md — OidcTokenValidator TDD (RS256 JWT validation against JWKS endpoint)
 
 ### Phase 31: REST API Bearer JWT Authentication
 **Goal**: REST API clients can authenticate with a Keycloak-issued Bearer JWT and reach protected endpoints, while Dremio opaque tokens and internal admin login continue to work unchanged
@@ -117,7 +117,9 @@ Plans:
   2. `curl -H "Authorization: Bearer <DREMIO_OPAQUE_TOKEN>"` continues to work without any change in behavior
   3. A request with a malformed or expired Keycloak JWT returns 401, not 500
   4. The local admin user can log in with username and password (form-based) when `auth.type=keycloak` is active
-**Plans**: TBD
+**Plans:** 1/1 plans complete
+Plans:
+- [ ] 31-01-PLAN.md — TDD: DACAuthFilter eyJ-discriminated Keycloak JWT dispatch + unit tests
 
 ### Phase 32: JIT Provisioning + Role Mapping
 **Goal**: A Keycloak user who has never logged into Dremio is automatically provisioned on their first API call or login, with Keycloak realm roles synced to Dremio RBAC memberships
@@ -207,8 +209,8 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 27. Catalog API TOCTOU Fix | v1.4 | 1/1 | Complete | 2026-03-11 |
 | 28. DACSecurityContext Role Enforcement | v1.4 | 1/1 | Complete | 2026-03-11 |
 | 29. Backend Logic Gaps v2 | v1.4 | 2/2 | Complete | 2026-03-11 |
-| 30. JWT Validation Infrastructure + Config | 2/2 | Complete   | 2026-03-12 | - |
-| 31. REST API Bearer JWT Authentication | v1.5 | 0/TBD | Not started | - |
+| 30. JWT Validation Infrastructure + Config | v1.5 | 2/2 | Complete | 2026-03-12 |
+| 31. REST API Bearer JWT Authentication | 1/1 | Complete   | 2026-03-12 | - |
 | 32. JIT Provisioning + Role Mapping | v1.5 | 0/TBD | Not started | - |
 | 33. OIDC Redirect Web Flow | v1.5 | 0/TBD | Not started | - |
 | 34. Web UI SSO Button | v1.5 | 0/TBD | Not started | - |
