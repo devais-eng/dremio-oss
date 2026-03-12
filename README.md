@@ -6,9 +6,11 @@ Dremio enables organizations to unlock the value of their data.
 
 1. [Documentation](#documentation)
 2. [Quickstart](#quickstart-how-to-build-and-run-dremio)
-3. [Codebase Structure](#codebase-structure)
-4. [Contributing](#contributing)
-5. [Questions](#questions)
+3. [Docker Image](#docker-image)
+4. [Codebase Structure](#codebase-structure)
+5. [Samples](#samples)
+6. [Contributing](#contributing)
+7. [Questions](#questions)
 
 ## Documentation
 
@@ -114,6 +116,28 @@ To build dremio with only OSS dependencies, you can add the following option to 
 
 The distribution directory will be `distribution/server/target/dremio-oss-{DREMIO_VERSION}/dremio-oss-{DREMIO_VERSION}`
 
+## Docker Image
+
+A Docker image is published to `ghcr.io/devais-eng/dremio-oss` by the [docker-ghcr](.github/workflows/docker-ghcr.yml) GitHub Actions workflow on every version tag push. To build it locally:
+
+### Build the distribution tarball
+
+```bash
+./mvnw package -DskipTests -Pdremio.no-lint -pl distribution/server -am
+```
+
+### Build the Docker image
+
+```bash
+mkdir -p docker-context
+cp distribution/server/target/dremio-community-*.tar.gz docker-context/dremio.tar.gz
+cp distribution/docker/Dockerfile docker-context/Dockerfile
+
+docker build -t ghcr.io/devais-eng/dremio-oss:latest docker-context/
+
+rm -rf docker-context
+```
+
 ## Codebase Structure
 
 | Directory                              | Details                                                  |
@@ -122,6 +146,12 @@ The distribution directory will be `distribution/server/target/dremio-oss-{DREMI
 | [common](common/README.md)             | Dremio Common                                            |
 | [distribution](distribution/README.md) | Dremio Distribution                                      |
 | [plugins](plugins/README.md)           | Dremio Plugins                                           |
+
+## Samples
+
+| Sample | Description |
+|--------|-------------|
+| [Iceberg REST Catalog](samples/iceberg-rest-catalog/) | Docker Compose demo with Nessie, MinIO, Keycloak, and RBAC |
 
 ## Contributing
 

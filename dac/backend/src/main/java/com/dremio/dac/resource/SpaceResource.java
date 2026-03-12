@@ -111,18 +111,34 @@ public class SpaceResource {
       throws Exception {
     try {
       SpaceConfig config = namespaceService.getSpace(spacePath.toNamespaceKey());
-      int datasetCount =
-          namespaceService
-              .getDatasetCount(
-                  spacePath.toNamespaceKey(),
-                  BoundedDatasetCount.SEARCH_TIME_LIMIT_MS,
-                  BoundedDatasetCount.COUNT_LIMIT_TO_STOP_SEARCH)
-              .getCount();
+      List<NameSpaceContainer> children =
+          namespaceService.list(spacePath.toNamespaceKey(), null, Integer.MAX_VALUE);
+      children = filterByRbacVisibility(children);
+
+      int datasetCount;
+      if (rbacService == null
+          || dremioConfig == null
+          || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)
+          || rbacService.isAdminMember(securityContext.getUserPrincipal().getName())) {
+        // Optimized path: use namespace count for admin/RBAC-off
+        datasetCount =
+            namespaceService
+                .getDatasetCount(
+                    spacePath.toNamespaceKey(),
+                    BoundedDatasetCount.SEARCH_TIME_LIMIT_MS,
+                    BoundedDatasetCount.COUNT_LIMIT_TO_STOP_SEARCH)
+                .getCount();
+      } else {
+        // RBAC-aware path: count datasets from filtered children
+        datasetCount =
+            (int)
+                children.stream()
+                    .filter(c -> c.getType() == NameSpaceContainer.Type.DATASET)
+                    .count();
+      }
+
       NamespaceTree contents = null;
       if (includeContents) {
-        List<NameSpaceContainer> children =
-            namespaceService.list(spacePath.toNamespaceKey(), null, Integer.MAX_VALUE);
-        children = filterByRbacVisibility(children);
         contents = newNamespaceTree(children);
       }
       return newSpace(config, contents, datasetCount);

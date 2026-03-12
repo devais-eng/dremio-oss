@@ -1,5 +1,14 @@
 # Milestones
 
+## v1.4 RBAC Issue Hardening (Shipped: 2026-03-11)
+
+**Phases completed:** 9 phases, 14 plans, 0 tasks
+
+**Key accomplishments:**
+- (none recorded)
+
+---
+
 ## v1.0 Naive RBAC (Shipped: 2026-02-19)
 
 **Phases completed:** 6 phases, 15 plans, 22 tasks
@@ -111,6 +120,32 @@
 - Container visibility tested via SQL proxy only, not REST API listing endpoints
 
 **Archives:** `milestones/v1.3-ROADMAP.md`, `milestones/v1.3-REQUIREMENTS.md`, `milestones/v1.3-MILESTONE-AUDIT.md`
+
+---
+
+
+## v1.4 RBAC Issue Hardening (Shipped: 2026-03-11)
+
+**Phases completed:** 9 phases, 14 plans
+**Files affected:** 60 (Java, JavaScript/JSX, TypeScript)
+**Lines of code:** ~7,001 insertions, 164 deletions
+**Timeline:** 1 day (2026-03-11)
+**Git range:** 3cf7542ca..ce656d4b6
+
+**Delivered:** Closed all 17 verified RBAC issues — UI permission gates, backend API authorization holes, TOCTOU vulnerability, information disclosure bug, and backend logic gaps — making the RBAC system production-ready.
+
+**Key accomplishments:**
+- Admin-only User API enforcement via @RolesAllowed + fixed DACSecurityContext.isUserInRole() to delegate to rbacService.isAdminMember()
+- RBAC privilege enforcement across all mutation APIs: Catalog (create/update/delete/promote/refresh), Collaboration (tags/wiki), Scripts (createdBy), Folders (create/delete), Reflections (create/edit/delete)
+- RBAC-aware UI: login response drives permission gates for Settings nav, Add Source/Space buttons, dataset context menus, space settings gear
+- RBAC-aware dataset counts (v2 SpaceResource + v3 CatalogServiceHelper), auto-grant SELECT/ALTER/DROP on view creation, user-scoped sys.membership/sys.privileges
+- TOCTOU vulnerability fix: ALTER privilege check moved before rename mutation in Catalog API v3 update path
+- Information disclosure fix: Jobs page user filter scoped to caller's own username for non-admin users
+
+**Acknowledged limitation:**
+- UI-04 entity permissions over-restrictive: non-admin users with explicit RBAC grants see no dataset context menu items (backend doesn't populate per-entity permissions in OSS; secure-by-default, not a security gap)
+
+**Archives:** `milestones/v1.4-ROADMAP.md`, `milestones/v1.4-REQUIREMENTS.md`, `milestones/v1.4-MILESTONE-AUDIT.md`
 
 ---
 

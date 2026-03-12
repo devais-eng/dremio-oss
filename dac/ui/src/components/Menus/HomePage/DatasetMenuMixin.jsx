@@ -21,6 +21,7 @@ import MenuItemLink from "components/Menus/MenuItemLink";
 import AnalyzeMenuItem from "components/Menus/HomePage/AnalyzeMenuItem";
 import { addProjectBase as wrapBackendLink } from "dremio-ui-common/utilities/projectBase.js";
 import { abilities } from "utils/datasetUtils";
+import localStorageUtils from "utils/storageUtils/localStorageUtils";
 import { shouldUseNewDatasetNavigation } from "#oss/utils/datasetNavigationUtils";
 import { getVersionContextFromId } from "dremio-ui-common/utilities/datasetReference.js";
 import * as sqlPaths from "dremio-ui-common/paths/sqlEditor.js";
@@ -42,6 +43,15 @@ export default function (input) {
       const { canRemoveFormat, canEdit, canMove, canDelete, isPhysical } =
         abilities(entity, entityType);
 
+      const isAdmin = localStorageUtils.isUserAnAdmin();
+      const entityPermissions = entity.get("permissions");
+      const hasAlter =
+        isAdmin || entityPermissions?.get("canAlter");
+      const hasDelete =
+        isAdmin ||
+        entityPermissions?.get("canDelete") ||
+        entityPermissions?.get("canAlter");
+
       const resourceId = entity.getIn(["fullPathList", 0]);
       const newFullPath = JSON.stringify(entity.get("fullPathList").toJS());
 
@@ -57,7 +67,7 @@ export default function (input) {
             text={t("Dataset.Actions.Query")}
             closeMenu={closeMenu}
           />
-          {canEdit && (
+          {canEdit && hasAlter && (
             <MenuItemLink
               href={wrapBackendLink(
                 `${entity.getIn(["links", "edit"])}${
@@ -93,14 +103,14 @@ export default function (input) {
           </MenuItem>
           <AnalyzeMenuItem entity={entity} closeMenu={closeMenu} />
           <DividerHr />
-          {canMove && (
+          {canMove && hasAlter && (
             <MenuItemLink
               closeMenu={closeMenu}
               href={this.getRenameLocation()}
               text={t("Common.Actions.Rename")}
             />
           )}
-          {canMove && (
+          {canMove && hasAlter && (
             <MenuItemLink
               closeMenu={closeMenu}
               href={this.getMoveLocation()}
@@ -110,20 +120,24 @@ export default function (input) {
           <MenuItem onClick={this.copyPath}>
             {t("Common.Actions.CopyPath")}
           </MenuItem>
-          <MenuItemLink
-            closeMenu={closeMenu}
-            href={this.getSettingsLocation()}
-            text={t("Common.Settings")}
-          />
-          {(canRemoveFormat || canDelete) && <DividerHr />}
-          {canRemoveFormat && (
+          {hasAlter && (
+            <MenuItemLink
+              closeMenu={closeMenu}
+              href={this.getSettingsLocation()}
+              text={t("Common.Settings")}
+            />
+          )}
+          {((canRemoveFormat && hasAlter) || (canDelete && hasDelete)) && (
+            <DividerHr />
+          )}
+          {canRemoveFormat && hasAlter && (
             <MenuItemLink
               closeMenu={closeMenu}
               href={this.getRemoveFormatLocation()}
               text={t("Dataset.Actions.RemoveFormat")}
             />
           )}
-          {canDelete && (
+          {canDelete && hasDelete && (
             <>
               {(entityType !== "file" && (
                 <MenuItemLink
@@ -156,6 +170,15 @@ export default function (input) {
         entityType,
       );
 
+      const isAdmin = localStorageUtils.isUserAnAdmin();
+      const entityPermissions = entity.get("permissions");
+      const hasAlter =
+        isAdmin || entityPermissions?.get("canAlter");
+      const hasDelete =
+        isAdmin ||
+        entityPermissions?.get("canDelete") ||
+        entityPermissions?.get("canAlter");
+
       return (
         <Menu>
           {
@@ -181,7 +204,7 @@ export default function (input) {
           */
           }
 
-          {canEdit && (
+          {canEdit && hasAlter && (
             <MenuItemLink
               href={wrapBackendLink(entity.getIn(["links", "edit"]))}
               text={t("Common.Actions.Edit")}
@@ -203,7 +226,7 @@ export default function (input) {
 
           <DividerHr />
 
-          {canMove && (
+          {canMove && hasAlter && (
             <MenuItemLink
               closeMenu={closeMenu}
               href={this.getRenameLocation()}
@@ -211,7 +234,7 @@ export default function (input) {
             />
           )}
 
-          {canMove && (
+          {canMove && hasAlter && (
             <MenuItemLink
               closeMenu={closeMenu}
               href={this.getMoveLocation()}
@@ -223,15 +246,19 @@ export default function (input) {
             {t("Common.Actions.CopyPath")}
           </MenuItem>
 
-          <MenuItemLink
-            closeMenu={closeMenu}
-            href={this.getSettingsLocation()}
-            text={t("Common.Settings")}
-          />
+          {hasAlter && (
+            <MenuItemLink
+              closeMenu={closeMenu}
+              href={this.getSettingsLocation()}
+              text={t("Common.Settings")}
+            />
+          )}
 
-          {(canRemoveFormat || canDelete) && <DividerHr />}
+          {((canRemoveFormat && hasAlter) || (canDelete && hasDelete)) && (
+            <DividerHr />
+          )}
 
-          {canRemoveFormat && (
+          {canRemoveFormat && hasAlter && (
             <MenuItemLink
               closeMenu={closeMenu}
               href={this.getRemoveFormatLocation()}
@@ -239,7 +266,7 @@ export default function (input) {
             />
           )}
 
-          {canDelete && (
+          {canDelete && hasDelete && (
             <>
               {(entityType !== "file" && (
                 <MenuItemLink

@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.fail;
 
 import com.dremio.config.DremioConfig;
+import com.dremio.dac.api.Dataset;
 import com.dremio.dac.daemon.DACDaemonModule;
 import com.dremio.dac.server.test.SampleDataPopulator;
 import com.dremio.exec.rbac.RbacService;
@@ -28,8 +29,12 @@ import com.dremio.service.jobs.SqlQuery;
 import com.dremio.service.namespace.NamespaceKey;
 import com.dremio.service.namespace.space.proto.SpaceConfig;
 import com.google.common.base.Throwables;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import javax.ws.rs.client.Entity;
+import javax.ws.rs.core.GenericType;
+import javax.ws.rs.core.Response;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -553,5 +558,301 @@ public class TestRbacIntegration extends BaseTestServer {
     } catch (Exception e) {
       // Best-effort cleanup
     }
+  }
+
+  // ===========================================================================
+  // Section 13: Jobs Filter User Enumeration (Phase 26 — DISC-01)
+  // ===========================================================================
+
+  @Test
+  public void testJobsFilterUsers_admin_seesAllUsers() {
+    // DISC-01: Admin should see all users in the jobs filter endpoint.
+    try {
+      login(ADMIN, PASSWORD);
+      String response =
+          expectSuccess(
+              getBuilder(getHttpClient().getAPIv2().path("jobs/filters/users"))
+                  .buildGet(),
+              String.class);
+      // Admin should see at least the admin user and the test user.
+      assertThat(response).contains(ADMIN);
+      assertThat(response).contains(USER);
+    } finally {
+      login(ADMIN, PASSWORD);
+    }
+  }
+
+  @Test
+  public void testJobsFilterUsers_nonAdmin_seesOnlySelf() {
+    // DISC-01: Non-admin should only see their own username — no other users.
+    try {
+      login(USER, PASSWORD);
+      String response =
+          expectSuccess(
+              getBuilder(getHttpClient().getAPIv2().path("jobs/filters/users"))
+                  .buildGet(),
+              String.class);
+      // User should see their own name.
+      assertThat(response).contains(USER);
+      // User should NOT see the admin username.
+      assertThat(response).doesNotContain("\"" + ADMIN + "\"");
+    } finally {
+      login(ADMIN, PASSWORD);
+    }
+  }
+
+  @Test
+  public void testJobsFilterUsers_nonAdmin_filterQueryCannotEnumerateOthers() {
+    // DISC-01: Non-admin cannot use the filter query param to discover other usernames.
+    try {
+      login(USER, PASSWORD);
+      String response =
+          expectSuccess(
+              getBuilder(
+                      getHttpClient()
+                          .getAPIv2()
+                          .path("jobs/filters/users")
+                          .queryParam("filter", ADMIN))
+                  .buildGet(),
+              String.class);
+      // Even when searching for the admin's name, non-admin gets empty or self only.
+      assertThat(response).doesNotContain("\"" + ADMIN + "\"");
+    } finally {
+      login(ADMIN, PASSWORD);
+    }
+  }
+
+  // ===========================================================================
+  // Section 14: Catalog API TOCTOU Regression (Phase 27 — API-02 gap closure)
+  // ===========================================================================
+
+  @Test
+  public void testCatalogUpdateRename_denied_withoutAlter() throws Exception {
+    // API-02 (TOCTOU fix): Non-admin user without ALTER privilege sends PUT
+    // /api/v3/catalog/{id} with a different path. The rename MUST be rejected AND the
+    // dataset must NOT be renamed in the namespace store.
+    createSpaceIfNotExists("toctou_test");
+    runSqlAsAdmin("CREATE VIEW toctou_test.original_name AS SELECT 1 AS id");
+
+    // Step 1: fetch the VDS catalog entity as admin (need id, tag, sql, type).
+    Dataset vds =
+        expectSuccess(
+            getBuilder(
+                    getHttpClient()
+                        .getCatalogApi()
+                        .path("by-path")
+                        .path("toctou_test")
+                        .path("original_name"))
+                .buildGet(),
+            new GenericType<Dataset>() {});
+    assertThat(vds).isNotNull();
+    assertThat(vds.getId()).isNotNull();
+
+    // Step 2: build a rename request as USER (no ALTER on toctou_test).
+    Dataset renameAttempt =
+        new Dataset(
+            vds.getId(),
+            vds.getType(),
+            Arrays.asList("toctou_test", "hacked_name"),
+            null,
+            null,
+            null,
+            vds.getTag(),
+            null,
+            vds.getSql(),
+            null,
+            null,
+            null,
+            false);
+
+    try {
+      login(USER, PASSWORD);
+      // The PUT must return an error (400 or 403) — privilege denied.
+      Response response =
+          getBuilder(getHttpClient().getCatalogApi().path(renameAttempt.getId()))
+              .buildPut(Entity.json(renameAttempt))
+              .invoke();
+      // Accept both BAD_REQUEST (400) and FORBIDDEN (403) as valid denial responses.
+      assertThat(response.getStatus())
+          .as("Expected 400 or 403 from unauthorized rename attempt")
+          .isIn(
+              Response.Status.BAD_REQUEST.getStatusCode(),
+              Response.Status.FORBIDDEN.getStatusCode());
+    } finally {
+      login(ADMIN, PASSWORD);
+    }
+
+    // Step 3: verify the dataset was NOT renamed — original_name must still exist.
+    // If TOCTOU bug is present, this GET would return 404 (dataset was silently renamed).
+    Dataset stillExists =
+        expectSuccess(
+            getBuilder(
+                    getHttpClient()
+                        .getCatalogApi()
+                        .path("by-path")
+                        .path("toctou_test")
+                        .path("original_name"))
+                .buildGet(),
+            new GenericType<Dataset>() {});
+    assertThat(stillExists.getId()).isEqualTo(vds.getId());
+
+    // Also verify the hacked_name does NOT exist.
+    expectStatus(
+        Response.Status.NOT_FOUND,
+        getBuilder(
+                getHttpClient()
+                    .getCatalogApi()
+                    .path("by-path")
+                    .path("toctou_test")
+                    .path("hacked_name"))
+            .buildGet());
+  }
+
+  // ===========================================================================
+  // Phase 28: DACSecurityContext @RolesAllowed enforcement tests
+  // ===========================================================================
+
+  @Test
+  public void testNonAdminCannotCreateUser() {
+    // API-01: Non-admin POST /api/v3/user must return 403 FORBIDDEN.
+    // With the fixed DACSecurityContext.isUserInRole("admin") this annotation is now enforced.
+    com.dremio.dac.api.User newUser =
+        new com.dremio.dac.api.User(
+            null, "testcreated28", "Test", "Created", "tc28@example.com", null, "Password1!", null);
+    try {
+      login(USER, PASSWORD);
+      Response response =
+          getBuilder(getHttpClient().getAPIv3().path("user"))
+              .buildPost(Entity.json(newUser))
+              .invoke();
+      assertThat(response.getStatus())
+          .as("Non-admin POST /api/v3/user must return 403 FORBIDDEN")
+          .isEqualTo(Response.Status.FORBIDDEN.getStatusCode());
+    } finally {
+      login(ADMIN, PASSWORD);
+    }
+  }
+
+  @Test
+  public void testNonAdminCannotUpdateUser() {
+    // API-01: Non-admin PUT /api/v3/user/{id} must return 403 FORBIDDEN.
+    // First, get the USER's id via GET /api/v3/user/by-name/{USER} as admin.
+    com.dremio.dac.api.User userInfo =
+        expectSuccess(
+            getBuilder(getHttpClient().getAPIv3().path("user").path("by-name").path(USER))
+                .buildGet(),
+            com.dremio.dac.api.User.class);
+    assertThat(userInfo).isNotNull();
+    assertThat(userInfo.getId()).isNotNull();
+
+    com.dremio.dac.api.User updatePayload =
+        new com.dremio.dac.api.User(
+            userInfo.getId(), USER, "Updated", "Name", "upd@example.com", userInfo.getTag(), null,
+            null);
+    try {
+      login(USER, PASSWORD);
+      Response response =
+          getBuilder(getHttpClient().getAPIv3().path("user").path(userInfo.getId()))
+              .buildPut(Entity.json(updatePayload))
+              .invoke();
+      assertThat(response.getStatus())
+          .as("Non-admin PUT /api/v3/user/{id} must return 403 FORBIDDEN")
+          .isEqualTo(Response.Status.FORBIDDEN.getStatusCode());
+    } finally {
+      login(ADMIN, PASSWORD);
+    }
+  }
+
+  @Test
+  public void testAdminCanCreateAndDeleteUser() throws Exception {
+    // API-01 regression guard: Admin POST /api/v3/user must still succeed (no regression).
+    com.dremio.dac.api.User newUser =
+        new com.dremio.dac.api.User(
+            null, "testcreated28adm", "Admin", "Created", "tc28adm@example.com", null,
+            "Password1!", null);
+    com.dremio.dac.api.User created =
+        expectSuccess(
+            getBuilder(getHttpClient().getAPIv3().path("user")).buildPost(Entity.json(newUser)),
+            com.dremio.dac.api.User.class);
+    assertThat(created).isNotNull();
+    assertThat(created.getId()).isNotNull();
+    assertThat(created.getName()).isEqualTo("testcreated28adm");
+
+    // Cleanup: delete the created user via userService directly.
+    try {
+      com.dremio.service.users.UserService userSvc = l(com.dremio.service.users.UserService.class);
+      userSvc.deleteUser(created.getName(), created.getTag());
+    } catch (Exception e) {
+      // Best-effort cleanup — test result is unaffected.
+    }
+  }
+
+  @Test
+  public void testCatalogUpdateRename_allowed_withAlter() throws Exception {
+    // API-02 (regression guard): A user with ALTER privilege granted via role should still
+    // be able to rename a VDS via PUT /api/v3/catalog/{id}. This proves the fix does not
+    // break the authorized rename path.
+    createSpaceIfNotExists("toctou_allow");
+    runSqlAsAdmin("CREATE VIEW toctou_allow.rename_me AS SELECT 1 AS id");
+    runSqlAsAdmin("GRANT ALTER ON VDS toctou_allow.rename_me TO ROLE " + USER_ROLE);
+
+    // Step 1: fetch the VDS catalog entity as admin.
+    Dataset vds =
+        expectSuccess(
+            getBuilder(
+                    getHttpClient()
+                        .getCatalogApi()
+                        .path("by-path")
+                        .path("toctou_allow")
+                        .path("rename_me"))
+                .buildGet(),
+            new GenericType<Dataset>() {});
+    assertThat(vds).isNotNull();
+
+    // Step 2: send rename request as USER (who has ALTER via USER_ROLE).
+    Dataset renameRequest =
+        new Dataset(
+            vds.getId(),
+            vds.getType(),
+            Arrays.asList("toctou_allow", "renamed_ok"),
+            null,
+            null,
+            null,
+            vds.getTag(),
+            null,
+            vds.getSql(),
+            null,
+            null,
+            null,
+            false);
+
+    Dataset renamed;
+    try {
+      login(USER, PASSWORD);
+      renamed =
+          expectSuccess(
+              getBuilder(getHttpClient().getCatalogApi().path(renameRequest.getId()))
+                  .buildPut(Entity.json(renameRequest)),
+              new GenericType<Dataset>() {});
+    } finally {
+      login(ADMIN, PASSWORD);
+    }
+
+    // Step 3: verify the rename succeeded — dataset should now be at renamed_ok.
+    assertThat(renamed).isNotNull();
+    assertThat(renamed.getPath()).contains("renamed_ok");
+
+    // Cleanup: verify renamed_ok exists via admin GET.
+    Dataset renamedExists =
+        expectSuccess(
+            getBuilder(
+                    getHttpClient()
+                        .getCatalogApi()
+                        .path("by-path")
+                        .path("toctou_allow")
+                        .path("renamed_ok"))
+                .buildGet(),
+            new GenericType<Dataset>() {});
+    assertThat(renamedExists.getId()).isEqualTo(vds.getId());
   }
 }

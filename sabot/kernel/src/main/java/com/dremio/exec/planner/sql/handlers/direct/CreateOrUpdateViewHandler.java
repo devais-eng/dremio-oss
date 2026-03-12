@@ -27,6 +27,7 @@ import com.dremio.catalog.model.dataset.TableVersionContext;
 import com.dremio.common.dialect.DremioSqlDialect;
 import com.dremio.common.exceptions.UserException;
 import com.dremio.common.map.CaseInsensitiveMap;
+import com.dremio.config.DremioConfig;
 import com.dremio.exec.catalog.Catalog;
 import com.dremio.exec.catalog.CatalogUtil;
 import com.dremio.exec.catalog.DremioTable;
@@ -41,6 +42,10 @@ import com.dremio.exec.planner.sql.parser.ParserUtil;
 import com.dremio.exec.planner.sql.parser.ReferenceTypeUtils;
 import com.dremio.exec.planner.sql.parser.SqlCreateView;
 import com.dremio.exec.planner.sql.parser.SqlGrant;
+import com.dremio.exec.rbac.RbacEntityAlreadyExistsException;
+import com.dremio.exec.rbac.RbacEntityNotFoundException;
+import com.dremio.exec.rbac.RbacService;
+import com.dremio.exec.rbac.proto.RbacProto.Membership;
 import com.dremio.exec.record.BatchSchema;
 import com.dremio.exec.record.SchemaBuilder;
 import com.dremio.exec.util.QueryVersionUtils;
@@ -154,6 +159,7 @@ public class CreateOrUpdateViewHandler extends SimpleDirectHandler {
       catalog.updateView(viewPath, view, viewOptions);
     } else {
       catalog.createView(viewPath, view, viewOptions);
+      autoGrantCreatorPrivileges(viewPath);
     }
     return Collections.singletonList(
         SimpleCommandResult.successful(
@@ -189,6 +195,7 @@ public class CreateOrUpdateViewHandler extends SimpleDirectHandler {
       catalog.updateView(viewPath, view, viewOptions);
     } else {
       createView(config.getContext(), viewPath, view, viewOptions, createView);
+      autoGrantCreatorPrivileges(viewPath);
     }
     return Collections.singletonList(
         SimpleCommandResult.successful(
@@ -527,6 +534,72 @@ public class CreateOrUpdateViewHandler extends SimpleDirectHandler {
                       + "A view with given name [%s] cannot reference itself.",
                   viewPath)
               .build(logger);
+        }
+      }
+    }
+  }
+
+  /**
+   * Auto-grants SELECT, ALTER, and DROP privileges on a newly created view to all of the creator's
+   * explicit roles. If the creator has no explicit roles, grants to the PUBLIC role so the creator
+   * always has access to their own view.
+   *
+   * <p>Skipped when RBAC is disabled, when the creator is an admin (admin bypasses all privilege
+   * checks), or when the RbacService is unavailable.
+   */
+  private void autoGrantCreatorPrivileges(NamespaceKey viewPath) {
+    RbacService rbacService = config.getContext().getRbacService();
+    DremioConfig dremioConfig = config.getContext().getDremioConfig();
+
+    // Three-way null guard: skip when RBAC is not active
+    if (rbacService == null
+        || dremioConfig == null
+        || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return;
+    }
+
+    String userName = config.getContext().getQueryUserName();
+
+    // Admin users bypass all privilege checks -- no grant needed
+    if (rbacService.isAdminMember(userName)) {
+      return;
+    }
+
+    String objectPath = String.join(".", viewPath.getPathComponents());
+    String[] privileges = {"SELECT", "ALTER", "DROP"};
+
+    // Determine target roles: all explicit roles, or PUBLIC as fallback
+    List<Membership> memberships = rbacService.listMembershipsByUser(userName);
+    List<String> explicitRoleIds = new ArrayList<>();
+    for (Membership m : memberships) {
+      String roleId = m.getRoleId();
+      if (!RbacService.ADMIN_ROLE_ID.equals(roleId)
+          && !RbacService.PUBLIC_ROLE_ID.equals(roleId)) {
+        explicitRoleIds.add(roleId);
+      }
+    }
+
+    List<String> targetRoleIds;
+    if (explicitRoleIds.isEmpty()) {
+      // No explicit roles -- grant to PUBLIC so creator can access their view
+      targetRoleIds = Collections.singletonList(RbacService.PUBLIC_ROLE_ID);
+    } else {
+      targetRoleIds = explicitRoleIds;
+    }
+
+    for (String roleId : targetRoleIds) {
+      for (String privilege : privileges) {
+        try {
+          rbacService.grantPrivilege(roleId, "VDS", objectPath, privilege, userName);
+        } catch (RbacEntityAlreadyExistsException e) {
+          // Grant already exists (e.g., CREATE OR REPLACE scenario) -- silently ignore
+        } catch (RbacEntityNotFoundException e) {
+          logger.warn(
+              "Could not auto-grant {} on {} to role {}: {}",
+              privilege,
+              objectPath,
+              roleId,
+              e.getMessage());
         }
       }
     }

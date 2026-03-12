@@ -1,17 +1,31 @@
+---
+gsd_state_version: 1.0
+milestone: null
+milestone_name: null
+status: idle
+stopped_at: Milestone v1.4 archived
+last_updated: "2026-03-11T22:40:00.000Z"
+last_activity: "2026-03-11 — Milestone v1.4 RBAC Issue Hardening shipped and archived"
+progress:
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
+---
+
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-01)
+See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
 **Current focus:** Planning next milestone
 
 ## Current Position
 
-Milestone: All milestones complete. Next milestone TBD.
-Status: All milestones complete (v1.0, v1.1, v1.2, v1.3). No active milestone.
-Last activity: 2026-03-02 - Completed quick task 8: Enable RBAC and PDS SELECT enforcement by default in dremio-reference.conf.
+No active milestone. All work through v1.4 shipped.
 
 ## Shipped Milestones
 
@@ -19,11 +33,13 @@ Last activity: 2026-03-02 - Completed quick task 8: Enable RBAC and PDS SELECT e
 - v1.1 Enable Iceberg REST Catalog — 2 phases, 3 plans (shipped 2026-02-20)
 - v1.2 GitHub Actions Docker Distribution — 3 phases, 3 plans (shipped 2026-02-21)
 - v1.3 Privilege Context & Enforcement — 9 phases, 17 plans (shipped 2026-02-24)
+- v1.4 RBAC Issue Hardening — 9 phases, 14 plans (shipped 2026-03-11)
 
 ## Known Limitations / Future Improvements
 
-- **UI search for promoted PDS**: Non-admin users cannot discover promoted PDS via the global UI search bar. Users CAN still see and query granted PDS via the SQL editor left panel.
-- **Guard applies to all source types**: File browse/promote guards block non-admin access for ALL source types, including database/catalog sources where there are no files to browse.
+- **UI-04 entity permissions over-restrictive**: Non-admin users with explicit RBAC grants see no dataset context menu items (backend doesn't populate per-entity permissions in OSS)
+- **UI search for promoted PDS**: Non-admin users cannot discover promoted PDS via the global UI search bar.
+- **Guard applies to all source types**: File browse/promote guards block non-admin access for ALL source types, including database/catalog sources.
 - **bulkGetTables() PDS performance**: One listGrantsByObject() call per table in batch — needs profiling at scale.
 - **Credential vending gap (v1.1)**: DremioFileIO discards vended credentials from Iceberg loadTable(); static fs.s3a.* workaround works for long-lived creds but fails for IAM/STS short-lived tokens.
 
@@ -39,5 +55,5 @@ Last activity: 2026-03-02 - Completed quick task 8: Enable RBAC and PDS SELECT e
 
 ## Session Continuity
 
-Last session: 2026-03-02
-Stopped at: Quick task 8 complete — Enabled RBAC enforcement by default: services.rbac.enabled and services.rbac.pds.enabled flipped to true in dremio-reference.conf.
+Last session: 2026-03-11T22:40:00.000Z
+Stopped at: Milestone v1.4 archived

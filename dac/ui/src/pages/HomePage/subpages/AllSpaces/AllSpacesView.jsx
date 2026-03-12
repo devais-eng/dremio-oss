@@ -38,6 +38,7 @@ import {
   CATALOG_LISTING_COLUMNS,
 } from "dremio-ui-common/sonar/components/CatalogListingTable/catalogListingColumns.js";
 import { manageSpaceRule } from "#oss/utils/authUtils";
+import localStorageUtils from "utils/storageUtils/localStorageUtils";
 import { getSettingsLocation } from "components/Menus/HomePage/AllSpacesMenu";
 import { getSpaces } from "selectors/home";
 import { ENTITY_TYPES } from "#oss/constants/Constants";
@@ -102,13 +103,21 @@ export class AllSpacesView extends PureComponent {
   }
 
   getActionCellButtons(item) {
+    const isAdmin = localStorageUtils.isUserAnAdmin();
     const allBtns = [
-      {
-        label: this.getInlineIcon("interface/settings"),
-        tooltip: intl.formatMessage({ id: "Common.Settings" }),
-        link: getSettingsLocation(this.context.location, item.get("id")),
-        type: btnTypes.settings,
-      },
+      ...(isAdmin
+        ? [
+            {
+              label: this.getInlineIcon("interface/settings"),
+              tooltip: intl.formatMessage({ id: "Common.Settings" }),
+              link: getSettingsLocation(
+                this.context.location,
+                item.get("id"),
+              ),
+              type: btnTypes.settings,
+            },
+          ]
+        : []),
     ];
     return [
       <IconButton
@@ -139,10 +148,14 @@ export class AllSpacesView extends PureComponent {
             {btnType.label}
           </IconButton>
         )),
-      this.getSettingsBtnByType(
-        <AllSpacesMenu spaceId={item.get("id")} />,
-        item,
-      ),
+      ...(isAdmin
+        ? [
+            this.getSettingsBtnByType(
+              <AllSpacesMenu spaceId={item.get("id")} />,
+              item,
+            ),
+          ]
+        : []),
     ];
   }
 

@@ -324,6 +324,38 @@ public class RbacService implements AccessControlListingManager {
   }
 
   /**
+   * Returns all role memberships for the given user. Delegates to {@link
+   * MembershipStore#listByUser}.
+   *
+   * <p>Used by auto-grant logic to determine which roles should receive privileges on newly
+   * created objects (e.g., views).
+   *
+   * @param userName the user whose memberships to list
+   * @return list of Membership proto messages; empty if the user has no explicit roles
+   */
+  public List<Membership> listMembershipsByUser(String userName) {
+    return membershipStore.listByUser(userName);
+  }
+
+  /**
+   * Returns the set of role IDs the user belongs to, including PUBLIC.
+   * Used for user-scoped sys.privileges filtering in SystemTableScanCreator.
+   *
+   * @param userName the user whose roles to look up
+   * @return set of role IDs (explicit memberships + PUBLIC)
+   */
+  public Set<String> getUserRoleIds(String userName) {
+    Preconditions.checkArgument(
+        !Strings.isNullOrEmpty(userName), "userName must not be null or empty");
+    Set<String> roleIds =
+        membershipStore.listByUser(userName).stream()
+            .map(Membership::getRoleId)
+            .collect(Collectors.toCollection(HashSet::new));
+    roleIds.add(PUBLIC_ROLE_ID);
+    return roleIds;
+  }
+
+  /**
    * Returns all grants on the given object across all roles. Delegates to {@link
    * GrantStore#listByObject}.
    *

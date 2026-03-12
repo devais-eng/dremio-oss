@@ -226,17 +226,17 @@ public class CatalogServiceHelper {
         return items.map(
             builder -> {
               try {
-                final BoundedDatasetCount datasetCount =
-                    helper.namespaceService.getDatasetCount(
-                        new NamespaceKey(builder.getPath()),
-                        BoundedDatasetCount.SEARCH_TIME_LIMIT_MS,
-                        BoundedDatasetCount.COUNT_LIMIT_TO_STOP_SEARCH);
-
-                return builder
-                    .setDatasetCount(datasetCount.getCount())
-                    .setDatasetCountBounded(
-                        datasetCount.isCountBound() || datasetCount.isTimeBound());
-
+                final List<NameSpaceContainer> children =
+                    helper.namespaceService.list(
+                        new NamespaceKey(builder.getPath()), null, Integer.MAX_VALUE);
+                final List<NameSpaceContainer> visibleChildren =
+                    helper.filterByVisibility(children);
+                final int count =
+                    (int)
+                        visibleChildren.stream()
+                            .filter(c -> c.getType() == NameSpaceContainer.Type.DATASET)
+                            .count();
+                return builder.setDatasetCount(count).setDatasetCountBounded(false);
               } catch (NamespaceException e) {
                 throw new RuntimeException(e);
               }
@@ -1255,6 +1255,155 @@ public class CatalogServiceHelper {
     }
   }
 
+  // -----------------------------------------------------------------------
+  // RBAC enforcement helpers for catalog mutation methods
+  // -----------------------------------------------------------------------
+
+  /**
+   * Enforces RBAC create privileges for catalog entity creation. Admin users bypass all checks.
+   * When RBAC is disabled the method is a no-op (three-way null guard).
+   */
+  private void enforceCreatePrivilege(CatalogEntity entity) {
+    if (rbacService == null
+        || dremioConfig == null
+        || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return; // RBAC disabled
+    }
+    String userName = securityContext.getUserPrincipal().getName();
+    if (rbacService.isAdminMember(userName)) {
+      return; // admin bypass
+    }
+    if (entity instanceof Space) {
+      throw UserException.validationError()
+          .message("Permission denied: only administrators can create spaces.")
+          .buildSilently();
+    } else if (entity instanceof Source) {
+      // Already guarded in createSource() -- no double-check needed
+      return;
+    } else if (entity instanceof Dataset) {
+      Dataset ds = (Dataset) entity;
+      String parentPath = ds.getPath().get(0);
+      if (!rbacService.hasPrivilege(userName, "CREATE_VIEW", "SPACE", parentPath)) {
+        throw UserException.validationError()
+            .message("Permission denied: CREATE_VIEW privilege required on '%s'.", parentPath)
+            .buildSilently();
+      }
+    } else if (entity instanceof Folder) {
+      Folder folder = (Folder) entity;
+      String parentPath = folder.getPath().get(0);
+      if (!rbacService.hasPrivilege(userName, "CREATE_FOLDER", "SPACE", parentPath)) {
+        throw UserException.validationError()
+            .message("Permission denied: CREATE_FOLDER privilege required on '%s'.", parentPath)
+            .buildSilently();
+      }
+    } else if (entity instanceof Function) {
+      Function fn = (Function) entity;
+      String parentPath = fn.getPath().get(0);
+      if (!rbacService.hasPrivilege(userName, "CREATE_FUNCTION", "SPACE", parentPath)) {
+        throw UserException.validationError()
+            .message("Permission denied: CREATE_FUNCTION privilege required on '%s'.", parentPath)
+            .buildSilently();
+      }
+    }
+  }
+
+  /**
+   * Enforces RBAC update privileges for catalog entity updates. Admin users bypass all checks.
+   * When RBAC is disabled the method is a no-op (three-way null guard).
+   */
+  private void enforceUpdatePrivilege(CatalogEntity entity) {
+    if (rbacService == null
+        || dremioConfig == null
+        || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return;
+    }
+    String userName = securityContext.getUserPrincipal().getName();
+    if (rbacService.isAdminMember(userName)) {
+      return;
+    }
+    if (entity instanceof Source) {
+      throw UserException.validationError()
+          .message("Permission denied: only administrators can update sources.")
+          .buildSilently();
+    } else if (entity instanceof Space) {
+      throw UserException.validationError()
+          .message("Permission denied: only administrators can update spaces.")
+          .buildSilently();
+    } else if (entity instanceof Dataset) {
+      // ALTER enforced inside updateDataset() via catalog.validatePrivilege()
+      return;
+    } else if (entity instanceof Folder) {
+      Folder folder = (Folder) entity;
+      String parentPath = folder.getPath().get(0);
+      if (!rbacService.hasPrivilege(userName, "ALTER", "SPACE", parentPath)) {
+        throw UserException.validationError()
+            .message("Permission denied: ALTER privilege required on '%s'.", parentPath)
+            .buildSilently();
+      }
+    } else if (entity instanceof Function) {
+      Function fn = (Function) entity;
+      String parentPath = fn.getPath().get(0);
+      if (!rbacService.hasPrivilege(userName, "ALTER", "SPACE", parentPath)) {
+        throw UserException.validationError()
+            .message("Permission denied: ALTER privilege required on '%s'.", parentPath)
+            .buildSilently();
+      }
+    }
+  }
+
+  /**
+   * Enforces RBAC delete privileges for catalog entity deletion. Admin users bypass all checks.
+   * When RBAC is disabled the method is a no-op (three-way null guard).
+   */
+  private void enforceDeletePrivilege(Object entity) {
+    if (rbacService == null
+        || dremioConfig == null
+        || !dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      return;
+    }
+    String userName = securityContext.getUserPrincipal().getName();
+    if (rbacService.isAdminMember(userName)) {
+      return;
+    }
+    if (entity instanceof NameSpaceContainer) {
+      NameSpaceContainer container = (NameSpaceContainer) entity;
+      switch (container.getType()) {
+        case SOURCE:
+          throw UserException.validationError()
+              .message("Permission denied: only administrators can delete sources.")
+              .buildSilently();
+        case SPACE:
+          throw UserException.validationError()
+              .message("Permission denied: only administrators can delete spaces.")
+              .buildSilently();
+        case FOLDER:
+          String folderParent = container.getFullPathList().get(0);
+          if (!rbacService.hasPrivilege(userName, "ALTER", "SPACE", folderParent)) {
+            throw UserException.validationError()
+                .message("Permission denied: ALTER privilege required on '%s'.", folderParent)
+                .buildSilently();
+          }
+          break;
+        case FUNCTION:
+          String fnParent = container.getFullPathList().get(0);
+          if (!rbacService.hasPrivilege(userName, "ALTER", "SPACE", fnParent)) {
+            throw UserException.validationError()
+                .message("Permission denied: ALTER privilege required on '%s'.", fnParent)
+                .buildSilently();
+          }
+          break;
+        case DATASET:
+          // DROP privilege enforced inside deleteDataset() for VDS
+          break;
+        default:
+          break;
+      }
+    }
+    // For versioned entities (CatalogEntity), deleteVersionedView already has DROP check
+  }
+
+  // -----------------------------------------------------------------------
+
   public CatalogEntity createCatalogItem(CatalogEntity entity)
       throws NamespaceException, UnsupportedOperationException, ExecutionSetupException {
     return createCatalogItem(entity, SourceRefreshOption.WAIT_FOR_DATASETS_CREATION);
@@ -1271,6 +1420,7 @@ public class CatalogServiceHelper {
   public CatalogEntity createCatalogItem(
       CatalogEntity entity, SourceRefreshOption sourceRefreshOption)
       throws NamespaceException, UnsupportedOperationException, ExecutionSetupException {
+    enforceCreatePrivilege(entity);
     if (entity instanceof Space) {
       Space space = (Space) entity;
       return createSpace(space, getNamespaceAttributes(entity));
@@ -1703,6 +1853,14 @@ public class CatalogServiceHelper {
     } else if (dataset.getType() == Dataset.DatasetType.VIRTUAL_DATASET) {
       Preconditions.checkArgument(type == VIRTUAL_DATASET, "Dataset type can not be modified");
       VirtualDataset virtualDataset = currentDatasetConfig.getVirtualDataset();
+      // RBAC: enforce ALTER privilege before any mutation (rename, SQL update).
+      // Validate against the CURRENT dataset path (not the requested/new path) to prevent
+      // privilege escalation via path manipulation (e.g. user has ALTER on target space but not
+      // on the source dataset).
+      catalogSupplier
+          .get()
+          .validatePrivilege(
+              new NamespaceKey(currentDatasetConfig.getFullPathList()), SqlGrant.Privilege.ALTER);
 
       // Check if the dataset is being renamed
       if (!Objects.equals(currentDatasetConfig.getFullPathList(), dataset.getPath())) {
@@ -1731,8 +1889,6 @@ public class CatalogServiceHelper {
               .batchSchema(getBatchSchema(dataset))
               .actionType(ViewOptions.ActionType.UPDATE_VIEW)
               .build();
-      // RBAC: enforce ALTER privilege on the view being updated
-      catalogSupplier.get().validatePrivilege(namespaceKey, SqlGrant.Privilege.ALTER);
       catalogSupplier
           .get()
           .updateView(
@@ -1928,6 +2084,7 @@ public class CatalogServiceHelper {
           CatalogUnsupportedOperationException,
           CatalogEntityAlreadyExistsException,
           CatalogEntityNotFoundException {
+    enforceUpdatePrivilege(entity);
     Preconditions.checkArgument(entity.getId() != null, "Entity id is required.");
     Preconditions.checkArgument(entity.getId().equals(id), "Ids must match.");
     String finalId = id;
@@ -1985,6 +2142,8 @@ public class CatalogServiceHelper {
     if (entity.isEmpty()) {
       throw new IllegalArgumentException(String.format("Could not find entity with id [%s].", id));
     }
+
+    enforceDeletePrivilege(entity.get());
 
     Object object = entity.get();
 
@@ -2273,6 +2432,22 @@ public class CatalogServiceHelper {
     DatasetConfig config = CatalogUtil.getDatasetConfig(catalogSupplier.get(), id);
     if (config == null) {
       throw new IllegalArgumentException(String.format("Could not find dataset with id [%s].", id));
+    }
+    if (rbacService != null
+        && dremioConfig != null
+        && dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      String userName = securityContext.getUserPrincipal().getName();
+      if (!rbacService.isAdminMember(userName)) {
+        if (!rbacService.hasPrivilege(
+            userName,
+            "ALTER",
+            config.getType() == DatasetType.VIRTUAL_DATASET ? "VDS" : "PDS",
+            String.join(".", config.getFullPathList()))) {
+          throw UserException.validationError()
+              .message("Permission denied: ALTER privilege required to refresh this dataset.")
+              .buildSilently();
+        }
+      }
     }
     reflectionServiceHelper.refreshReflectionsForDataset(config.getId().getId());
   }

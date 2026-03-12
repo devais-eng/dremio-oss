@@ -23,6 +23,7 @@ import { getVersionContextFromId } from "dremio-ui-common/utilities/datasetRefer
 import { shouldUseNewDatasetNavigation } from "#oss/utils/datasetNavigationUtils";
 import * as sqlPaths from "dremio-ui-common/paths/sqlEditor.js";
 import { Tooltip } from "@dremio/design-system/components";
+import localStorageUtils from "utils/storageUtils/localStorageUtils";
 
 export default function (input) {
   Object.assign(input.prototype, {
@@ -51,6 +52,9 @@ export default function (input) {
       const resourceId = item.getIn(["fullPathList", 0]);
       const newFullPath = JSON.stringify(item.get("fullPathList").toJS());
       const isQueryOnClickEnabled = shouldUseNewDatasetNavigation();
+      const isAdmin = localStorageUtils.isUserAnAdmin();
+      const entityPermissions = item.get("permissions");
+      const hasAlter = isAdmin || entityPermissions?.get("canAlter");
       const location = browserHistory.getCurrentLocation();
       const allBtns = [
         // edit button - for views
@@ -63,7 +67,8 @@ export default function (input) {
             }`,
           ),
           type: btnTypes.edit,
-          isShown: isQueryOnClickEnabled && entityType === "dataset",
+          isShown:
+            isQueryOnClickEnabled && entityType === "dataset" && hasAlter,
         },
         // dataset button - for tables (files, formatted folders, and physical datasets)
         {
@@ -97,7 +102,7 @@ export default function (input) {
           tooltip: "Common.Settings",
           link: getSettingsLocation(location, item, entityType),
           type: btnTypes.settings,
-          isShown: true,
+          isShown: hasAlter,
         },
       ];
       return allBtns;

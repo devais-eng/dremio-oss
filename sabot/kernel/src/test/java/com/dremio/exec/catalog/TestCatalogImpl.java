@@ -1626,7 +1626,7 @@ public class TestCatalogImpl {
   @Test
   public void testValidateCreateViewPrivilege_denied_throwsPermissionDenied() {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
-    when(rbacService.hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), anyString()))
+    when(rbacService.hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("SPACE"), anyString()))
         .thenReturn(false);
     CatalogImpl catalog = newCatalogImpl(versionContextResolver);
     UserExceptionAssert.assertThatThrownBy(
@@ -1636,23 +1636,23 @@ public class TestCatalogImpl {
         .hasErrorType(VALIDATION)
         .hasMessageContaining("Permission denied")
         .hasMessageContaining("CREATE_VIEW");
-    // Verify container path (parent) was used, not the view path itself
+    // Verify top-level space name is used, matching the REST API grant storage format
     verify(rbacService)
-        .hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), eq("myspace.myfolder"));
+        .hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("SPACE"), eq("myspace"));
   }
 
   @Test
   public void testValidateCreateViewPrivilege_granted_passes() {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
     when(rbacService.hasPrivilege(
-            eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), eq("myspace.myfolder")))
+            eq("gnarly"), eq("CREATE_VIEW"), eq("SPACE"), eq("myspace")))
         .thenReturn(true);
     CatalogImpl catalog = newCatalogImpl(versionContextResolver);
-    // Should NOT throw -- CREATE_VIEW on parent container is granted
+    // Should NOT throw -- CREATE_VIEW on top-level space is granted
     catalog.validateCreateViewPrivilege(
         new NamespaceKey(Arrays.asList("myspace", "myfolder", "myview")));
     verify(rbacService)
-        .hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("VDS"), eq("myspace.myfolder"));
+        .hasPrivilege(eq("gnarly"), eq("CREATE_VIEW"), eq("SPACE"), eq("myspace"));
   }
 
   @Test

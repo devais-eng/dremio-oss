@@ -20,10 +20,12 @@ import static com.dremio.dac.api.ScriptsAPIOptions.ENABLE_SCRIPTS_API_V3;
 import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
 
 import com.dremio.common.exceptions.UserException;
+import com.dremio.config.DremioConfig;
 import com.dremio.dac.annotations.APIResource;
 import com.dremio.dac.annotations.Secured;
 import com.dremio.dac.model.scripts.PaginatedResponse;
 import com.dremio.dac.model.scripts.ScriptEntity;
+import com.dremio.exec.rbac.RbacService;
 import com.dremio.options.OptionManager;
 import com.dremio.service.scripts.DuplicateScriptNameException;
 import com.dremio.service.scripts.MaxScriptsLimitReachedException;
@@ -37,6 +39,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import javax.annotation.security.RolesAllowed;
 import javax.inject.Inject;
 import javax.validation.constraints.NotNull;
@@ -52,7 +55,9 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
+import javax.ws.rs.core.SecurityContext;
 
 /** Scripts API resource. */
 @APIResource
@@ -66,11 +71,22 @@ public class ScriptsResource {
       org.slf4j.LoggerFactory.getLogger(ScriptsResource.class);
   private final ScriptService scriptService;
   private final OptionManager optionManager;
+  private final SecurityContext securityContext;
+  @Nullable private final RbacService rbacService;
+  @Nullable private final DremioConfig dremioConfig;
 
   @Inject
-  public ScriptsResource(ScriptService scriptService, OptionManager optionManager) {
+  public ScriptsResource(
+      ScriptService scriptService,
+      OptionManager optionManager,
+      @Context SecurityContext securityContext,
+      @Nullable RbacService rbacService,
+      @Nullable DremioConfig dremioConfig) {
     this.scriptService = scriptService;
     this.optionManager = optionManager;
+    this.securityContext = securityContext;
+    this.rbacService = rbacService;
+    this.dremioConfig = dremioConfig;
   }
 
   @GET
@@ -82,6 +98,15 @@ public class ScriptsResource {
       @QueryParam("orderBy") String orderBy,
       @QueryParam("createdBy") String createdBy) {
     preCheck();
+    // RBAC: non-admin users can only list their own scripts
+    if (rbacService != null
+        && dremioConfig != null
+        && dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)) {
+      String userName = securityContext.getUserPrincipal().getName();
+      if (!rbacService.isAdminMember(userName)) {
+        createdBy = userName;
+      }
+    }
     // validations and assigning default values
     int finalOffset = (offset == null) ? 0 : offset;
     int finalMaxResults = (maxResults == null) ? 25 : Math.min(maxResults, 1000);

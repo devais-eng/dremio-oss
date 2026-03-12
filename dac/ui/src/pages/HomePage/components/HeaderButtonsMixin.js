@@ -1,6 +1,6 @@
 import { ENTITY_TYPES } from "#oss/constants/Constants";
 import { manageSourceRule, manageSpaceRule } from "#oss/utils/authUtils";
-import { isCME } from "dyn-load/utils/versionUtils";
+import localStorageUtils from "utils/storageUtils/localStorageUtils";
 /*
  * Copyright (C) 2017-2019 Dremio Corporation
  *
@@ -25,8 +25,9 @@ export default function (input) {
       const buttons = [];
 
       if (entity.get("entityType") === ENTITY_TYPES.space) {
-        let showSettingsButton = true;
-        if (isCME && !isCME() && entity.get("permissions")) {
+        const isAdmin = localStorageUtils.isUserAnAdmin();
+        let showSettingsButton = isAdmin;
+        if (!isAdmin && entity.get("permissions")) {
           showSettingsButton = entity.getIn([
             "permissions",
             "canEditAccessControlList",
@@ -54,8 +55,9 @@ export default function (input) {
       const buttons = [];
 
       if (entity.get("entityType") === "source") {
-        let showSettingsButton = true;
-        if (isCME && !isCME() && entity.get("permissions")) {
+        const isAdmin = localStorageUtils.isUserAnAdmin();
+        let showSettingsButton = isAdmin;
+        if (!isAdmin && entity.get("permissions")) {
           showSettingsButton =
             entity.getIn(["permissions", "canEditAccessControlList"]) ||
             (isVersionedSource &&

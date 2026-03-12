@@ -1,0 +1,43 @@
+{
+  "realm": "iceberg",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "clientScopes": [
+    {
+      "name": "catalog",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "sign",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "client1",
+      "enabled": true,
+      "secret": "s3cr3t",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false,
+      "protocol": "openid-connect",
+      "optionalClientScopes": [
+        "catalog",
+        "sign"
+      ],
+      "attributes": {
+        "access.token.lifespan": "3600"
+      }
+    }
+  ]
+}

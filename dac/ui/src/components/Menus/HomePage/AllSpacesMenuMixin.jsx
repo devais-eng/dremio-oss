@@ -20,12 +20,14 @@ import DividerHr from "components/Menus/DividerHr";
 import { EntityLinkProvider } from "#oss/pages/HomePage/components/EntityLink";
 import { FormattedMessage } from "react-intl";
 import { getIntlContext } from "dremio-ui-common/contexts/IntlContext.js";
+import localStorageUtils from "utils/storageUtils/localStorageUtils";
 
 export default function (input) {
   Object.assign(input.prototype, {
     render() {
       const { t } = getIntlContext();
       const { spaceId, closeMenu } = this.props;
+      const isAdmin = localStorageUtils.isUserAnAdmin();
       return (
         <Menu>
           <EntityLinkProvider entityId={spaceId}>
@@ -37,10 +39,12 @@ export default function (input) {
               />
             )}
           </EntityLinkProvider>
-          <DividerHr />
-          <MenuItem onClick={this.handleRemoveSpace} className="danger">
-            {<span>{t("Common.Actions.Delete")}</span>}
-          </MenuItem>
+          {isAdmin && <DividerHr />}
+          {isAdmin && (
+            <MenuItem onClick={this.handleRemoveSpace} className="danger">
+              {<span>{t("Common.Actions.Delete")}</span>}
+            </MenuItem>
+          )}
         </Menu>
       );
     },

@@ -6,6 +6,7 @@
 - ✅ **v1.1 Enable Iceberg REST Catalog** — Phases 7-8 (shipped 2026-02-20)
 - ✅ **v1.2 GitHub Actions Docker Distribution** — Phases 9-11 (shipped 2026-02-21)
 - ✅ **v1.3 Privilege Context & Enforcement** — Phases 12-20 (shipped 2026-02-24)
+- ✅ **v1.4 RBAC Issue Hardening** — Phases 21-29 (shipped 2026-03-11)
 
 ## Phases
 
@@ -61,16 +62,33 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 
 </details>
 
+<details>
+<summary>✅ v1.4 RBAC Issue Hardening (Phases 21-29) — SHIPPED 2026-03-11</summary>
+
+- [x] Phase 21: Backend API Critical Security (1/1 plans) — completed 2026-03-11
+- [x] Phase 22: Backend API High Security (2/2 plans) — completed 2026-03-11
+- [x] Phase 23: UI Global Admin Gates (2/2 plans) — completed 2026-03-11
+- [x] Phase 24: UI Dataset and Space Context Gates (2/2 plans) — completed 2026-03-11
+- [x] Phase 25: Backend Logic Fixes (2/2 plans) — completed 2026-03-11
+- [x] Phase 26: Information Disclosure Fix (1/1 plans) — completed 2026-03-11
+- [x] Phase 27: Catalog API TOCTOU Fix (1/1 plans) — completed 2026-03-11
+- [x] Phase 28: DACSecurityContext Role Enforcement (1/1 plans) — completed 2026-03-11
+- [x] Phase 29: Backend Logic Gaps v2 (2/2 plans) — completed 2026-03-11
+
+See `milestones/v1.4-ROADMAP.md` for full phase details.
+
+</details>
+
 ## Quick Tasks
 
 Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for details.
 
 | # | Description | Date | Status |
 |---|-------------|------|--------|
-| 1 | Fix Github Actions docker build ARG JAVA_IMAGE scope | 2026-02-25 | ✅ Done |
-| 2 | Split docker-ecr workflow into build and docker jobs | 2026-02-25 | ✅ Done |
-| 3 | Switch Docker push from ECR to GHCR | 2026-02-28 | ✅ Done |
-| 4 | Merge develop into rbac and align .planning directory | 2026-03-01 | ✅ Done |
+| 1 | Fix Github Actions docker build ARG JAVA_IMAGE scope | 2026-02-25 | Done |
+| 2 | Split docker-ecr workflow into build and docker jobs | 2026-02-25 | Done |
+| 3 | Switch Docker push from ECR to GHCR | 2026-02-28 | Done |
+| 4 | Merge develop into rbac and align .planning directory | 2026-03-01 | Done |
 
 ## Progress
 
@@ -96,3 +114,12 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 18. Code Hardening | v1.3 | 1/1 | Complete | 2026-02-23 |
 | 19. Test Coverage and Documentation | v1.3 | 1/1 | Complete | 2026-02-23 |
 | 20. File Browse and Promote RBAC Enforcement | v1.3 | 2/2 | Complete | 2026-02-23 |
+| 21. Backend API Critical Security | v1.4 | 1/1 | Complete | 2026-03-11 |
+| 22. Backend API High Security | v1.4 | 2/2 | Complete | 2026-03-11 |
+| 23. UI Global Admin Gates | v1.4 | 2/2 | Complete | 2026-03-11 |
+| 24. UI Dataset and Space Context Gates | v1.4 | 2/2 | Complete | 2026-03-11 |
+| 25. Backend Logic Fixes | v1.4 | 2/2 | Complete | 2026-03-11 |
+| 26. Information Disclosure Fix | v1.4 | 1/1 | Complete | 2026-03-11 |
+| 27. Catalog API TOCTOU Fix | v1.4 | 1/1 | Complete | 2026-03-11 |
+| 28. DACSecurityContext Role Enforcement | v1.4 | 1/1 | Complete | 2026-03-11 |
+| 29. Backend Logic Gaps v2 | v1.4 | 2/2 | Complete | 2026-03-11 |
