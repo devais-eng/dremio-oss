@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Keycloak IdP Integration
 status: in_progress
-stopped_at: Completed 33-01-PLAN.md
-last_updated: "2026-03-12T17:47:46Z"
-last_activity: "2026-03-12 — Completed 33-01: OidcStateStore + OidcSessionStore + oauth2-oidc-sdk dep wired (OIDC-03, LOUT-02)"
+stopped_at: Completed 33-02-PLAN.md
+last_updated: "2026-03-12T19:01:00Z"
+last_activity: "2026-03-12 — Completed 33-02: OidcResource OIDC login + callback endpoints (OIDC-01, OIDC-02, OIDC-03, LOUT-02)"
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 9
-  completed_plans: 8
-  percent: 89
+  completed_plans: 9
+  percent: 100
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 
 ## Current Position
 
-Phase: 33 of 35 (OIDC Redirect Web Flow) — IN PROGRESS
-Plan: 33-01 complete — OIDC stores foundation done; 33-02 (OidcResource endpoints) next
-Status: 33-01 complete — OidcStateStore + OidcSessionStore + oauth2-oidc-sdk wired
-Last activity: 2026-03-12 — Completed 33-01: OidcStateStore + OidcSessionStore + oauth2-oidc-sdk dep wired (OIDC-03, LOUT-02)
+Phase: 33 of 35 (OIDC Redirect Web Flow) — COMPLETE
+Plan: 33-02 complete — OidcResource OIDC login + callback endpoints shipped; all 2 plans in phase 33 done
+Status: Phase 33 complete — OIDC Authorization Code Flow with PKCE fully implemented
+Last activity: 2026-03-12 — Completed 33-02: OidcResource GET /oidc/login + GET /oidc/callback (OIDC-01, OIDC-02, OIDC-03, LOUT-02)
 
-Progress: [█████████░] 89%
+Progress: [██████████] 100%
 
 ## Shipped Milestones
 
@@ -70,6 +70,9 @@ Progress: [█████████░] 89%
 - OidcStateStore uses package-private TTL constructor for testing and lazy cleanup on put() — no background sweeper thread required for an in-process ephemeral store
 - PendingFlow is a private static final class (not a record) — Java 11 target in keycloak module; records require Java 16+
 - Dremio checkstyle requires test method names to match `^(test[a-zA-Z0-9_]*|[a-z][a-zA-Z0-9]*)$` — use `test*` camelCase prefix, not snake_case
+- OidcResource uses Response.status(FOUND) (302) not Response.temporaryRedirect() (307) for auth redirects — browser auth flows conventionally use 302; JAX-RS temporaryRedirect() returns 307
+- OidcResource.exchangeCodeForTokens() is protected (not private) for spy-based test stubbing — avoids adding a TokenExchangeClient interface just for test isolation
+- Lenient Mockito stubs required in setUp() when some tests null out @Inject @Nullable fields — without lenient(), strict mode throws UnnecessaryStubbingException for stubs the null-field-branch tests never consume
 
 ### Blockers/Concerns
 
@@ -89,6 +92,6 @@ Progress: [█████████░] 89%
 
 ## Session Continuity
 
-Last session: 2026-03-12T17:47:46Z
-Stopped at: Completed 33-01-PLAN.md
+Last session: 2026-03-12T19:01:00Z
+Stopped at: Completed 33-02-PLAN.md
 Resume file: None
