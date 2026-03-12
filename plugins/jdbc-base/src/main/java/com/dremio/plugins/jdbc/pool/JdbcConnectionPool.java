@@ -20,6 +20,7 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.Properties;
 
 /**
  * Thin wrapper around a {@link HikariDataSource} that provides a pooled JDBC connection for
@@ -46,6 +47,20 @@ public class JdbcConnectionPool implements AutoCloseable {
     hikariConfig.setMaximumPoolSize(conf.poolSize);
     hikariConfig.setIdleTimeout(conf.idleTimeoutMs);
     hikariConfig.setConnectionTestQuery(conf.validationQuery);
+    String username = conf.getUsername();
+    if (username != null) {
+      hikariConfig.setUsername(username);
+    }
+    String password = conf.getPassword();
+    if (password != null) {
+      hikariConfig.setPassword(password);
+    }
+    Properties connProps = conf.getConnectionProperties();
+    if (connProps != null) {
+      for (String key : connProps.stringPropertyNames()) {
+        hikariConfig.addDataSourceProperty(key, connProps.getProperty(key));
+      }
+    }
     this.dataSource = new HikariDataSource(hikariConfig);
   }
 

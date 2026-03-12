@@ -92,6 +92,17 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
   }
 
   /**
+   * Creates the schema fetcher for this plugin. Subclasses can override to return a
+   * database-specific schema fetcher.
+   *
+   * @param pool the connection pool to pass to the schema fetcher
+   * @return a new {@link JdbcSchemaFetcher} (or subclass) for this source
+   */
+  protected JdbcSchemaFetcher createSchemaFetcher(JdbcConnectionPool pool) {
+    return new JdbcSchemaFetcher(pool);
+  }
+
+  /**
    * Initialises the connection pool and schema fetcher. Called by the catalog during source
    * activation.
    *
@@ -100,7 +111,7 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
   @Override
   public void start() throws IOException {
     pool = new JdbcConnectionPool(conf);
-    schemaFetcher = new JdbcSchemaFetcher(pool);
+    schemaFetcher = createSchemaFetcher(pool);
   }
 
   /**

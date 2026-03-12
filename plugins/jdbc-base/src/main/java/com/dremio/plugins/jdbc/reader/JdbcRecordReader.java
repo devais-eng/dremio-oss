@@ -140,6 +140,7 @@ public class JdbcRecordReader extends AbstractRecordReader {
     // Acquire connection and execute.
     try {
       conn = pool.getConnection();
+      configureConnection(conn);
       stmt =
           conn.prepareStatement(
               config.getSql(),
@@ -212,6 +213,18 @@ public class JdbcRecordReader extends AbstractRecordReader {
       }
       conn = null;
     }
+  }
+
+  /**
+   * Called after a connection is obtained from the pool but before the query is executed.
+   * Subclasses can override to configure connection-level settings (e.g., autoCommit, session
+   * parameters).
+   *
+   * @param conn the newly obtained connection to configure
+   * @throws SQLException if a database access error occurs
+   */
+  protected void configureConnection(Connection conn) throws SQLException {
+    // No-op by default; subclasses override for database-specific configuration.
   }
 
   /**

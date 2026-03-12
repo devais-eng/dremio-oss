@@ -19,6 +19,7 @@ import com.dremio.exec.catalog.conf.ConnectionConf;
 import com.dremio.exec.catalog.conf.NotMetadataImpacting;
 import com.dremio.exec.store.StoragePlugin;
 import io.protostuff.Tag;
+import java.util.Properties;
 
 /**
  * Abstract base configuration for JDBC-based storage plugins.
@@ -47,6 +48,36 @@ public abstract class BaseJdbcConf<T extends BaseJdbcConf<T, P>, P extends Stora
   @Tag(3)
   @NotMetadataImpacting
   public String validationQuery = "SELECT 1";
+
+  /**
+   * Returns the JDBC username for the connection pool.
+   * Concrete subclasses that require authentication should override this method.
+   *
+   * @return username string, or null to omit username from the pool configuration
+   */
+  public String getUsername() {
+    return null;
+  }
+
+  /**
+   * Returns the JDBC password for the connection pool.
+   * Concrete subclasses that require authentication should override this method.
+   *
+   * @return plain-text password string, or null to omit password from the pool configuration
+   */
+  public String getPassword() {
+    return null;
+  }
+
+  /**
+   * Returns additional JDBC connection properties to be passed to the connection pool.
+   * Concrete subclasses can override to supply database-specific properties (e.g., SSL parameters).
+   *
+   * @return a Properties object (never null); an empty Properties is the default
+   */
+  public Properties getConnectionProperties() {
+    return new Properties();
+  }
 
   /**
    * Returns the full JDBC URL for the target database.
