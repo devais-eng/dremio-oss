@@ -116,7 +116,10 @@ Plans:
   3. PostgreSQL-specific types (TEXT, BYTEA, UUID, JSONB, SERIAL, arrays, INTERVAL) are mapped to appropriate Dremio/Arrow types without data loss or errors
   4. User can create a POSTGRES_DB source through the Dremio UI source creation wizard using the JSON layout form
   5. Testcontainers integration tests against postgres:16-alpine pass, covering type roundtrips, schema discovery, filter pushdown, and projection pushdown
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 31-01-PLAN.md — Base class amendments + PostgreSQL module (PostgresConf, type mapping, record reader, UI layout, icon, wiring)
+- [ ] 31-02-PLAN.md — TestContainers integration tests (type roundtrips, schema discovery, pushdown verification)
 
 ### Phase 32: Oracle Connector
 **Goal**: Users can connect Dremio OSS to an Oracle database as an ORACLE_DB source, browse its schema, and query its tables with correct results and type fidelity
