@@ -52,7 +52,17 @@ Make Dremio OSS a production-capable data lakehouse query engine by closing crit
 
 <!-- Current scope. Building toward these. -->
 
-(No active milestone — next milestone TBD via `/gsd:new-milestone`)
+## Current Milestone: v1.4 Nessie Branch-Aware REST Catalog
+
+**Goal:** Enable Nessie version-control features (AT BRANCH/TAG/COMMIT) through the existing RESTCATALOG source type, allowing multi-branch queries against Nessie REST catalog servers.
+
+**Target features:**
+- `enableNessie` boolean config on RESTCATALOG source (default false)
+- Auto-discover default branch from Nessie server config endpoint
+- AT BRANCH, AT TAG, AT COMMIT syntax wired to RESTCATALOG via dynamic REST prefix
+- Multi-branch queries (join tables from different branches in one query)
+- Fresh reference resolution — no stale branch pointers, always server-defined default
+- Read-only (SELECT) scope only
 
 ### Out of Scope
 
@@ -129,4 +139,4 @@ Build caveat: Maven build requires Java 21 (enforcer [21,22) range).
 | Switch to GHCR from ECR | No AWS credentials required; GITHUB_TOKEN is sufficient; simpler for OSS forks | ✓ Good — zero external cloud dependency |
 
 ---
-*Last updated: 2026-03-01 after merging develop into rbac and aligning planning directory*
+*Last updated: 2026-03-09 after starting milestone v1.4 Nessie Branch-Aware REST Catalog*

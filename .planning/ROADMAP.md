@@ -6,7 +6,7 @@
 - ✅ **v1.1 Enable Iceberg REST Catalog** — Phases 7-8 (shipped 2026-02-20)
 - ✅ **v1.2 GitHub Actions Docker Distribution** — Phases 9-11 (shipped 2026-02-21)
 - ✅ **v1.3 Privilege Context & Enforcement** — Phases 12-20 (shipped 2026-02-24)
-- 🚧 **v1.4 Nessie Branch-Aware REST Catalog** — Phases 21-24 (in progress)
+- 🚧 **v1.4 Nessie Branch-Aware REST Catalog** — Phases 21-25 (in progress)
 
 ## Phases
 
@@ -69,7 +69,8 @@ See `milestones/v1.3-ROADMAP.md` for full phase details.
 - [x] **Phase 21: Configuration and Nessie Detection** - enableNessie toggle, auto-detect Nessie backend, discover default branch (completed 2026-03-09)
 - [x] **Phase 22: Branch-Aware Catalog Infrastructure** - Per-branch RESTCatalog cache with Caffeine, branch-isolated table caching (completed 2026-03-09)
 - [x] **Phase 23: CatalogImpl Integration and AT BRANCH Queries** - Wire SupportsBranchAwareRestCatalog into query pipeline, plan cache safety (completed 2026-03-10)
-- [ ] **Phase 24: Multi-Branch Queries and Hardening** - Cross-branch JOINs, error handling, edge case hardening
+- [x] **Phase 24: Multi-Branch Queries and Hardening** - Cross-branch JOINs, error handling, edge case hardening (completed 2026-03-10)
+- [x] **Phase 25: Fix RESTCATALOG S3 Filesystem Config Propagation** - Merge catalog properties into execution-time Hadoop Configuration for S3/MinIO/Azure backends (completed 2026-03-10)
 
 ## Phase Details
 
@@ -124,11 +125,24 @@ Plans:
   1. User can execute a JOIN between `table_a AT BRANCH "main"` and `table_b AT BRANCH "dev"` in a single SELECT query and get correct results from both branches
   2. When a user references a branch that does not exist, the error message clearly states the branch was not found (not a generic "table not found" error)
   3. When a user references a table that exists on one branch but not another, the error message distinguishes "table not found on branch X" from "branch X not found"
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 24-01: TBD
-- [ ] 24-02: TBD
+- [ ] 24-01-PLAN.md -- Error handling: branchExists interface method, CatalogImpl error messages, unit tests
+- [ ] 24-02-PLAN.md -- NessieContainer testcontainers module and icebergcatalog test dependency
+- [ ] 24-03-PLAN.md -- Integration tests: cross-branch queries, error handling, special characters, regression
+
+### Phase 25: Fix RESTCATALOG S3 Filesystem Config Propagation
+**Goal**: RESTCATALOG sources can read data from S3-compatible backends (MinIO, SeaweedFS, Azure) by propagating catalog properties into the execution-time Hadoop Configuration
+**Depends on**: Phase 21 (uses existing RESTCATALOG plugin infrastructure)
+**Success Criteria** (what must be TRUE):
+  1. Catalog properties (fs.s3a.endpoint, credentials, path-style-access, etc.) set on a RESTCATALOG source are available in both planning-time and execution-time FileSystem creation
+  2. A RESTCATALOG source pointed at Nessie+MinIO can execute SELECT queries without "Credentials for the Storage Provider" errors
+  3. No regression for cloud-hosted REST catalogs that use credential vending (existing behavior preserved)
+**Plans**: 1 plan
+
+Plans:
+- [ ] 25-01-PLAN.md — Merge configPropertyList into fsConfAdapter during IcebergCatalogPlugin.start()
 
 ## Quick Tasks
 
@@ -144,7 +158,7 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 21 → 22 → 23 → 24
+Phases execute in numeric order: 21 → 22 → 23 → 24 → 25
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -171,4 +185,5 @@ Phases execute in numeric order: 21 → 22 → 23 → 24
 | 21. Configuration and Nessie Detection | v1.4 | Complete    | 2026-03-09 | - |
 | 22. Branch-Aware Catalog Infrastructure | v1.4 | Complete    | 2026-03-09 | - |
 | 23. CatalogImpl Integration and AT BRANCH Queries | v1.4 | Complete    | 2026-03-10 | - |
-| 24. Multi-Branch Queries and Hardening | v1.4 | 0/? | Not started | - |
+| 24. Multi-Branch Queries and Hardening | v1.4 | Complete    | 2026-03-10 | - |
+| 25. Fix RESTCATALOG S3 Config Propagation | v1.4 | Complete    | 2026-03-10 | - |

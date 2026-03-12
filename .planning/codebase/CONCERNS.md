@@ -118,6 +118,24 @@
 - Trigger: Every RPC message encoding operation.
 - Workaround: Relies on GC for buffer reclaim; potential for off-heap memory pressure under high RPC load.
 
+**AT BRANCH Table Resolution Contamination — Same Table, Different Branches in One Query (Untracked):**
+- Symptoms: When the same table is referenced both with and without `AT BRANCH` in a single query (e.g., `SELECT *, (SELECT COUNT(*) FROM t AT BRANCH dev) FROM t`), both references resolve to the branched version. The non-branched reference silently returns data from the wrong branch.
+- Affects: All versioned sources — both native Nessie (`VersionedPlugin`) and branch-aware REST catalogs (`SupportsBranchAwareRestCatalog`). The bug is in the core query planner pipeline, not in any specific source plugin.
+- Root cause (two layers):
+  1. **Version context loss in Calcite validation**: `DremioSchema.getImplicitTable(String, boolean)` (`sabot/kernel/.../exec/catalog/DremioSchema.java:52-61`) receives only a string table name from Calcite's `SqlToRelConverter`. The `SqlVersionedIdentifier` (which carries the AT BRANCH `TableVersionContext`) is not passed through, so the version context is lost before reaching the catalog.
+  2. **Cache key contamination in CachingCatalog**: `CachingCatalog.toTableCacheKey(NamespaceKey)` (`sabot/kernel/.../exec/catalog/CachingCatalog.java:584-593`) constructs cache keys using `options.getVersionForSource()` from `MetadataRequestOptions.sourceVersionMapping` — a query-scoped map. When one AT BRANCH resolution sets this map, subsequent `NamespaceKey`-based lookups for the same source inherit that version, producing identical cache keys and returning the branched data. Compare with `toTableCacheKey(CatalogEntityKey)` (line 595-598) which correctly uses the explicit `entityKey.getTableVersionContext()`.
+- Scope: Query-scoped only — contamination does NOT persist across separate queries. Standalone queries (single table reference) work correctly.
+- Trigger: Any query with `table AT BRANCH X` and the same `table` (no AT BRANCH) in a subquery, CTE, or scalar subquery. Cross-branch queries using DIFFERENT tables (e.g., `t1 AT BRANCH main JOIN t2 AT BRANCH dev`) are NOT affected.
+- Verified via UAT (2026-03-11): `SELECT *, (SELECT COUNT(*) FROM cities AT BRANCH dev) FROM cities` returned 5 rows (dev) instead of expected 3 rows (main) for the outer query. Reverse order (outer AT BRANCH, inner without) also shows contamination. Standalone queries before and after return correct results.
+- Files:
+  - `sabot/kernel/src/main/java/com/dremio/exec/catalog/DremioSchema.java` (line 52-61) — version context lost here
+  - `sabot/kernel/src/main/java/com/dremio/exec/catalog/CachingCatalog.java` (line 584-598) — asymmetric cache key construction
+  - `sabot/kernel/src/main/java/com/dremio/exec/catalog/MetadataRequestOptions.java` (line 209-223) — `getVersionForSource()` reads from potentially contaminated session map
+  - `sabot/kernel/src/main/java/com/dremio/exec/ops/DremioCatalogReader.java` (line 101-111) — `getTable(List<String>)` has no version context; compare with function resolution (line 238-264) which correctly handles `SqlVersionedIdentifier`
+  - `sabot/kernel/src/main/java/com/dremio/exec/ops/PlannerCatalogImpl.java` — has both version-aware (`getValidatedTableWithSchema(CatalogEntityKey)`) and version-unaware (`getValidatedTableWithSchema(NamespaceKey)`) paths
+- Workaround: Avoid referencing the same table both with and without AT BRANCH in a single query. Use different tables across branches, or use separate queries.
+- Fix direction: Either (a) thread `SqlVersionedIdentifier` through Calcite's `getTable()` path so `DremioSchema` can construct a `CatalogEntityKey` with the correct version context, or (b) ensure `CachingCatalog.toTableCacheKey(NamespaceKey)` does not inherit version context from `sourceVersionMapping` when no AT specifier was explicitly provided for that table reference.
+
 ---
 
 ## Security Considerations
