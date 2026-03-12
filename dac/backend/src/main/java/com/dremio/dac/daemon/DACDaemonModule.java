@@ -1039,6 +1039,7 @@ public class DACDaemonModule implements DACModule {
     GrantStore grantStore = new GrantStore(kvStoreProviderForRbac);
     MembershipStore membershipStore = new MembershipStore(kvStoreProviderForRbac);
     RbacService rbacServiceInstance = new RbacService(roleStore, grantStore, membershipStore);
+    registry.bind(RoleStore.class, roleStore);
     registry.bind(RbacService.class, rbacServiceInstance);
 
     registry.bind(
