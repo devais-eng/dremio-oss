@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Keycloak IdP Integration
 status: completed
-stopped_at: Completed 32-03-PLAN.md
-last_updated: "2026-03-12T18:05:00Z"
-last_activity: "2026-03-12 — Completed 32-03: KeycloakRoleSyncer Keycloak realm_access.roles to Dremio RBAC membership sync (ROLE-01, ROLE-02, ROLE-03, ROLE-04)"
+stopped_at: Completed 32-04-PLAN.md
+last_updated: "2026-03-12T17:10:00Z"
+last_activity: "2026-03-12 — Completed 32-04: DACAuthFilter JIT+role sync wiring — JIT provisioning and Keycloak role sync integrated into filter() (JIT-01, JIT-02, JIT-03, ROLE-01)"
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 7
-  completed_plans: 6
-  percent: 86
+  completed_plans: 7
+  percent: 100
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 
 ## Current Position
 
-Phase: 32 of 35 (JIT Provisioning + Role Mapping)
-Plan: 32-03 complete — ready for Plan 32-04
-Status: Plan 32-03 complete — KeycloakRoleSyncer ready for DACAuthFilter wiring
-Last activity: 2026-03-12 — Completed 32-03: KeycloakRoleSyncer Keycloak realm_access.roles to Dremio RBAC membership sync (ROLE-01, ROLE-02, ROLE-03, ROLE-04)
+Phase: 32 of 35 (JIT Provisioning + Role Mapping) — COMPLETE
+Plan: 32-04 complete — Phase 32 all 4 plans done
+Status: Phase 32 complete — JIT provisioning + role sync fully wired in DACAuthFilter
+Last activity: 2026-03-12 — Completed 32-04: DACAuthFilter JIT+role sync wiring (JIT-01, JIT-02, JIT-03, ROLE-01)
 
-Progress: [█████████░] 86%
+Progress: [██████████] 100%
 
 ## Shipped Milestones
 
@@ -64,6 +64,9 @@ Progress: [█████████░] 86%
 - JitUserProvisioner.provision() declares throws IOException for DACAuthFilter caller compatibility even though implementation never throws it
 - KeycloakRoleSyncer takes RoleStore directly for ROLE-04 filtering: avoids RbacEntityNotFoundException for unmapped Keycloak roles without adding new RbacService methods; roleStore.get(roleId)==null silently skips that role
 - dremio-sabot-kernel added as explicit dependency to services/keycloak pom.xml: RbacService and RoleStore are in sabot/kernel, not in a services module; required for KeycloakRoleSyncer compilation
+- KeycloakTokenDetails stored in ContainerRequestContext.setProperty (not DACAuthFilter instance field): DACAuthFilter is a HK2 singleton; per-request state must use the request context for thread safety
+- getUserNameFromToken uses validateWithClaims() when jitProvisioner non-null, validate() otherwise: Phase 31 COEX behavior preserved for non-JIT deployments
+- Role sync runs AFTER user provisioning in DACAuthFilter: user must exist in RBAC store before addMembership() can succeed
 
 ### Blockers/Concerns
 
@@ -83,6 +86,6 @@ Progress: [█████████░] 86%
 
 ## Session Continuity
 
-Last session: 2026-03-12T18:05:00Z
-Stopped at: Completed 32-03-PLAN.md
+Last session: 2026-03-12T17:10:00Z
+Stopped at: Completed 32-04-PLAN.md (Phase 32 complete)
 Resume file: None

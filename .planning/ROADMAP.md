@@ -86,7 +86,7 @@ See `milestones/v1.4-ROADMAP.md` for full phase details.
 
 - [x] **Phase 30: JWT Validation Infrastructure + Config** — OIDC foundation: config constants, OidcTokenValidator, JWKS provider with kid-based refresh, DACDaemonModule wiring (completed 2026-03-12)
 - [x] **Phase 31: REST API Bearer JWT Authentication** — DACAuthFilter OIDC branch accepting Keycloak JWTs, token type discriminator, internal auth coexistence (completed 2026-03-12)
-- [ ] **Phase 32: JIT Provisioning + Role Mapping** — OidcJitProvisioner, KeycloakRoleMapper, additive-tagged sync, DACAuthFilter JIT trigger
+- [x] **Phase 32: JIT Provisioning + Role Mapping** — OidcJitProvisioner, KeycloakRoleMapper, additive-tagged sync, DACAuthFilter JIT trigger (completed 2026-03-12)
 - [ ] **Phase 33: OIDC Redirect Web Flow** — OidcCallbackResource (login + callback endpoints), state/PKCE, code exchange, Dremio session issuance, id_token_hint storage
 - [ ] **Phase 34: Web UI SSO Button** — LoginForm SSO button, config-discovery endpoint, SSO landing page completes login saga
 - [ ] **Phase 35: Arrow Flight JDBC/ODBC + RP-Initiated Logout** — DremioBearerTokenAuthenticator OIDC branch, JDBC JIT provisioning, Keycloak session termination on logout
@@ -132,7 +132,7 @@ Plans:
   4. Keycloak `realm_access.roles` that match existing Dremio RBAC roles are granted to the user on every login; roles not present in Dremio are silently ignored
   5. In additive mode, manually-assigned Dremio role memberships not in the Keycloak token are preserved after re-login
   6. In authoritative mode, Dremio role memberships not present in the current Keycloak token are revoked on re-login
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 Plans:
 - [ ] 32-01-PLAN.md — Foundation: Membership.source proto field, RbacService source overload, KeycloakTokenDetails, validateWithClaims()
 - [ ] 32-02-PLAN.md — TDD: JitUserProvisioner (REMOTE user creation with race-safe idempotency)
@@ -216,7 +216,7 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 29. Backend Logic Gaps v2 | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 30. JWT Validation Infrastructure + Config | v1.5 | 2/2 | Complete | 2026-03-12 |
 | 31. REST API Bearer JWT Authentication | v1.5 | 1/1 | Complete | 2026-03-12 |
-| 32. JIT Provisioning + Role Mapping | 3/4 | In Progress|  | - |
+| 32. JIT Provisioning + Role Mapping | 4/4 | Complete   | 2026-03-12 | - |
 | 33. OIDC Redirect Web Flow | v1.5 | 0/TBD | Not started | - |
 | 34. Web UI SSO Button | v1.5 | 0/TBD | Not started | - |
 | 35. Arrow Flight JDBC/ODBC + RP-Initiated Logout | v1.5 | 0/TBD | Not started | - |
