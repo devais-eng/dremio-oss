@@ -32,7 +32,11 @@ import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 import java.net.URL;
 import java.text.ParseException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Validates Keycloak-issued RS256 JWTs against the Keycloak JWKS endpoint.
@@ -109,5 +113,57 @@ public class OidcTokenValidator {
 
     long expiresAt = claims.getExpirationTime().getTime();
     return TokenDetails.of(jwtString, username, expiresAt);
+  }
+
+  /**
+   * Validates the JWT and extracts extended claims (email, realm_access.roles).
+   *
+   * <p>Called from DACAuthFilter when JIT provisioning and role sync are active (Phase 32+). The
+   * existing {@link #validate(String)} method remains for backwards compatibility.
+   *
+   * @param jwtString compact serialised JWT (three Base64URL parts separated by dots)
+   * @return {@link KeycloakTokenDetails} with username, email, realm roles, and expiry epoch millis
+   * @throws ParseException if {@code jwtString} cannot be parsed as a JWT
+   * @throws IllegalArgumentException if the JWT fails signature, issuer, audience, or expiry
+   *     validation
+   */
+  public KeycloakTokenDetails validateWithClaims(String jwtString) throws ParseException {
+    JWT jwt = JWTParser.parse(jwtString);
+    JWTClaimsSet claims;
+    try {
+      claims = jwtProcessor.process(jwt, null);
+    } catch (BadJOSEException | JOSEException e) {
+      throw new IllegalArgumentException("Keycloak JWT validation failed: " + e.getMessage(), e);
+    }
+
+    String username = claims.getStringClaim("preferred_username");
+    if (username == null) {
+      username = claims.getSubject();
+    }
+    String email = claims.getStringClaim("email");
+
+    List<String> realmRoles = extractRealmRoles(claims);
+    long expiresAt = claims.getExpirationTime().getTime();
+    return new KeycloakTokenDetails(username, email, realmRoles, expiresAt);
+  }
+
+  private static List<String> extractRealmRoles(JWTClaimsSet claims) {
+    try {
+      Map<String, Object> realmAccess = claims.getJSONObjectClaim("realm_access");
+      if (realmAccess == null) {
+        return Collections.emptyList();
+      }
+      Object roles = realmAccess.get("roles");
+      if (!(roles instanceof List)) {
+        return Collections.emptyList();
+      }
+      return ((List<?>) roles)
+          .stream()
+              .filter(r -> r instanceof String)
+              .map(r -> (String) r)
+              .collect(Collectors.toList());
+    } catch (ParseException e) {
+      return Collections.emptyList();
+    }
   }
 }
