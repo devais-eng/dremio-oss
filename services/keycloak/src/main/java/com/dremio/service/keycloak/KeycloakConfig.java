@@ -65,7 +65,9 @@ public class KeycloakConfig {
             + "Set services.keycloak.client-secret in dremio.conf.");
   }
 
-  /** Returns the Keycloak realm issuer URL, e.g. {@code https://keycloak.example.com/realms/dremio}. */
+  /**
+   * Returns the Keycloak realm issuer URL, e.g. {@code https://keycloak.example.com/realms/dremio}.
+   */
   public String getIssuerUrl() {
     return issuerUrl;
   }

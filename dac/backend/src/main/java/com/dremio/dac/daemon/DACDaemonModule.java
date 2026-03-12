@@ -272,6 +272,7 @@ import com.dremio.service.jobtelemetry.JobTelemetryClient;
 import com.dremio.service.jobtelemetry.client.JobTelemetryExecutorClientFactory;
 import com.dremio.service.jobtelemetry.server.LocalJobTelemetryServer;
 import com.dremio.service.jobtelemetry.server.store.ProfileDistStoreConfig;
+import com.dremio.service.keycloak.KeycloakConfig;
 import com.dremio.service.listing.DatasetListingInvoker;
 import com.dremio.service.listing.DatasetListingService;
 import com.dremio.service.listing.DatasetListingServiceImpl;
@@ -2213,9 +2214,25 @@ public class DACDaemonModule implements DACModule {
       return true;
     }
 
+    if ("keycloak".equals(dacConfig.getConfig().getString(WEB_AUTH_TYPE))) {
+      // Users stored locally in KVStore (JIT provisioning adds them in Phase 32)
+      final SimpleUserService simpleUserService =
+          new SimpleUserService(registry.provider(LegacyKVStoreProvider.class), isMaster);
+      registry.bindProvider(UserService.class, () -> simpleUserService);
+      registry.bindSelf(simpleUserService);
+      registry.bindProvider(UserResolver.class, () -> simpleUserService);
+
+      // Bind KeycloakConfig for downstream injection
+      final KeycloakConfig keycloakConfig = new KeycloakConfig(dacConfig.getConfig());
+      registry.bind(KeycloakConfig.class, keycloakConfig);
+
+      logger.info("Keycloak authentication is configured.");
+      return true; // true = internal user records (KVStore-backed SimpleUserService)
+    }
+
     String authType = dacConfig.getConfig().getString(WEB_AUTH_TYPE);
     logger.error(
-        "Unknown value '{}' set for {}. Accepted values are ['internal', 'ldap']",
+        "Unknown value '{}' set for {}. Accepted values are ['internal', 'ldap', 'keycloak']",
         authType,
         WEB_AUTH_TYPE);
     throw new RuntimeException(

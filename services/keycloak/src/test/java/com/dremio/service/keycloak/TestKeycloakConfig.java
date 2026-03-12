@@ -87,8 +87,7 @@ public class TestKeycloakConfig {
     KeycloakConfig keycloakConfig = new KeycloakConfig(config);
 
     assertThat(keycloakConfig.getJwksUri())
-        .isEqualTo(
-            "https://keycloak.example.com/realms/dremio/protocol/openid-connect/certs");
+        .isEqualTo("https://keycloak.example.com/realms/dremio/protocol/openid-connect/certs");
   }
 
   @Test
