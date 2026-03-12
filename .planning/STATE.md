@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Keycloak IdP Integration
 status: planning
-stopped_at: Completed 30-01-PLAN.md
-last_updated: "2026-03-12T14:59:08.484Z"
-last_activity: 2026-03-12 — Roadmap created, 25 requirements mapped to 6 phases
+stopped_at: Completed 30-02-PLAN.md
+last_updated: "2026-03-12T16:09:00.000Z"
+last_activity: "2026-03-12 — Completed 30-02: OidcTokenValidator (RS256 JWT validation, JWKS key rotation), wired in DACDaemonModule"
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 0
+  completed_plans: 2
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 ## Current Position
 
 Phase: 30 of 35 (JWT Validation Infrastructure + Config)
-Plan: 30-01 complete, 30-02 next
-Status: In progress
-Last activity: 2026-03-12 — Completed 30-01: services/keycloak module, KeycloakConfig bean, DACDaemonModule keycloak branch
+Plan: 30-02 complete, phase complete
+Status: Phase complete — ready for Phase 31
+Last activity: 2026-03-12 — Completed 30-02: OidcTokenValidator (RS256 JWT validation, JWKS key rotation), wired in DACDaemonModule
 
-Progress: [█████░░░░░] 50%
+Progress: [██████████] 100%
 
 ## Shipped Milestones
 
@@ -52,6 +52,9 @@ Progress: [█████░░░░░] 50%
 - Internal auth remains active alongside Keycloak: `LocalUsernamePasswordAuthProvider` is never disabled
 - KeycloakConfig accepts `Config` interface (not `DremioConfig` directly): enables clean unit testing; production code passes `dacConfig.getConfig()` which returns DremioConfig (implements Config)
 - services/keycloak pom.xml does NOT use exec-maven-plugin/BuildTimeScan: no annotated classes to scan; use credentials module as pattern, not tokens module
+- OidcTokenValidator uses JWKSourceBuilder.retrying(true) — no custom TTL/rate-limit needed; Nimbus defaults (5-min cache, 30-s rate limit) are sufficient for Phase 30
+- TestOidcTokenValidator uses @SuppressForbidden for com.sun.net.httpserver.HttpServer — internal JDK API but lightest in-process JWKS server, avoids adding WireMock/Jetty as test dep
+- OidcTokenValidator bound in DACDaemonModule as registry.bind(OidcTokenValidator.class, new OidcTokenValidator(jwksUri, issuerUrl, clientId)) — injectable by Phase 31 (DACAuthFilter) and Phase 35 (Arrow Flight)
 
 ### Blockers/Concerns
 
@@ -71,6 +74,6 @@ Progress: [█████░░░░░] 50%
 
 ## Session Continuity
 
-Last session: 2026-03-12T14:59:08.481Z
-Stopped at: Completed 30-01-PLAN.md
+Last session: 2026-03-12T15:09:56.417Z
+Stopped at: Completed 30-02-PLAN.md
 Resume file: None

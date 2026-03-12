@@ -84,7 +84,7 @@ See `milestones/v1.4-ROADMAP.md` for full phase details.
 
 **Milestone Goal:** Make Dremio OSS authenticate users via Keycloak OIDC as a pluggable identity provider, with JIT provisioning, role mapping, and full login flow support (UI + API + JDBC/ODBC), while keeping internal auth and KVStore RBAC as the authorization layer.
 
-- [ ] **Phase 30: JWT Validation Infrastructure + Config** — OIDC foundation: config constants, OidcTokenValidator, JWKS provider with kid-based refresh, DACDaemonModule wiring
+- [x] **Phase 30: JWT Validation Infrastructure + Config** — OIDC foundation: config constants, OidcTokenValidator, JWKS provider with kid-based refresh, DACDaemonModule wiring (completed 2026-03-12)
 - [ ] **Phase 31: REST API Bearer JWT Authentication** — DACAuthFilter OIDC branch accepting Keycloak JWTs, token type discriminator, internal auth coexistence
 - [ ] **Phase 32: JIT Provisioning + Role Mapping** — OidcJitProvisioner, KeycloakRoleMapper, additive-tagged sync, DACAuthFilter JIT trigger
 - [ ] **Phase 33: OIDC Redirect Web Flow** — OidcCallbackResource (login + callback endpoints), state/PKCE, code exchange, Dremio session issuance, id_token_hint storage
@@ -103,7 +103,7 @@ See `milestones/v1.4-ROADMAP.md` for full phase details.
   3. Token validation rejects JWTs with wrong issuer, wrong audience, or expired expiry with a clear error (not a 500)
   4. When Keycloak rotates its signing key, a token signed with the new `kid` succeeds after one automatic JWKS re-fetch (no server restart required)
   5. Role sync mode (`additive` vs `authoritative`) is readable from config and accessible to downstream components
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 30-01-PLAN.md — Maven module + KeycloakConfig + config constants + DACDaemonModule keycloak branch
 - [ ] 30-02-PLAN.md — OidcTokenValidator TDD (RS256 JWT validation against JWKS endpoint)
@@ -207,7 +207,7 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 27. Catalog API TOCTOU Fix | v1.4 | 1/1 | Complete | 2026-03-11 |
 | 28. DACSecurityContext Role Enforcement | v1.4 | 1/1 | Complete | 2026-03-11 |
 | 29. Backend Logic Gaps v2 | v1.4 | 2/2 | Complete | 2026-03-11 |
-| 30. JWT Validation Infrastructure + Config | 1/2 | In Progress|  | - |
+| 30. JWT Validation Infrastructure + Config | 2/2 | Complete   | 2026-03-12 | - |
 | 31. REST API Bearer JWT Authentication | v1.5 | 0/TBD | Not started | - |
 | 32. JIT Provisioning + Role Mapping | v1.5 | 0/TBD | Not started | - |
 | 33. OIDC Redirect Web Flow | v1.5 | 0/TBD | Not started | - |

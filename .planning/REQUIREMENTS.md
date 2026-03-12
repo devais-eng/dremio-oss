@@ -15,9 +15,9 @@ Requirements for Keycloak IdP Integration. Each maps to roadmap phases.
 
 ### Token Validation
 
-- [ ] **TKN-01**: Dremio validates Keycloak-issued JWTs against Keycloak's JWKS endpoint (RS256 signature, expiry, issuer, audience)
+- [x] **TKN-01**: Dremio validates Keycloak-issued JWTs against Keycloak's JWKS endpoint (RS256 signature, expiry, issuer, audience)
 - [ ] **TKN-02**: DACAuthFilter accepts Keycloak Bearer tokens on REST API requests when auth.type=keycloak
-- [ ] **TKN-03**: JWKS cache auto-refreshes when a `kid` mismatch is detected (supports Keycloak key rotation)
+- [x] **TKN-03**: JWKS cache auto-refreshes when a `kid` mismatch is detected (supports Keycloak key rotation)
 
 ### OIDC Login Flow
 
@@ -100,8 +100,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CFG-01 | Phase 30 | Complete |
 | CFG-02 | Phase 30 | Complete |
 | CFG-03 | Phase 30 | Complete |
-| TKN-01 | Phase 30 | Pending |
-| TKN-03 | Phase 30 | Pending |
+| TKN-01 | Phase 30 | Complete |
+| TKN-03 | Phase 30 | Complete |
 | TKN-02 | Phase 31 | Pending |
 | COEX-01 | Phase 31 | Pending |
 | COEX-02 | Phase 31 | Pending |
