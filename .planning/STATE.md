@@ -1,31 +1,55 @@
 ---
 gsd_state_version: 1.0
-milestone: null
-milestone_name: null
-status: idle
-stopped_at: Milestone v1.4 archived
-last_updated: "2026-03-11T22:40:00.000Z"
-last_activity: "2026-03-11 — Milestone v1.4 RBAC Issue Hardening shipped and archived"
+milestone: v1.5
+milestone_name: Open-Source RDBMS JDBC Plugin
+status: in_progress
+stopped_at: Completed 30-01-PLAN.md
+last_updated: "2026-03-12T21:25:00.000Z"
+last_activity: "2026-03-12 — Completed Phase 30 Plan 01 (jdbc-base skeleton)"
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 3
+  completed_plans: 1
+  percent: 33
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-11)
+See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** Planning next milestone
+**Current focus:** v1.5 Phase 30 — Base JDBC Framework
 
 ## Current Position
 
-No active milestone. All work through v1.4 shipped.
+Phase: 30 of 32 (Base JDBC Framework)
+Plan: 01 complete, 02 next
+Status: In progress
+Last activity: 2026-03-12 — Completed 30-01 (jdbc-base module + HikariCP pool + StoragePlugin)
+
+Progress: [███░░░░░░░] 33%
+
+## Performance Metrics
+
+**Velocity:**
+- Total plans completed: 1 (v1.5)
+- Average duration: 9 min
+- Total execution time: 0.15 hours
+
+**By Phase:**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| 30-base-jdbc-framework P01 | 1 | 9 min | 9 min |
+
+**Recent Trend:**
+- Last 5 plans: 9 min
+- Trend: baseline
+
+*Updated after each plan completion*
 
 ## Shipped Milestones
 
@@ -35,25 +59,24 @@ No active milestone. All work through v1.4 shipped.
 - v1.3 Privilege Context & Enforcement — 9 phases, 17 plans (shipped 2026-02-24)
 - v1.4 RBAC Issue Hardening — 9 phases, 14 plans (shipped 2026-03-11)
 
-## Known Limitations / Future Improvements
+## Accumulated Context
 
-- **UI-04 entity permissions over-restrictive**: Non-admin users with explicit RBAC grants see no dataset context menu items (backend doesn't populate per-entity permissions in OSS)
-- **UI search for promoted PDS**: Non-admin users cannot discover promoted PDS via the global UI search bar.
-- **Guard applies to all source types**: File browse/promote guards block non-admin access for ALL source types, including database/catalog sources.
-- **bulkGetTables() PDS performance**: One listGrantsByObject() call per table in batch — needs profiling at scale.
-- **Credential vending gap (v1.1)**: DremioFileIO discards vended credentials from Iceberg loadTable(); static fs.s3a.* workaround works for long-lived creds but fails for IAM/STS short-lived tokens.
+### Decisions
 
-### Quick Tasks Completed
+- [Phase 30-base-jdbc-framework P01]: HikariCP 5.1.0 added to root POM dependencyManagement separate from hive3's 2.6.1 test-scope entry
+- [Phase 30-base-jdbc-framework P01]: BaseJdbcConf has no @SourceType — concrete connector subclasses carry that annotation
+- [Phase 30-base-jdbc-framework P01]: JdbcStoragePlugin metadata methods are stubbed; DatabaseMetaData discovery deferred to plan 02
 
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 4 | merge develop and align .planning directory. | 2026-03-01 | da7cb6b2c | [4-merge-develop-and-align-planning-directo](./quick/4-merge-develop-and-align-planning-directo/) |
-| 5 | remove .planning from .gitignore | 2026-03-01 | 6ca527087 | [5-remove-planning-from-gitignore](./quick/5-remove-planning-from-gitignore/) |
-| 6 | Read the opened pull requests and evaluate the comments of copilot. | 2026-03-02 | — | [6-read-the-opened-pull-requests-and-evalua](./quick/6-read-the-opened-pull-requests-and-evalua/) |
-| 7 | Apply all actionable Copilot review items (O(1) roleIds, precomputed-path overload, semicolon injection block). | 2026-03-02 | 246251057 | [7-apply-all-actionable-copilot-review-item](./quick/7-apply-all-actionable-copilot-review-item/) |
-| 8 | Enable RBAC and PDS SELECT enforcement by default (dremio-reference.conf). | 2026-03-02 | afb403227 | [8-enable-rbac-by-default](./quick/8-enable-rbac-by-default/) |
+### Pending Todos
+
+None yet.
+
+### Blockers/Concerns
+
+None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-11T22:40:00.000Z
-Stopped at: Milestone v1.4 archived
+Last session: 2026-03-12
+Stopped at: Completed 30-01-PLAN.md — next step is execute 30-02-PLAN.md
+Resume file: None
