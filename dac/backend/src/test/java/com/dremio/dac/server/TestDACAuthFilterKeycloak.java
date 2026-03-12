@@ -27,11 +27,13 @@ import com.dremio.service.keycloak.OidcTokenValidator;
 import com.dremio.service.tokens.TokenDetails;
 import com.dremio.service.tokens.TokenManager;
 import java.lang.reflect.Field;
+import java.net.URI;
 import java.text.ParseException;
 import javax.ws.rs.NotAuthorizedException;
 import javax.ws.rs.container.ContainerRequestContext;
 import javax.ws.rs.container.ResourceInfo;
 import javax.ws.rs.core.HttpHeaders;
+import javax.ws.rs.core.UriInfo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -58,6 +60,7 @@ public class TestDACAuthFilterKeycloak {
   @Mock private ResourceInfo resourceInfo;
   @Mock private OidcTokenValidator oidcTokenValidator;
   @Mock private ContainerRequestContext requestContext;
+  @Mock private UriInfo uriInfo;
   @Mock private javax.inject.Provider<com.dremio.service.users.UserService> userServiceProvider;
 
   private DACAuthFilter filter;
@@ -72,6 +75,12 @@ public class TestDACAuthFilterKeycloak {
     // Default: resource method is non-null but NOT annotated with @TemporaryAccess
     // (Object.toString() has no @TemporaryAccess annotation)
     when(resourceInfo.getResourceMethod()).thenReturn(Object.class.getMethod("toString"));
+
+    // getUserNameFromToken() reads UriInfo for uriPath and queryParams before branching.
+    // Even the non-TemporaryAccess path calls getUriInfo(), so we must stub it.
+    when(requestContext.getUriInfo()).thenReturn(uriInfo);
+    when(uriInfo.getRequestUri()).thenReturn(URI.create("http://localhost/api/v3/catalog"));
+    when(uriInfo.getQueryParameters()).thenReturn(new javax.ws.rs.core.MultivaluedHashMap<>());
   }
 
   // ---------------------------------------------------------------------------
@@ -197,8 +206,8 @@ public class TestDACAuthFilterKeycloak {
   // ---------------------------------------------------------------------------
 
   /**
-   * Sets a private field on the target object via reflection, bypassing field injection.
-   * Supports null values (to simulate @Nullable fields being absent).
+   * Sets a private field on the target object via reflection, bypassing field injection. Supports
+   * null values (to simulate @Nullable fields being absent).
    */
   private static void injectField(Object target, String fieldName, Object value) throws Exception {
     Field field = findField(target.getClass(), fieldName);

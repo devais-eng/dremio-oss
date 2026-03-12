@@ -26,12 +26,14 @@ import com.dremio.dac.model.usergroup.UserName;
 import com.dremio.dac.server.tokens.TokenInfo;
 import com.dremio.dac.server.tokens.TokenUtils;
 import com.dremio.exec.rbac.RbacService;
+import com.dremio.service.keycloak.OidcTokenValidator;
 import com.dremio.service.tokens.TokenDetails;
 import com.dremio.service.tokens.TokenManager;
 import com.dremio.service.users.User;
 import com.dremio.service.users.UserNotFoundException;
 import com.dremio.service.users.UserService;
 import com.google.common.base.Preconditions;
+import java.text.ParseException;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
@@ -51,11 +53,14 @@ import javax.ws.rs.ext.Provider;
 @Priority(Priorities.AUTHENTICATION)
 public class DACAuthFilter implements ContainerRequestFilter {
 
+  private static final String JWT_COMPACT_PREFIX = "eyJ";
+
   @Inject private javax.inject.Provider<UserService> userService;
   @Inject private TokenManager tokenManager;
   @Inject private ResourceInfo resourceInfo;
   @Inject @Nullable private RbacService rbacService;
   @Inject @Nullable private DremioConfig dremioConfig;
+  @Inject @Nullable private OidcTokenValidator oidcTokenValidator;
 
   public DACAuthFilter() {}
 
@@ -111,7 +116,20 @@ public class DACAuthFilter implements ContainerRequestFilter {
         final Tuple<TokenUtils.TokenType, String> tokenTuple =
             TokenUtils.getAuthHeaderToken(requestContext);
         Preconditions.checkArgument(tokenTuple != null);
-        tokenDetails = tokenManager.validateToken(tokenTuple.second);
+        final String tokenStr = tokenTuple.second;
+
+        if (oidcTokenValidator != null && tokenStr.startsWith(JWT_COMPACT_PREFIX)) {
+          // Keycloak JWT path: try OIDC validation first, fall back to Dremio TokenManager
+          // for Dremio-issued JWTs (which also start with eyJ) per Pitfall 4 in RESEARCH.md
+          try {
+            tokenDetails = oidcTokenValidator.validate(tokenStr);
+          } catch (ParseException | IllegalArgumentException e) {
+            tokenDetails = tokenManager.validateToken(tokenStr);
+          }
+        } else {
+          // Dremio opaque token path (or keycloak disabled) -- unchanged
+          tokenDetails = tokenManager.validateToken(tokenStr);
+        }
       }
 
       TokenInfo.setContext(requestContext, tokenDetails);
