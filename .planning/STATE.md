@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Keycloak IdP Integration
 status: completed
-stopped_at: Completed 32-01-PLAN.md
-last_updated: "2026-03-12T16:40:17.476Z"
-last_activity: "2026-03-12 — Completed 32-01: Membership.source proto field, RbacService 4-arg addMembership, KeycloakTokenDetails, OidcTokenValidator.validateWithClaims() (ROLE-01, ROLE-02, ROLE-03)"
+stopped_at: Completed 32-02-PLAN.md
+last_updated: "2026-03-12T16:46:00Z"
+last_activity: "2026-03-12 — Completed 32-02: JitUserProvisioner REMOTE user creation via direct KVStore write, race-safe idempotency (JIT-01, JIT-02, JIT-03)"
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 7
-  completed_plans: 4
-  percent: 57
+  completed_plans: 5
+  percent: 71
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 ## Current Position
 
 Phase: 32 of 35 (JIT Provisioning + Role Mapping)
-Plan: 32-01 complete — ready for Plan 32-02
-Status: Plan 32-01 complete — foundation contracts in place
-Last activity: 2026-03-12 — Completed 32-01: Membership.source proto field, RbacService 4-arg addMembership, KeycloakTokenDetails, OidcTokenValidator.validateWithClaims() (ROLE-01, ROLE-02, ROLE-03)
+Plan: 32-02 complete — ready for Plan 32-03
+Status: Plan 32-02 complete — JitUserProvisioner ready for DACAuthFilter wiring
+Last activity: 2026-03-12 — Completed 32-02: JitUserProvisioner REMOTE user creation via direct KVStore write, race-safe idempotency (JIT-01, JIT-02, JIT-03)
 
-Progress: [██████░░░░] 57%
+Progress: [███████░░░] 71%
 
 ## Shipped Milestones
 
@@ -60,6 +60,8 @@ Progress: [██████░░░░] 57%
 - Membership.source = 5 uses proto3 string default ("") so all existing records deserialize without migration; pass source="keycloak" in addMembership 4-arg overload for Keycloak-synced memberships
 - validateWithClaims() is separate from validate() for COEX-02: DACAuthFilter calls validate(); Phase 32 JitUserProvisioner/KeycloakRoleSyncer call validateWithClaims() to get email and realm_access.roles
 - extractRealmRoles() swallows ParseException and returns empty list — missing/malformed roles degrade gracefully, never crash auth filter
+- JIT provisioning catches broad Exception (not UserAlreadyExistException) from LegacyIndexedStore.put(): store doesn't declare UserAlreadyExistException; broad catch handles concurrent-write race
+- JitUserProvisioner.provision() declares throws IOException for DACAuthFilter caller compatibility even though implementation never throws it
 
 ### Blockers/Concerns
 
@@ -79,6 +81,6 @@ Progress: [██████░░░░] 57%
 
 ## Session Continuity
 
-Last session: 2026-03-12T17:38:00Z
-Stopped at: Completed 32-01-PLAN.md
+Last session: 2026-03-12T16:46:00Z
+Stopped at: Completed 32-02-PLAN.md
 Resume file: None

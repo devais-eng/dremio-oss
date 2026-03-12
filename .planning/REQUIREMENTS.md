@@ -27,9 +27,9 @@ Requirements for Keycloak IdP Integration. Each maps to roadmap phases.
 
 ### JIT Provisioning
 
-- [ ] **JIT-01**: First Keycloak login auto-creates a Dremio user (username from `preferred_username`, email from `email` claim)
-- [ ] **JIT-02**: JIT-provisioned users have a locked sentinel password (cannot login via username/password form)
-- [ ] **JIT-03**: Concurrent first logins from the same Keycloak user do not cause duplicate user errors
+- [x] **JIT-01**: First Keycloak login auto-creates a Dremio user (username from `preferred_username`, email from `email` claim)
+- [x] **JIT-02**: JIT-provisioned users have a locked sentinel password (cannot login via username/password form)
+- [x] **JIT-03**: Concurrent first logins from the same Keycloak user do not cause duplicate user errors
 
 ### Role Mapping
 
@@ -105,9 +105,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TKN-02 | Phase 31 | Complete |
 | COEX-01 | Phase 31 | Complete |
 | COEX-02 | Phase 31 | Complete |
-| JIT-01 | Phase 32 | Pending |
-| JIT-02 | Phase 32 | Pending |
-| JIT-03 | Phase 32 | Pending |
+| JIT-01 | Phase 32 | Complete |
+| JIT-02 | Phase 32 | Complete |
+| JIT-03 | Phase 32 | Complete |
 | ROLE-01 | Phase 32 | Complete |
 | ROLE-02 | Phase 32 | Complete |
 | ROLE-03 | Phase 32 | Complete |
