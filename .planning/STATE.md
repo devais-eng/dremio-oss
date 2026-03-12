@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Keycloak IdP Integration
-status: completed
-stopped_at: Completed 32-04-PLAN.md
-last_updated: "2026-03-12T17:10:00Z"
-last_activity: "2026-03-12 — Completed 32-04: DACAuthFilter JIT+role sync wiring — JIT provisioning and Keycloak role sync integrated into filter() (JIT-01, JIT-02, JIT-03, ROLE-01)"
+status: in_progress
+stopped_at: Completed 33-01-PLAN.md
+last_updated: "2026-03-12T17:47:46Z"
+last_activity: "2026-03-12 — Completed 33-01: OidcStateStore + OidcSessionStore + oauth2-oidc-sdk dep wired (OIDC-03, LOUT-02)"
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 7
-  completed_plans: 7
-  percent: 100
+  total_plans: 9
+  completed_plans: 8
+  percent: 89
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 
 ## Current Position
 
-Phase: 32 of 35 (JIT Provisioning + Role Mapping) — COMPLETE
-Plan: 32-04 complete — Phase 32 all 4 plans done
-Status: Phase 32 complete — JIT provisioning + role sync fully wired in DACAuthFilter
-Last activity: 2026-03-12 — Completed 32-04: DACAuthFilter JIT+role sync wiring (JIT-01, JIT-02, JIT-03, ROLE-01)
+Phase: 33 of 35 (OIDC Redirect Web Flow) — IN PROGRESS
+Plan: 33-01 complete — OIDC stores foundation done; 33-02 (OidcResource endpoints) next
+Status: 33-01 complete — OidcStateStore + OidcSessionStore + oauth2-oidc-sdk wired
+Last activity: 2026-03-12 — Completed 33-01: OidcStateStore + OidcSessionStore + oauth2-oidc-sdk dep wired (OIDC-03, LOUT-02)
 
-Progress: [██████████] 100%
+Progress: [█████████░] 89%
 
 ## Shipped Milestones
 
@@ -67,6 +67,9 @@ Progress: [██████████] 100%
 - KeycloakTokenDetails stored in ContainerRequestContext.setProperty (not DACAuthFilter instance field): DACAuthFilter is a HK2 singleton; per-request state must use the request context for thread safety
 - getUserNameFromToken uses validateWithClaims() when jitProvisioner non-null, validate() otherwise: Phase 31 COEX behavior preserved for non-JIT deployments
 - Role sync runs AFTER user provisioning in DACAuthFilter: user must exist in RBAC store before addMembership() can succeed
+- OidcStateStore uses package-private TTL constructor for testing and lazy cleanup on put() — no background sweeper thread required for an in-process ephemeral store
+- PendingFlow is a private static final class (not a record) — Java 11 target in keycloak module; records require Java 16+
+- Dremio checkstyle requires test method names to match `^(test[a-zA-Z0-9_]*|[a-z][a-zA-Z0-9]*)$` — use `test*` camelCase prefix, not snake_case
 
 ### Blockers/Concerns
 
@@ -86,6 +89,6 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-03-12T17:10:00Z
-Stopped at: Completed 32-04-PLAN.md (Phase 32 complete)
+Last session: 2026-03-12T17:47:46Z
+Stopped at: Completed 33-01-PLAN.md
 Resume file: None

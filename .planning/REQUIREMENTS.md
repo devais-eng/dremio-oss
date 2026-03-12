@@ -23,7 +23,7 @@ Requirements for Keycloak IdP Integration. Each maps to roadmap phases.
 
 - [ ] **OIDC-01**: Web UI user can click "Login with SSO" and be redirected to Keycloak's login page (Authorization Code Flow)
 - [ ] **OIDC-02**: After Keycloak authentication, callback exchanges code for tokens and mints a Dremio session token
-- [ ] **OIDC-03**: OIDC flow uses state parameter + PKCE for CSRF protection
+- [x] **OIDC-03**: OIDC flow uses state parameter + PKCE for CSRF protection
 
 ### JIT Provisioning
 
@@ -36,7 +36,7 @@ Requirements for Keycloak IdP Integration. Each maps to roadmap phases.
 - [x] **ROLE-01**: On each Keycloak login, `realm_access.roles` are synced to Dremio RBAC role memberships
 - [x] **ROLE-02**: In additive mode, Keycloak roles are granted but existing Dremio-only roles are preserved
 - [x] **ROLE-03**: In authoritative mode, Dremio roles not present in Keycloak `realm_access.roles` are revoked on login
-- [ ] **ROLE-04**: Only pre-existing Dremio roles are mapped (unmapped Keycloak roles are silently ignored)
+- [x] **ROLE-04**: Only pre-existing Dremio roles are mapped (unmapped Keycloak roles are silently ignored)
 
 ### Web UI
 
@@ -57,7 +57,7 @@ Requirements for Keycloak IdP Integration. Each maps to roadmap phases.
 ### Logout
 
 - [ ] **LOUT-01**: When a Keycloak-authenticated user logs out of Dremio, their Keycloak session is also terminated (RP-Initiated Logout)
-- [ ] **LOUT-02**: Logout stores `id_token_hint` during OIDC callback for use at logout time
+- [x] **LOUT-02**: Logout stores `id_token_hint` during OIDC callback for use at logout time
 
 ## Future Requirements
 
@@ -111,11 +111,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ROLE-01 | Phase 32 | Complete |
 | ROLE-02 | Phase 32 | Complete |
 | ROLE-03 | Phase 32 | Complete |
-| ROLE-04 | Phase 32 | Pending |
+| ROLE-04 | Phase 32 | Complete |
 | OIDC-01 | Phase 33 | Pending |
 | OIDC-02 | Phase 33 | Pending |
-| OIDC-03 | Phase 33 | Pending |
-| LOUT-02 | Phase 33 | Pending |
+| OIDC-03 | Phase 33 | Complete |
+| LOUT-02 | Phase 33 | Complete |
 | UI-01 | Phase 34 | Pending |
 | UI-02 | Phase 34 | Pending |
 | UI-03 | Phase 34 | Pending |

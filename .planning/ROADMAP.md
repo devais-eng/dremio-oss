@@ -148,7 +148,7 @@ Plans:
   2. After authenticating with Keycloak, the callback `GET /api/v3/oidc/callback` exchanges the code for tokens, provisions the user if needed, and redirects the browser to the Dremio SSO landing page with a valid Dremio session token
   3. A callback request with a tampered or missing `state` parameter returns 400 (not a successful login)
   4. The `id_token_hint` from the OIDC callback is stored server-side and associated with the Dremio session (available for logout use in Phase 35)
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 33-01-PLAN.md — TDD: OidcStateStore + OidcSessionStore + oauth2-oidc-sdk dep + DACDaemonModule wiring
 - [ ] 33-02-PLAN.md — TDD: OidcResource login + callback endpoints (Authorization Code Flow with PKCE)
@@ -220,6 +220,6 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 30. JWT Validation Infrastructure + Config | v1.5 | 2/2 | Complete | 2026-03-12 |
 | 31. REST API Bearer JWT Authentication | v1.5 | 1/1 | Complete | 2026-03-12 |
 | 32. JIT Provisioning + Role Mapping | v1.5 | 4/4 | Complete | 2026-03-12 |
-| 33. OIDC Redirect Web Flow | v1.5 | 0/2 | Not started | - |
+| 33. OIDC Redirect Web Flow | 1/2 | In Progress|  | - |
 | 34. Web UI SSO Button | v1.5 | 0/TBD | Not started | - |
 | 35. Arrow Flight JDBC/ODBC + RP-Initiated Logout | v1.5 | 0/TBD | Not started | - |
