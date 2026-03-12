@@ -39,3 +39,6 @@ jetbrains_config.js
 .cproject
 CTestTestfile.cmake
 .python-version
+.local-env.sh
+distribution/docker/docker-compose.yml
+distribution/docker/setup-branches.sh
