@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import com.dremio.config.DremioConfig;
-import com.dremio.dac.server.DACConfig;
+import com.dremio.exec.server.SabotContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import javax.ws.rs.core.Response;
@@ -38,15 +38,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 public class TestServerConfigResource {
 
-  @Mock private DACConfig dacConfig;
+  @Mock private SabotContext sabotContext;
   @Mock private DremioConfig dremioConfig;
 
   private ServerConfigResource resource;
 
   @BeforeEach
   void setUp() {
-    when(dacConfig.getConfig()).thenReturn(dremioConfig);
-    resource = new ServerConfigResource(dacConfig);
+    when(sabotContext.getDremioConfig()).thenReturn(dremioConfig);
+    resource = new ServerConfigResource(sabotContext);
   }
 
   /** UI-01: When auth.type=keycloak, GET /api/v3/server-config returns {"authType":"keycloak"}. */

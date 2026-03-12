@@ -571,8 +571,7 @@ public class TestRbacIntegration extends BaseTestServer {
       login(ADMIN, PASSWORD);
       String response =
           expectSuccess(
-              getBuilder(getHttpClient().getAPIv2().path("jobs/filters/users"))
-                  .buildGet(),
+              getBuilder(getHttpClient().getAPIv2().path("jobs/filters/users")).buildGet(),
               String.class);
       // Admin should see at least the admin user and the test user.
       assertThat(response).contains(ADMIN);
@@ -589,8 +588,7 @@ public class TestRbacIntegration extends BaseTestServer {
       login(USER, PASSWORD);
       String response =
           expectSuccess(
-              getBuilder(getHttpClient().getAPIv2().path("jobs/filters/users"))
-                  .buildGet(),
+              getBuilder(getHttpClient().getAPIv2().path("jobs/filters/users")).buildGet(),
               String.class);
       // User should see their own name.
       assertThat(response).contains(USER);
@@ -747,7 +745,13 @@ public class TestRbacIntegration extends BaseTestServer {
 
     com.dremio.dac.api.User updatePayload =
         new com.dremio.dac.api.User(
-            userInfo.getId(), USER, "Updated", "Name", "upd@example.com", userInfo.getTag(), null,
+            userInfo.getId(),
+            USER,
+            "Updated",
+            "Name",
+            "upd@example.com",
+            userInfo.getTag(),
+            null,
             null);
     try {
       login(USER, PASSWORD);
@@ -768,8 +772,14 @@ public class TestRbacIntegration extends BaseTestServer {
     // API-01 regression guard: Admin POST /api/v3/user must still succeed (no regression).
     com.dremio.dac.api.User newUser =
         new com.dremio.dac.api.User(
-            null, "testcreated28adm", "Admin", "Created", "tc28adm@example.com", null,
-            "Password1!", null);
+            null,
+            "testcreated28adm",
+            "Admin",
+            "Created",
+            "tc28adm@example.com",
+            null,
+            "Password1!",
+            null);
     com.dremio.dac.api.User created =
         expectSuccess(
             getBuilder(getHttpClient().getAPIv3().path("user")).buildPost(Entity.json(newUser)),

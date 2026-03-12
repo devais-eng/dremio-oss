@@ -17,7 +17,7 @@ package com.dremio.dac.resource;
 
 import com.dremio.config.DremioConfig;
 import com.dremio.dac.annotations.APIResource;
-import com.dremio.dac.server.DACConfig;
+import com.dremio.exec.server.SabotContext;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import javax.inject.Inject;
@@ -42,11 +42,11 @@ import javax.ws.rs.core.Response;
 @Produces(MediaType.APPLICATION_JSON)
 public class ServerConfigResource {
 
-  private final DACConfig dacConfig;
+  private final SabotContext sabotContext;
 
   @Inject
-  public ServerConfigResource(DACConfig dacConfig) {
-    this.dacConfig = dacConfig;
+  public ServerConfigResource(SabotContext sabotContext) {
+    this.sabotContext = sabotContext;
   }
 
   /**
@@ -60,7 +60,8 @@ public class ServerConfigResource {
   @GET
   // NO @Secured — pre-login UI must be able to call this without a session token
   public Response getServerConfig() {
-    String authType = dacConfig.getConfig().getString(DremioConfig.WEB_AUTH_TYPE);
+    String authType =
+        sabotContext.getDremioConfig().getString(DremioConfig.WEB_AUTH_TYPE);
     return Response.ok(new ServerConfig(authType)).build();
   }
 

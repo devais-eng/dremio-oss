@@ -31,7 +31,6 @@ import com.dremio.exec.rbac.proto.RbacProto.Membership;
 import com.dremio.exec.rbac.proto.RbacProto.Role;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -53,7 +52,7 @@ class TestKeycloakRoleSyncer {
     mockRbacService = mock(RbacService.class);
     mockRoleStore = mock(RoleStore.class);
     mockConfig = mock(KeycloakConfig.class);
-    syncer = new KeycloakRoleSyncer(mockRbacService, mockRoleStore, mockConfig);
+    syncer = new KeycloakRoleSyncer(() -> mockRbacService, () -> mockRoleStore, mockConfig);
 
     // Default: additive mode
     when(mockConfig.isAdditive()).thenReturn(true);
@@ -62,8 +61,8 @@ class TestKeycloakRoleSyncer {
   }
 
   /**
-   * Test 1 (ROLE-01): syncRoles("alice", ["analyst"]) where "analyst" exists as a Dremio role
-   * -> addMembership("alice", "analyst", "keycloak", "keycloak") is called.
+   * Test 1 (ROLE-01): syncRoles("alice", ["analyst"]) where "analyst" exists as a Dremio role ->
+   * addMembership("alice", "analyst", "keycloak", "keycloak") is called.
    */
   @Test
   void testRolesGrantedOnLogin() throws Exception {
@@ -104,8 +103,8 @@ class TestKeycloakRoleSyncer {
   }
 
   /**
-   * Test 3 (ROLE-03): Authoritative mode: user has a keycloak-sourced membership for "old-role"
-   * and Keycloak sends ["analyst"]. "old-role" must be revoked; "analyst" must be added.
+   * Test 3 (ROLE-03): Authoritative mode: user has a keycloak-sourced membership for "old-role" and
+   * Keycloak sends ["analyst"]. "old-role" must be revoked; "analyst" must be added.
    */
   @Test
   void testAuthoritativeModeRevokesStaleRoles() throws Exception {
@@ -132,8 +131,8 @@ class TestKeycloakRoleSyncer {
   }
 
   /**
-   * Test 4 (ROLE-03): Authoritative mode: user has a manual membership (source="") for "editor"
-   * and Keycloak sends []. Even in authoritative mode, manually-assigned memberships must NOT be
+   * Test 4 (ROLE-03): Authoritative mode: user has a manual membership (source="") for "editor" and
+   * Keycloak sends []. Even in authoritative mode, manually-assigned memberships must NOT be
    * removed.
    */
   @Test
@@ -205,8 +204,8 @@ class TestKeycloakRoleSyncer {
   }
 
   /**
-   * Test 7 (ROLE-01): syncRoles("alice", ["ADMIN"]) where ADMIN is the built-in role
-   * -> addMembership is called (ADMIN skips roleStore.get check).
+   * Test 7 (ROLE-01): syncRoles("alice", ["ADMIN"]) where ADMIN is the built-in role ->
+   * addMembership is called (ADMIN skips roleStore.get check).
    */
   @Test
   void testAdminRoleDoesNotRequireRoleStoreCheck() throws Exception {

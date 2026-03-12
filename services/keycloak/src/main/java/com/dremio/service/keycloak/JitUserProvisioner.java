@@ -37,8 +37,8 @@ import org.slf4j.LoggerFactory;
  * and the email from the {@code email} JWT claim.
  *
  * <p>JIT-02: The user is created with {@code UserType.REMOTE} and no {@code UserAuth} record,
- * ensuring they cannot log in via the username/password form ({@code SimpleUserService.authenticate}
- * rejects non-LOCAL users at line 354).
+ * ensuring they cannot log in via the username/password form ({@code
+ * SimpleUserService.authenticate} rejects non-LOCAL users at line 354).
  *
  * <p>JIT-03: Concurrent or repeated calls to {@link #provision} are idempotent. If the underlying
  * KVStore write throws (e.g., due to a concurrent first-login race), the exception is swallowed and
@@ -70,7 +70,8 @@ public class JitUserProvisioner {
    *
    * <p>Idempotent: if the KVStore write fails due to a concurrent creation race, the exception is
    * logged at DEBUG level and silently swallowed. The caller should call {@code getUser(username)}
-   * after this method to retrieve the canonical user record regardless of which thread won the race.
+   * after this method to retrieve the canonical user record regardless of which thread won the
+   * race.
    *
    * @param username Dremio username (from JWT {@code preferred_username} claim)
    * @param email user email (from JWT {@code email} claim); stored as {@code ""} if {@code null}

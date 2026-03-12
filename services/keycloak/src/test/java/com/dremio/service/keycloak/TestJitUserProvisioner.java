@@ -52,7 +52,8 @@ class TestJitUserProvisioner {
   void setUp() {
     mockStore = mock(LegacyIndexedStore.class);
     LegacyKVStoreProvider mockProvider = mock(LegacyKVStoreProvider.class);
-    when(mockProvider.getStore(SimpleUserService.UserGroupStoreBuilder.class)).thenReturn(mockStore);
+    when(mockProvider.getStore(SimpleUserService.UserGroupStoreBuilder.class))
+        .thenReturn(mockStore);
 
     Provider<LegacyKVStoreProvider> kvStoreProviderProvider = () -> mockProvider;
     provisioner = new JitUserProvisioner(kvStoreProviderProvider);

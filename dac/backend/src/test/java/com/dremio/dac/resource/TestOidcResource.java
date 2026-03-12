@@ -186,7 +186,8 @@ public class TestOidcResource {
     // Assert
     assertThat(response.getStatus()).isEqualTo(302);
     URI location = (URI) response.getHeaders().getFirst("Location");
-    assertThat(location.toString()).isEqualTo("/login/sso/landing#token=" + DREMIO_SESSION_TOKEN);
+    assertThat(location.toString())
+        .isEqualTo("/login/sso/landing#token=" + DREMIO_SESSION_TOKEN + "&userName=testuser");
   }
 
   /**

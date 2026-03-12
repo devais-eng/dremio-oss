@@ -101,7 +101,11 @@ services:
 
   # ── Dremio OSS ───────────────────────────────────────────────────────
   dremio:
-    image: ghcr.io/devais-eng/dremio-oss:latest
+    image: dremio-oss:local
+    build:
+      context: ../../distribution/docker
+      args:
+        TARBALL_PATH: dremio.tar.gz
     ports:
       - "9047:9047"    # Web UI + REST API
       - "31010:31010"  # ODBC / JDBC
@@ -111,6 +115,7 @@ services:
         condition: service_healthy
     volumes:
       - dremio-data:/opt/dremio/data
+      - ./dremio-sso.conf:/opt/dremio/conf/dremio.conf:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9047"]
       interval: 10s

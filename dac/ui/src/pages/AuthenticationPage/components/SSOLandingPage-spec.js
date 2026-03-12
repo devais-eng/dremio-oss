@@ -35,19 +35,36 @@ describe("SSOLandingPage", () => {
     sinon.restore();
   });
 
-  it("should call setUserData and navigate to / when hash contains token", () => {
-    getHashStub.returns("#token=abc123");
+  it("should call setUserData with token and userName and navigate to /", () => {
+    getHashStub.returns("#token=abc123&userName=testuser");
     const wrapper = shallow(<SSOLandingPage />);
     wrapper.instance().componentDidMount();
-    expect(setUserDataStub).to.have.been.calledWith({ token: "abc123" });
+    expect(setUserDataStub).to.have.been.calledWith({
+      token: "abc123",
+      userName: "testuser",
+    });
     expect(navigateStub).to.have.been.calledWith("/");
   });
 
-  it("should decode URI-encoded tokens", () => {
-    getHashStub.returns("#token=abc%3D123");
+  it("should decode URI-encoded tokens and userNames", () => {
+    getHashStub.returns("#token=abc%3D123&userName=test%40user");
     const wrapper = shallow(<SSOLandingPage />);
     wrapper.instance().componentDidMount();
-    expect(setUserDataStub).to.have.been.calledWith({ token: "abc=123" });
+    expect(setUserDataStub).to.have.been.calledWith({
+      token: "abc=123",
+      userName: "test@user",
+    });
+    expect(navigateStub).to.have.been.calledWith("/");
+  });
+
+  it("should set userName to null when only token is in hash", () => {
+    getHashStub.returns("#token=abc123");
+    const wrapper = shallow(<SSOLandingPage />);
+    wrapper.instance().componentDidMount();
+    expect(setUserDataStub).to.have.been.calledWith({
+      token: "abc123",
+      userName: null,
+    });
     expect(navigateStub).to.have.been.calledWith("/");
   });
 

@@ -24,6 +24,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.inject.Provider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,21 +55,26 @@ public class KeycloakRoleSyncer {
 
   private static final Logger logger = LoggerFactory.getLogger(KeycloakRoleSyncer.class);
 
-  private final RbacService rbacService;
-  private final RoleStore roleStore;
+  private final Provider<RbacService> rbacServiceProvider;
+  private final Provider<RoleStore> roleStoreProvider;
   private final KeycloakConfig keycloakConfig;
 
   /**
-   * Constructs a KeycloakRoleSyncer.
+   * Constructs a KeycloakRoleSyncer with lazy providers.
    *
-   * @param rbacService the RBAC service for membership reads and writes
-   * @param roleStore the role store for role existence checks (ROLE-04)
+   * <p>Providers are used because RbacService and RoleStore are bound later in the DACDaemonModule
+   * lifecycle than the Keycloak bindings in setupUserService().
+   *
+   * @param rbacServiceProvider provider for the RBAC service for membership reads and writes
+   * @param roleStoreProvider provider for the role store for role existence checks (ROLE-04)
    * @param keycloakConfig the Keycloak config supplying the sync mode
    */
   public KeycloakRoleSyncer(
-      RbacService rbacService, RoleStore roleStore, KeycloakConfig keycloakConfig) {
-    this.rbacService = rbacService;
-    this.roleStore = roleStore;
+      Provider<RbacService> rbacServiceProvider,
+      Provider<RoleStore> roleStoreProvider,
+      KeycloakConfig keycloakConfig) {
+    this.rbacServiceProvider = rbacServiceProvider;
+    this.roleStoreProvider = roleStoreProvider;
     this.keycloakConfig = keycloakConfig;
   }
 
@@ -93,6 +99,9 @@ public class KeycloakRoleSyncer {
 
   private void syncRolesInternal(String username, List<String> keycloakRoles)
       throws RbacEntityNotFoundException {
+    final RbacService rbacService = rbacServiceProvider.get();
+    final RoleStore roleStore = roleStoreProvider.get();
+
     // ROLE-04: Filter to only roles that exist in Dremio RBAC.
     // ADMIN is a synthetic built-in role (not in roleStore) -- check separately.
     Set<String> validKeycloakRoles = new HashSet<>();

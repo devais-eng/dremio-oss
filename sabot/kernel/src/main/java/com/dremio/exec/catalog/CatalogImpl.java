@@ -3032,10 +3032,9 @@ public class CatalogImpl implements Catalog {
   }
 
   /**
-   * Checks if RBAC denies the current user access to sys.roles. Only ADMIN members may read
-   * this table. Non-admin users receive null (table not found).
-   * sys.privileges and sys.membership are now accessible to all users (with per-user row filtering
-   * in SystemTableScanCreator).
+   * Checks if RBAC denies the current user access to sys.roles. Only ADMIN members may read this
+   * table. Non-admin users receive null (table not found). sys.privileges and sys.membership are
+   * now accessible to all users (with per-user row filtering in SystemTableScanCreator).
    *
    * @param key the namespace key being accessed
    * @return true if access is denied (user is non-admin accessing sys.roles)

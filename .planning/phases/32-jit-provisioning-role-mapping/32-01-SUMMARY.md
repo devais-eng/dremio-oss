@@ -124,3 +124,14 @@ None - no external service configuration required.
 ---
 *Phase: 32-jit-provisioning-role-mapping*
 *Completed: 2026-03-12*
+
+## Self-Check: PASSED
+
+- FOUND: sabot/kernel/src/main/protobuf/rbac.proto
+- FOUND: sabot/kernel/src/main/java/com/dremio/exec/rbac/RbacService.java
+- FOUND: services/keycloak/src/main/java/com/dremio/service/keycloak/KeycloakTokenDetails.java
+- FOUND: services/keycloak/src/main/java/com/dremio/service/keycloak/OidcTokenValidator.java
+- FOUND: services/keycloak/pom.xml
+- FOUND: .planning/phases/32-jit-provisioning-role-mapping/32-01-SUMMARY.md
+- FOUND commit 2465605f4: feat(32-01): add Membership.source proto field and RbacService 4-arg addMembership overload
+- FOUND commit 237437ab3: feat(32-01): add KeycloakTokenDetails, validateWithClaims(), and keycloak pom deps

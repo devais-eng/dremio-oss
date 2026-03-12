@@ -135,8 +135,7 @@ public class CollaborationResource {
     String objectType;
     switch (entity.getType()) {
       case DATASET:
-        objectType =
-            entity.getDataset().getType() == DatasetType.VIRTUAL_DATASET ? "VDS" : "PDS";
+        objectType = entity.getDataset().getType() == DatasetType.VIRTUAL_DATASET ? "VDS" : "PDS";
         break;
       case FOLDER:
         // Folder ALTER requires privilege on parent space

@@ -30,10 +30,14 @@ export class SSOLandingPage extends Component {
 
   componentDidMount() {
     const hash = SSOLandingPage._getHash();
-    const match = hash.match(/[#&]token=([^&]+)/);
-    if (match) {
-      const token = decodeURIComponent(match[1]);
-      localStorageUtils.setUserData({ token });
+    const tokenMatch = hash.match(/[#&]token=([^&]+)/);
+    if (tokenMatch) {
+      const token = decodeURIComponent(tokenMatch[1]);
+      const userNameMatch = hash.match(/[#&]userName=([^&]+)/);
+      const userName = userNameMatch
+        ? decodeURIComponent(userNameMatch[1])
+        : null;
+      localStorageUtils.setUserData({ token, userName });
       SSOLandingPage._navigate("/");
     } else {
       SSOLandingPage._navigate(LOGIN_PATH);

@@ -121,3 +121,12 @@ None - no external service configuration required. This plan adds server-side au
 ---
 *Phase: 31-rest-api-bearer-jwt-authentication*
 *Completed: 2026-03-12*
+
+## Self-Check: PASSED
+
+- FOUND: `dac/backend/src/main/java/com/dremio/dac/server/DACAuthFilter.java`
+- FOUND: `dac/backend/src/test/java/com/dremio/dac/server/TestDACAuthFilterKeycloak.java`
+- FOUND: `.planning/phases/31-rest-api-bearer-jwt-authentication/31-01-SUMMARY.md`
+- FOUND: commit `101db067e` (test RED)
+- FOUND: commit `608f1d992` (feat GREEN)
+- FOUND: commit `fe90abcc2` (docs metadata)

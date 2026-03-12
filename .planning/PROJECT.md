@@ -62,7 +62,17 @@ Make Dremio OSS a production-capable data lakehouse query engine by closing crit
 
 <!-- Current scope. Building toward these. -->
 
-(No active milestone — use `/gsd:new-milestone` to start next)
+## Current Milestone: v1.5 Keycloak IdP Integration
+
+**Goal:** Make Dremio OSS authenticate users via Keycloak OIDC as a pluggable identity provider, with JIT provisioning, role mapping, and full login flow support (UI + API + ODBC/JDBC), while keeping internal auth and KVStore RBAC as the authorization layer.
+
+**Target features:**
+- Pluggable authentication backend: Keycloak OIDC or internal auth, selected by configuration
+- Web UI OIDC redirect login ("Login with SSO") with fallback to Dremio's form for internal users
+- REST API Bearer JWT validation for Keycloak-issued tokens
+- ODBC/JDBC token-based authentication support
+- JIT (Just-In-Time) user provisioning on first Keycloak login
+- Automatic Keycloak realm role → Dremio RBAC role mapping
 
 ### Out of Scope
 
@@ -146,4 +156,4 @@ Build caveat: Maven build requires Java 21 (enforcer [21,22) range).
 | DACSecurityContext 5-arg constructor (v1.4) | New constructor accepts RbacService + DremioConfig; 3-arg backward-compat preserved for all non-auth-filter callers | ✓ Good — zero breakage, clean upgrade path |
 
 ---
-*Last updated: 2026-03-11 after shipping milestone v1.4 RBAC Issue Hardening*
+*Last updated: 2026-03-12 after starting milestone v1.5 Keycloak IdP Integration*

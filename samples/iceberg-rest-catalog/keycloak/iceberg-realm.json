@@ -38,6 +38,76 @@
       "attributes": {
         "access.token.lifespan": "3600"
       }
+    },
+    {
+      "clientId": "dremio-web",
+      "enabled": true,
+      "secret": "dremio-secret",
+      "publicClient": false,
+      "serviceAccountsEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "http://localhost:9047/*",
+        "http://dremio:9047/*"
+      ],
+      "webOrigins": [
+        "http://localhost:9047",
+        "http://dremio:9047"
+      ],
+      "attributes": {
+        "access.token.lifespan": "300",
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "analysts",
+        "description": "Analyst role for Dremio RBAC mapping"
+      },
+      {
+        "name": "engineers",
+        "description": "Engineer role for Dremio RBAC mapping"
+      }
+    ]
+  },
+  "users": [
+    {
+      "username": "testuser",
+      "enabled": true,
+      "email": "testuser@example.com",
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "testpass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "analysts"
+      ]
+    },
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@example.com",
+      "firstName": "Alice",
+      "lastName": "Analyst",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "analysts"
+      ]
     }
   ]
 }

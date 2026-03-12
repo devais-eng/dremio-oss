@@ -120,16 +120,37 @@ _Note: TDD tasks — both tasks followed RED (tests fail) then GREEN (implementa
 
 ## Issues Encountered
 
-None beyond the two auto-fixed window.location and enzyme selector issues described above.
+### UAT Bug: SSO login stored token but app redirected to /login (FIXED)
+
+**Root cause:** `OidcResource.handleCallback()` redirected to `/login/sso/landing#token=X` but did NOT include `userName`. The `SSOLandingPage` stored only `{token}` in localStorage. However, Dremio's `UserIsAuthenticated` wrapper (via `userUtils.isAuthenticated()`) requires `user.userName` to be present — the normal form login (`POST /apiv2/login`) returns `{token, userName, ...}` but the SSO redirect only passed the token.
+
+**Fix:** `OidcResource.handleCallback()` now redirects to `/login/sso/landing#token=X&userName=Y` (URL-encoded). `SSOLandingPage` extracts both `token` and `userName` from the hash and stores `{token, userName}` via `setUserData()`. Tests updated in both `TestOidcResource.java` and `SSOLandingPage-spec.js`.
+
+**Files modified:** `OidcResource.java`, `SSOLandingPage.jsx`, `TestOidcResource.java`, `SSOLandingPage-spec.js`
+
+### Keycloak Realm Configuration Caveat
+
+The `iceberg-realm.json` import wipes Keycloak's built-in OIDC scopes (`openid`, `profile`, `email`) when the `clientScopes` key is present in the JSON — even if the array is empty. The OIDC login flow requests `scope=openid profile email` and Keycloak rejects the request with `error=invalid_scope&error_description=Invalid+scopes%3A+openid+profile+email`.
+
+**Workaround:** These scopes must be recreated via the Keycloak Admin API after realm import:
+- `openid` scope needs: `oidc-sub-mapper` + `oidc-audience-mapper` (targeting the `dremio-web` client)
+- `profile` scope needs: `oidc-usermodel-attribute-mapper` for `preferred_username`
+- `email` scope needs: `oidc-usermodel-attribute-mapper` for `email`
+
+The realm JSON should NOT redefine these built-in scopes. A post-import script or manual admin API call is required after `docker compose up` with a fresh Keycloak.
+
+### Non-blocking: KeycloakRoleSyncer warning
+
+`KeycloakRoleSyncer` logs `Role sync failed for user 'testuser': Unable to find injectable based on com.dremio.exec.rbac.RoleStore`. The `Provider<RoleStore>` lazy resolution works for constructor injection but HK2 may not resolve RoleStore at request time. Login succeeds due to graceful degradation (syncRoles catches all exceptions). Roles are not synced from Keycloak on SSO login — needs further investigation.
 
 ## User Setup Required
 
-None - no external service configuration required.
+After `docker compose up`, if using a fresh Keycloak with the `iceberg-realm.json` import, the OIDC scopes must be recreated via the Keycloak Admin API (see Keycloak caveat above).
 
 ## Next Phase Readiness
 
-- The complete Keycloak OIDC web login flow is wired end-to-end: SSO button → `/api/v3/oidc/login` → Keycloak → `/api/v3/oidc/callback` → `/login/sso/landing#token=X` → SSOLandingPage → localStorage → app init
-- Phase 34 is complete (both plans done)
+- The complete Keycloak OIDC web login flow is wired and UAT-verified end-to-end: SSO button → `/api/v3/oidc/login` → Keycloak → `/api/v3/oidc/callback` → `/login/sso/landing#token=X&userName=Y` → SSOLandingPage → localStorage `{token, userName}` → app init → Dremio home page
+- Phase 34 is complete (both plans done, UAT passed)
 - Phase 35 (JDBC long-session documentation) is the remaining milestone task
 
 ---

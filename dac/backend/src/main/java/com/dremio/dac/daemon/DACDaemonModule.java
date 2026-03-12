@@ -2240,16 +2240,16 @@ public class DACDaemonModule implements DACModule {
               keycloakConfig.getClientId()));
 
       // Phase 32: JIT provisioning and role sync
-      // RbacService and RoleStore are bound in registerAccessControlStores() which runs
-      // before setupUserService() -- they are available in the registry at this point.
+      // RbacService and RoleStore are bound AFTER setupUserService() in the DACDaemonModule
+      // lifecycle, so we pass providers for lazy resolution at first-use time.
       registry.bind(
           JitUserProvisioner.class,
           new JitUserProvisioner(registry.provider(LegacyKVStoreProvider.class)));
       registry.bind(
           KeycloakRoleSyncer.class,
           new KeycloakRoleSyncer(
-              registry.lookup(RbacService.class),
-              registry.lookup(RoleStore.class),
+              registry.provider(RbacService.class),
+              registry.provider(RoleStore.class),
               keycloakConfig));
 
       // Phase 33: OIDC redirect flow stores
