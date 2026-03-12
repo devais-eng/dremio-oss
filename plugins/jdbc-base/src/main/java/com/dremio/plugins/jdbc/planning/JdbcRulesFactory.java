@@ -1,0 +1,67 @@
+/*
+ * Copyright (C) 2017-2019 Dremio Corporation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.dremio.plugins.jdbc.planning;
+
+import com.dremio.exec.catalog.conf.SourceType;
+import com.dremio.exec.ops.OptimizerRulesContext;
+import com.dremio.exec.planner.PlannerPhase;
+import com.dremio.exec.store.StoragePluginRulesFactory.StoragePluginTypeRulesFactory;
+import com.google.common.collect.ImmutableSet;
+import java.util.Set;
+import org.apache.calcite.plan.RelOptRule;
+
+/**
+ * {@link com.dremio.exec.store.StoragePluginRulesFactory} for JDBC-backed storage plugins.
+ *
+ * <p>Registers planner rules in the correct phases:
+ * <dl>
+ *   <dt>LOGICAL</dt>
+ *   <dd>{@link JdbcScanDrule} — converts the generic {@code ScanCrel} to a JDBC-specific
+ *       {@link JdbcScanDrel}.</dd>
+ *   <dt>PHYSICAL</dt>
+ *   <dd>{@link JdbcScanPrule} — converts {@link JdbcScanDrel} to {@link JdbcScanPrel}.</dd>
+ *   <dd>{@link JdbcPushFilterIntoScan} — pushes WHERE predicates into the scan.</dd>
+ *   <dd>{@link JdbcPushProjectIntoScan} — narrows the SELECT list to projected columns.</dd>
+ *   <dd>{@link JdbcPushLimitIntoScan} — pushes LIMIT into the scan.</dd>
+ * </dl>
+ *
+ * <p>Wired to {@link com.dremio.plugins.jdbc.JdbcStoragePlugin} via
+ * {@code JdbcStoragePlugin.getRulesFactoryClass()}.
+ */
+public class JdbcRulesFactory extends StoragePluginTypeRulesFactory {
+
+  @Override
+  public Set<RelOptRule> getRules(
+      OptimizerRulesContext optimizerContext, PlannerPhase phase, SourceType pluginType) {
+
+    switch (phase) {
+      case LOGICAL:
+        // Convert the generic ScanCrel into the JDBC-specific logical scan node.
+        return ImmutableSet.<RelOptRule>of(new JdbcScanDrule(pluginType));
+
+      case PHYSICAL:
+        // Convert logical JDBC scan to physical, then apply pushdown optimisations.
+        return ImmutableSet.<RelOptRule>of(
+            JdbcScanPrule.INSTANCE,
+            JdbcPushFilterIntoScan.INSTANCE,
+            JdbcPushProjectIntoScan.INSTANCE,
+            JdbcPushLimitIntoScan.INSTANCE);
+
+      default:
+        return ImmutableSet.of();
+    }
+  }
+}

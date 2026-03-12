@@ -33,6 +33,7 @@ import com.dremio.exec.record.BatchSchema;
 import com.dremio.exec.store.StoragePlugin;
 import com.dremio.exec.store.StoragePluginRulesFactory;
 import com.dremio.plugins.jdbc.conf.BaseJdbcConf;
+import com.dremio.plugins.jdbc.planning.JdbcRulesFactory;
 import com.dremio.plugins.jdbc.pool.JdbcConnectionPool;
 import com.dremio.plugins.jdbc.schema.JdbcSchemaFetcher;
 import com.dremio.service.namespace.NamespaceKey;
@@ -169,7 +170,7 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
 
   @Override
   public Class<? extends StoragePluginRulesFactory> getRulesFactoryClass() {
-    return StoragePluginRulesFactory.NoOpPluginRulesFactory.class;
+    return JdbcRulesFactory.class;
   }
 
   // -------------------------------------------------------------------------
