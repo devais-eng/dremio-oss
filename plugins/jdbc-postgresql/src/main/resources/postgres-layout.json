@@ -1,0 +1,55 @@
+{
+  "sourceType": "POSTGRES_DB",
+  "metadataRefresh": { "datasetDiscovery": true },
+  "form": {
+    "tabs": [
+      {
+        "name": "General",
+        "isGeneral": true,
+        "sections": [
+          {
+            "name": "Connection",
+            "elements": [
+              { "propName": "config.hostname", "validate": { "isRequired": true } },
+              { "propName": "config.port", "size": "half", "validate": { "isNumber": true } },
+              { "propName": "config.databaseName", "validate": { "isRequired": true } }
+            ]
+          },
+          {
+            "name": "Authentication",
+            "elements": [
+              { "propName": "config.username" },
+              { "propName": "config.password" }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Advanced Options",
+        "sections": [
+          {
+            "name": "Connection Pool",
+            "elements": [
+              { "propName": "config.poolSize", "size": "half" },
+              { "propName": "config.idleTimeoutMs", "size": "half" }
+            ]
+          },
+          {
+            "name": "Performance",
+            "elements": [
+              { "propName": "config.fetchSize", "size": "half" },
+              { "propName": "config.queryTimeoutSec", "size": "half" }
+            ]
+          },
+          {
+            "name": "Encryption",
+            "elements": [
+              { "propName": "config.useSsl" },
+              { "propName": "config.encryptionValidationMode" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
