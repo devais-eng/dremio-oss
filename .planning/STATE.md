@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Keycloak IdP Integration
 status: completed
-stopped_at: Completed 32-02-PLAN.md
-last_updated: "2026-03-12T16:46:00Z"
-last_activity: "2026-03-12 — Completed 32-02: JitUserProvisioner REMOTE user creation via direct KVStore write, race-safe idempotency (JIT-01, JIT-02, JIT-03)"
+stopped_at: Completed 32-03-PLAN.md
+last_updated: "2026-03-12T18:05:00Z"
+last_activity: "2026-03-12 — Completed 32-03: KeycloakRoleSyncer Keycloak realm_access.roles to Dremio RBAC membership sync (ROLE-01, ROLE-02, ROLE-03, ROLE-04)"
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 7
-  completed_plans: 5
-  percent: 71
+  completed_plans: 6
+  percent: 86
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 ## Current Position
 
 Phase: 32 of 35 (JIT Provisioning + Role Mapping)
-Plan: 32-02 complete — ready for Plan 32-03
-Status: Plan 32-02 complete — JitUserProvisioner ready for DACAuthFilter wiring
-Last activity: 2026-03-12 — Completed 32-02: JitUserProvisioner REMOTE user creation via direct KVStore write, race-safe idempotency (JIT-01, JIT-02, JIT-03)
+Plan: 32-03 complete — ready for Plan 32-04
+Status: Plan 32-03 complete — KeycloakRoleSyncer ready for DACAuthFilter wiring
+Last activity: 2026-03-12 — Completed 32-03: KeycloakRoleSyncer Keycloak realm_access.roles to Dremio RBAC membership sync (ROLE-01, ROLE-02, ROLE-03, ROLE-04)
 
-Progress: [███████░░░] 71%
+Progress: [█████████░] 86%
 
 ## Shipped Milestones
 
@@ -62,6 +62,8 @@ Progress: [███████░░░] 71%
 - extractRealmRoles() swallows ParseException and returns empty list — missing/malformed roles degrade gracefully, never crash auth filter
 - JIT provisioning catches broad Exception (not UserAlreadyExistException) from LegacyIndexedStore.put(): store doesn't declare UserAlreadyExistException; broad catch handles concurrent-write race
 - JitUserProvisioner.provision() declares throws IOException for DACAuthFilter caller compatibility even though implementation never throws it
+- KeycloakRoleSyncer takes RoleStore directly for ROLE-04 filtering: avoids RbacEntityNotFoundException for unmapped Keycloak roles without adding new RbacService methods; roleStore.get(roleId)==null silently skips that role
+- dremio-sabot-kernel added as explicit dependency to services/keycloak pom.xml: RbacService and RoleStore are in sabot/kernel, not in a services module; required for KeycloakRoleSyncer compilation
 
 ### Blockers/Concerns
 
@@ -81,6 +83,6 @@ Progress: [███████░░░] 71%
 
 ## Session Continuity
 
-Last session: 2026-03-12T16:46:00Z
-Stopped at: Completed 32-02-PLAN.md
+Last session: 2026-03-12T18:05:00Z
+Stopped at: Completed 32-03-PLAN.md
 Resume file: None
