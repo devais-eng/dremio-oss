@@ -51,6 +51,7 @@ import java.util.stream.Collectors;
 public class OidcTokenValidator {
 
   private final ConfigurableJWTProcessor<SecurityContext> jwtProcessor;
+  private final String expectedAudience;
 
   /**
    * Constructs an OidcTokenValidator targeting the given JWKS endpoint.
@@ -76,12 +77,16 @@ public class OidcTokenValidator {
 
     ConfigurableJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
     processor.setJWSKeySelector(new JWSVerificationKeySelector<>(JWSAlgorithm.RS256, keySource));
+    // Do not put audience in expectedClaims — DefaultJWTClaimsVerifier does exact list match
+    // which rejects tokens with multiple audiences (e.g. ["dremio-web", "account"]).
+    // Audience is checked manually in validate()/validateWithClaims() instead.
     processor.setJWTClaimsSetVerifier(
         new DefaultJWTClaimsVerifier<>(
-            new JWTClaimsSet.Builder().issuer(expectedIssuer).audience(expectedAudience).build(),
+            new JWTClaimsSet.Builder().issuer(expectedIssuer).build(),
             new HashSet<>(Arrays.asList("sub", "exp", "iat", "iss", "aud"))));
 
     this.jwtProcessor = processor;
+    this.expectedAudience = expectedAudience;
   }
 
   /**
@@ -105,6 +110,8 @@ public class OidcTokenValidator {
     } catch (BadJOSEException | JOSEException e) {
       throw new IllegalArgumentException("Keycloak JWT validation failed: " + e.getMessage(), e);
     }
+
+    verifyAudience(claims);
 
     String username = claims.getStringClaim("preferred_username");
     if (username == null) {
@@ -136,6 +143,8 @@ public class OidcTokenValidator {
       throw new IllegalArgumentException("Keycloak JWT validation failed: " + e.getMessage(), e);
     }
 
+    verifyAudience(claims);
+
     String username = claims.getStringClaim("preferred_username");
     if (username == null) {
       username = claims.getSubject();
@@ -145,6 +154,14 @@ public class OidcTokenValidator {
     List<String> realmRoles = extractRealmRoles(claims);
     long expiresAt = claims.getExpirationTime().getTime();
     return new KeycloakTokenDetails(username, email, realmRoles, expiresAt);
+  }
+
+  private void verifyAudience(JWTClaimsSet claims) {
+    List<String> aud = claims.getAudience();
+    if (aud == null || !aud.contains(expectedAudience)) {
+      throw new IllegalArgumentException(
+          "JWT aud claim " + aud + " does not contain expected audience " + expectedAudience);
+    }
   }
 
   private static List<String> extractRealmRoles(JWTClaimsSet claims) {

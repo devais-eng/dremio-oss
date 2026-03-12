@@ -180,7 +180,7 @@ public class OidcResource {
     KeycloakTokenDetails ktd;
     try {
       ktd = oidcTokenValidator.validateWithClaims(exchangeResult.accessToken);
-    } catch (ParseException e) {
+    } catch (Exception e) {
       logger.warn("Access token validation failed: {}", e.getMessage());
       return Response.status(502).entity("Invalid access token from Keycloak").build();
     }
