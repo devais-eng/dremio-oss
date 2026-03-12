@@ -76,7 +76,7 @@ Progress: [██████████] 100%
 
 ### Pending Todos
 
-None yet.
+- [Hardening] Refactor WHERE pushdown to use PreparedStatement bind parameters (`?`) instead of string-escaped literals — eliminates SQL injection risk structurally rather than relying on correct escaping in RexToSqlString
 
 ### Blockers/Concerns
 
