@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Keycloak IdP Integration
-status: in_progress
-stopped_at: Completed 31-01-PLAN.md
-last_updated: "2026-03-12T16:43:00Z"
-last_activity: "2026-03-12 — Completed 31-01: DACAuthFilter eyJ-discriminated Keycloak JWT dispatch + 6 unit tests (TKN-02, COEX-01, COEX-02)"
+status: completed
+stopped_at: Completed 32-01-PLAN.md
+last_updated: "2026-03-12T16:40:17.476Z"
+last_activity: "2026-03-12 — Completed 32-01: Membership.source proto field, RbacService 4-arg addMembership, KeycloakTokenDetails, OidcTokenValidator.validateWithClaims() (ROLE-01, ROLE-02, ROLE-03)"
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 4
+  total_plans: 7
   completed_plans: 4
-  percent: 67
+  percent: 57
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 
 ## Current Position
 
-Phase: 31 of 35 (REST API Bearer JWT Authentication)
-Plan: 31-01 complete
-Status: Plan 31-01 complete — ready for Phase 32
-Last activity: 2026-03-12 — Completed 31-01: DACAuthFilter eyJ-discriminated Keycloak JWT dispatch + 6 unit tests (TKN-02, COEX-01, COEX-02)
+Phase: 32 of 35 (JIT Provisioning + Role Mapping)
+Plan: 32-01 complete — ready for Plan 32-02
+Status: Plan 32-01 complete — foundation contracts in place
+Last activity: 2026-03-12 — Completed 32-01: Membership.source proto field, RbacService 4-arg addMembership, KeycloakTokenDetails, OidcTokenValidator.validateWithClaims() (ROLE-01, ROLE-02, ROLE-03)
 
-Progress: [██████████] 100%
+Progress: [██████░░░░] 57%
 
 ## Shipped Milestones
 
@@ -57,11 +57,14 @@ Progress: [██████████] 100%
 - OidcTokenValidator bound in DACDaemonModule as registry.bind(OidcTokenValidator.class, new OidcTokenValidator(jwksUri, issuerUrl, clientId)) — injectable by Phase 31 (DACAuthFilter) and Phase 35 (Arrow Flight)
 - DACAuthFilter uses OIDC-first with TokenManager fallback for eyJ tokens: Dremio's own JWTs start with eyJ too; Keycloak validator rejects them (wrong issuer/algorithm) so fallback to TokenManager is required for COEX-02
 - ParseException caught in getUserNameFromToken(), not filter(): filter() only catches UserNotFoundException|NotAuthorizedException; ParseException is checked and would produce 500 if it escaped
+- Membership.source = 5 uses proto3 string default ("") so all existing records deserialize without migration; pass source="keycloak" in addMembership 4-arg overload for Keycloak-synced memberships
+- validateWithClaims() is separate from validate() for COEX-02: DACAuthFilter calls validate(); Phase 32 JitUserProvisioner/KeycloakRoleSyncer call validateWithClaims() to get email and realm_access.roles
+- extractRealmRoles() swallows ParseException and returns empty list — missing/malformed roles degrade gracefully, never crash auth filter
 
 ### Blockers/Concerns
 
 - Phase 34 (UI SSO button): frontend token delivery mechanism (URL fragment vs cookie) needs tracing in `loginLogout.js` / `localStorageUtils.setUserData()` before implementation plan — MEDIUM confidence on exact flow
-- Phase 32 (role mapping): `source=keycloak` membership tag requires proto schema change to `rbac.proto` — verify before coding starts
+- ~~Phase 32 (role mapping): `source=keycloak` membership tag requires proto schema change to `rbac.proto`~~ RESOLVED in 32-01
 - Phase 35 (JDBC long sessions): Keycloak's 5-min access token TTL incompatible with long-running BI connections; mitigation is documentation (exchange for Dremio session token via `POST /apiv2/login`)
 
 ### Quick Tasks Completed
@@ -76,6 +79,6 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-03-12T16:43:00Z
-Stopped at: Completed 31-01-PLAN.md
+Last session: 2026-03-12T17:38:00Z
+Stopped at: Completed 32-01-PLAN.md
 Resume file: None

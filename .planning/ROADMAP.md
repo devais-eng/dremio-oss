@@ -132,7 +132,7 @@ Plans:
   4. Keycloak `realm_access.roles` that match existing Dremio RBAC roles are granted to the user on every login; roles not present in Dremio are silently ignored
   5. In additive mode, manually-assigned Dremio role memberships not in the Keycloak token are preserved after re-login
   6. In authoritative mode, Dremio role memberships not present in the current Keycloak token are revoked on re-login
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 Plans:
 - [ ] 32-01-PLAN.md — Foundation: Membership.source proto field, RbacService source overload, KeycloakTokenDetails, validateWithClaims()
 - [ ] 32-02-PLAN.md — TDD: JitUserProvisioner (REMOTE user creation with race-safe idempotency)
@@ -216,7 +216,7 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 29. Backend Logic Gaps v2 | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 30. JWT Validation Infrastructure + Config | v1.5 | 2/2 | Complete | 2026-03-12 |
 | 31. REST API Bearer JWT Authentication | v1.5 | 1/1 | Complete | 2026-03-12 |
-| 32. JIT Provisioning + Role Mapping | v1.5 | 0/4 | In progress | - |
+| 32. JIT Provisioning + Role Mapping | 1/4 | In Progress|  | - |
 | 33. OIDC Redirect Web Flow | v1.5 | 0/TBD | Not started | - |
 | 34. Web UI SSO Button | v1.5 | 0/TBD | Not started | - |
 | 35. Arrow Flight JDBC/ODBC + RP-Initiated Logout | v1.5 | 0/TBD | Not started | - |

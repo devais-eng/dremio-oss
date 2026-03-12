@@ -33,9 +33,9 @@ Requirements for Keycloak IdP Integration. Each maps to roadmap phases.
 
 ### Role Mapping
 
-- [ ] **ROLE-01**: On each Keycloak login, `realm_access.roles` are synced to Dremio RBAC role memberships
-- [ ] **ROLE-02**: In additive mode, Keycloak roles are granted but existing Dremio-only roles are preserved
-- [ ] **ROLE-03**: In authoritative mode, Dremio roles not present in Keycloak `realm_access.roles` are revoked on login
+- [x] **ROLE-01**: On each Keycloak login, `realm_access.roles` are synced to Dremio RBAC role memberships
+- [x] **ROLE-02**: In additive mode, Keycloak roles are granted but existing Dremio-only roles are preserved
+- [x] **ROLE-03**: In authoritative mode, Dremio roles not present in Keycloak `realm_access.roles` are revoked on login
 - [ ] **ROLE-04**: Only pre-existing Dremio roles are mapped (unmapped Keycloak roles are silently ignored)
 
 ### Web UI
@@ -108,9 +108,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | JIT-01 | Phase 32 | Pending |
 | JIT-02 | Phase 32 | Pending |
 | JIT-03 | Phase 32 | Pending |
-| ROLE-01 | Phase 32 | Pending |
-| ROLE-02 | Phase 32 | Pending |
-| ROLE-03 | Phase 32 | Pending |
+| ROLE-01 | Phase 32 | Complete |
+| ROLE-02 | Phase 32 | Complete |
+| ROLE-03 | Phase 32 | Complete |
 | ROLE-04 | Phase 32 | Pending |
 | OIDC-01 | Phase 33 | Pending |
 | OIDC-02 | Phase 33 | Pending |
