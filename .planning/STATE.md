@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: in_progress
-stopped_at: Completed 30-01-PLAN.md
-last_updated: "2026-03-12T21:25:00.000Z"
-last_activity: "2026-03-12 — Completed Phase 30 Plan 01 (jdbc-base skeleton)"
+stopped_at: Completed 30-02-PLAN.md
+last_updated: "2026-03-12T21:42:17Z"
+last_activity: "2026-03-12 — Completed Phase 30 Plan 02 (schema discovery + execution pipeline)"
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
-  percent: 33
+  completed_plans: 2
+  percent: 67
 ---
 
 # Project State
@@ -26,28 +26,29 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 ## Current Position
 
 Phase: 30 of 32 (Base JDBC Framework)
-Plan: 01 complete, 02 next
+Plan: 02 complete, 03 next
 Status: In progress
-Last activity: 2026-03-12 — Completed 30-01 (jdbc-base module + HikariCP pool + StoragePlugin)
+Last activity: 2026-03-12 — Completed 30-02 (schema discovery + execution pipeline)
 
-Progress: [███░░░░░░░] 33%
+Progress: [██████░░░░] 67%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1 (v1.5)
-- Average duration: 9 min
-- Total execution time: 0.15 hours
+- Total plans completed: 2 (v1.5)
+- Average duration: 9.5 min
+- Total execution time: 0.32 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 30-base-jdbc-framework P01 | 1 | 9 min | 9 min |
+| 30-base-jdbc-framework P02 | 1 | 10 min | 10 min |
 
 **Recent Trend:**
-- Last 5 plans: 9 min
-- Trend: baseline
+- Last 5 plans: 9.5 min avg
+- Trend: stable
 
 *Updated after each plan completion*
 
@@ -66,6 +67,9 @@ Progress: [███░░░░░░░] 33%
 - [Phase 30-base-jdbc-framework P01]: HikariCP 5.1.0 added to root POM dependencyManagement separate from hive3's 2.6.1 test-scope entry
 - [Phase 30-base-jdbc-framework P01]: BaseJdbcConf has no @SourceType — concrete connector subclasses carry that annotation
 - [Phase 30-base-jdbc-framework P01]: JdbcStoragePlugin metadata methods are stubbed; DatabaseMetaData discovery deferred to plan 02
+- [Phase 30-base-jdbc-framework P02]: BatchSchema.findFieldIgnoreCase() returns Optional<Field> — null-check in plan must use .isPresent() / .get()
+- [Phase 30-base-jdbc-framework P02]: JdbcGroupScan extends AbstractBase + GroupScan<SimpleCompleteWork> (not AbstractGroupScan) to avoid TableMetadata dependency
+- [Phase 30-base-jdbc-framework P02]: Single-partition JDBC: listPartitionChunks() returns PartitionChunk.of(DatasetSplit.of(0L, 0L))
 
 ### Pending Todos
 
@@ -78,5 +82,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-12
-Stopped at: Completed 30-01-PLAN.md — next step is execute 30-02-PLAN.md
+Stopped at: Completed 30-02-PLAN.md — next step is execute 30-03-PLAN.md
 Resume file: None
