@@ -42,7 +42,7 @@ Requirements for Keycloak IdP Integration. Each maps to roadmap phases.
 
 - [x] **UI-01**: Login page shows "Login with SSO" button when auth.type=keycloak
 - [x] **UI-02**: Login page hides SSO button when auth.type=internal
-- [ ] **UI-03**: SSO landing page receives Dremio session token and completes login flow (same localStorage contract as internal auth)
+- [x] **UI-03**: SSO landing page receives Dremio session token and completes login flow (same localStorage contract as internal auth)
 
 ### JDBC/ODBC
 
@@ -118,7 +118,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LOUT-02 | Phase 33 | Complete |
 | UI-01 | Phase 34 | Complete |
 | UI-02 | Phase 34 | Complete |
-| UI-03 | Phase 34 | Pending |
+| UI-03 | Phase 34 | Complete |
 | JDBC-01 | Phase 35 | Pending |
 | JDBC-02 | Phase 35 | Pending |
 | LOUT-01 | Phase 35 | Pending |

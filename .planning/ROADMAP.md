@@ -88,7 +88,7 @@ See `milestones/v1.4-ROADMAP.md` for full phase details.
 - [x] **Phase 31: REST API Bearer JWT Authentication** — DACAuthFilter OIDC branch accepting Keycloak JWTs, token type discriminator, internal auth coexistence (completed 2026-03-12)
 - [x] **Phase 32: JIT Provisioning + Role Mapping** — OidcJitProvisioner, KeycloakRoleMapper, additive-tagged sync, DACAuthFilter JIT trigger (completed 2026-03-12)
 - [x] **Phase 33: OIDC Redirect Web Flow** — OidcCallbackResource (login + callback endpoints), state/PKCE, code exchange, Dremio session issuance, id_token_hint storage (completed 2026-03-12)
-- [ ] **Phase 34: Web UI SSO Button** — LoginForm SSO button, config-discovery endpoint, SSO landing page completes login saga
+- [x] **Phase 34: Web UI SSO Button** — LoginForm SSO button, config-discovery endpoint, SSO landing page completes login saga (completed 2026-03-12)
 - [ ] **Phase 35: Arrow Flight JDBC/ODBC + RP-Initiated Logout** — DremioBearerTokenAuthenticator OIDC branch, JDBC JIT provisioning, Keycloak session termination on logout
 
 ## Phase Details
@@ -161,7 +161,7 @@ Plans:
   1. When `auth.type=keycloak`, the Dremio login page displays a "Login with SSO" button alongside the username/password form
   2. When `auth.type=internal`, the "Login with SSO" button is absent from the login page
   3. Clicking "Login with SSO" initiates the Keycloak redirect flow and, after successful Keycloak authentication, the browser lands on the Dremio home page fully logged in (localStorage populated with the same session data as a form-based login)
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 34-01-PLAN.md — TDD: ServerConfigResource unauthenticated GET /api/v3/server-config endpoint
 - [ ] 34-02-PLAN.md — SSOLandingPage component + LoginFormContainer SSO button
@@ -224,5 +224,5 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 31. REST API Bearer JWT Authentication | v1.5 | 1/1 | Complete | 2026-03-12 |
 | 32. JIT Provisioning + Role Mapping | v1.5 | 4/4 | Complete | 2026-03-12 |
 | 33. OIDC Redirect Web Flow | v1.5 | 2/2 | Complete | 2026-03-12 |
-| 34. Web UI SSO Button | 1/2 | In Progress|  | - |
+| 34. Web UI SSO Button | 2/2 | Complete   | 2026-03-12 | - |
 | 35. Arrow Flight JDBC/ODBC + RP-Initiated Logout | v1.5 | 0/TBD | Not started | - |

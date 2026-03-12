@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Keycloak IdP Integration
-status: in_progress
-stopped_at: Completed 34-01-PLAN.md
-last_updated: "2026-03-12T19:16:51Z"
+status: completed
+stopped_at: Completed 34-02-PLAN.md
+last_updated: "2026-03-12T19:26:07.173Z"
 last_activity: "2026-03-12 — Completed 34-01: ServerConfigResource unauthenticated GET /api/v3/server-config (UI-01, UI-02)"
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 11
-  completed_plans: 10
-  percent: 91
+  completed_plans: 11
+  percent: 100
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.5 Keycloak IdP Integration — Phase 34: Web UI SSO Button
+**Current focus:** v1.5 Keycloak IdP Integration — Phase 35: Arrow Flight JWT Auth (final)
 
 ## Current Position
 
-Phase: 34 of 35 (Web UI SSO Button) — IN PROGRESS
-Plan: 34-01 complete — ServerConfigResource unauthenticated GET /api/v3/server-config shipped; 1 of 2 plans in phase 34 done
-Status: Plan 34-01 complete — backend config endpoint for pre-login UI ready
-Last activity: 2026-03-12 — Completed 34-01: ServerConfigResource unauthenticated GET /api/v3/server-config (UI-01, UI-02)
+Phase: 34 of 35 (Web UI SSO Button) — COMPLETE
+Plan: 34-02 complete — SSOLandingPage + LoginFormContainer SSO button shipped; all 2 plans in phase 34 done
+Status: Phase 34 complete — full browser-side OIDC login flow wired end-to-end
+Last activity: 2026-03-12 — Completed 34-02: SSOLandingPage token extraction + LoginFormContainer SSO button (UI-01, UI-02, UI-03)
 
 Progress: [██████████] 100%
 
@@ -74,6 +74,8 @@ Progress: [██████████] 100%
 - OidcResource.exchangeCodeForTokens() is protected (not private) for spy-based test stubbing — avoids adding a TokenExchangeClient interface just for test isolation
 - Lenient Mockito stubs required in setUp() when some tests null out @Inject @Nullable fields — without lenient(), strict mode throws UnnecessaryStubbingException for stubs the null-field-branch tests never consume
 - ServerConfigResource returns only authType (not all DACConfig): unauthenticated endpoint must not expose issuer URLs, client IDs, or secrets — only the string "keycloak" or "internal" is safe to expose pre-login
+- SSOLandingPage uses static _navigate/_getHash for testable window.location access: jsdom marks window.location as non-configurable — cannot delete or redefine it; expose statics for sinon.stub() without touching the real location object
+- LoginFormContainer SSO button: Button from dremio-ui-lib renders as ForwardRef in enzyme shallow mode (not 'Button' string); use find({variant:'secondary'}) to locate the SSO button in tests; static _navigate for click handler stubbing
 
 ### Blockers/Concerns
 
@@ -93,6 +95,6 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-03-12T19:16:51Z
-Stopped at: Completed 34-01-PLAN.md
+Last session: 2026-03-12T19:26:07.171Z
+Stopped at: Completed 34-02-PLAN.md
 Resume file: None
