@@ -21,8 +21,8 @@ Requirements for Keycloak IdP Integration. Each maps to roadmap phases.
 
 ### OIDC Login Flow
 
-- [ ] **OIDC-01**: Web UI user can click "Login with SSO" and be redirected to Keycloak's login page (Authorization Code Flow)
-- [ ] **OIDC-02**: After Keycloak authentication, callback exchanges code for tokens and mints a Dremio session token
+- [x] **OIDC-01**: Web UI user can click "Login with SSO" and be redirected to Keycloak's login page (Authorization Code Flow)
+- [x] **OIDC-02**: After Keycloak authentication, callback exchanges code for tokens and mints a Dremio session token
 - [x] **OIDC-03**: OIDC flow uses state parameter + PKCE for CSRF protection
 
 ### JIT Provisioning
@@ -40,8 +40,8 @@ Requirements for Keycloak IdP Integration. Each maps to roadmap phases.
 
 ### Web UI
 
-- [ ] **UI-01**: Login page shows "Login with SSO" button when auth.type=keycloak
-- [ ] **UI-02**: Login page hides SSO button when auth.type=internal
+- [x] **UI-01**: Login page shows "Login with SSO" button when auth.type=keycloak
+- [x] **UI-02**: Login page hides SSO button when auth.type=internal
 - [ ] **UI-03**: SSO landing page receives Dremio session token and completes login flow (same localStorage contract as internal auth)
 
 ### JDBC/ODBC
@@ -112,12 +112,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ROLE-02 | Phase 32 | Complete |
 | ROLE-03 | Phase 32 | Complete |
 | ROLE-04 | Phase 32 | Complete |
-| OIDC-01 | Phase 33 | Pending |
-| OIDC-02 | Phase 33 | Pending |
+| OIDC-01 | Phase 33 | Complete |
+| OIDC-02 | Phase 33 | Complete |
 | OIDC-03 | Phase 33 | Complete |
 | LOUT-02 | Phase 33 | Complete |
-| UI-01 | Phase 34 | Pending |
-| UI-02 | Phase 34 | Pending |
+| UI-01 | Phase 34 | Complete |
+| UI-02 | Phase 34 | Complete |
 | UI-03 | Phase 34 | Pending |
 | JDBC-01 | Phase 35 | Pending |
 | JDBC-02 | Phase 35 | Pending |

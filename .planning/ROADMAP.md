@@ -161,7 +161,10 @@ Plans:
   1. When `auth.type=keycloak`, the Dremio login page displays a "Login with SSO" button alongside the username/password form
   2. When `auth.type=internal`, the "Login with SSO" button is absent from the login page
   3. Clicking "Login with SSO" initiates the Keycloak redirect flow and, after successful Keycloak authentication, the browser lands on the Dremio home page fully logged in (localStorage populated with the same session data as a form-based login)
-**Plans**: TBD
+**Plans:** 1/2 plans executed
+Plans:
+- [ ] 34-01-PLAN.md — TDD: ServerConfigResource unauthenticated GET /api/v3/server-config endpoint
+- [ ] 34-02-PLAN.md — SSOLandingPage component + LoginFormContainer SSO button
 
 ### Phase 35: Arrow Flight JDBC/ODBC + RP-Initiated Logout
 **Goal**: JDBC/ODBC clients can authenticate with a Keycloak JWT as the password, and logging out of Dremio also terminates the user's Keycloak SSO session
@@ -220,6 +223,6 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 30. JWT Validation Infrastructure + Config | v1.5 | 2/2 | Complete | 2026-03-12 |
 | 31. REST API Bearer JWT Authentication | v1.5 | 1/1 | Complete | 2026-03-12 |
 | 32. JIT Provisioning + Role Mapping | v1.5 | 4/4 | Complete | 2026-03-12 |
-| 33. OIDC Redirect Web Flow | 2/2 | Complete   | 2026-03-12 | - |
-| 34. Web UI SSO Button | v1.5 | 0/TBD | Not started | - |
+| 33. OIDC Redirect Web Flow | v1.5 | 2/2 | Complete | 2026-03-12 |
+| 34. Web UI SSO Button | 1/2 | In Progress|  | - |
 | 35. Arrow Flight JDBC/ODBC + RP-Initiated Logout | v1.5 | 0/TBD | Not started | - |

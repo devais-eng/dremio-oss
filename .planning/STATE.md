@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Keycloak IdP Integration
 status: in_progress
-stopped_at: Completed 33-02-PLAN.md
-last_updated: "2026-03-12T19:01:00Z"
-last_activity: "2026-03-12 — Completed 33-02: OidcResource OIDC login + callback endpoints (OIDC-01, OIDC-02, OIDC-03, LOUT-02)"
+stopped_at: Completed 34-01-PLAN.md
+last_updated: "2026-03-12T19:16:51Z"
+last_activity: "2026-03-12 — Completed 34-01: ServerConfigResource unauthenticated GET /api/v3/server-config (UI-01, UI-02)"
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 9
-  completed_plans: 9
-  percent: 100
+  completed_phases: 4
+  total_plans: 11
+  completed_plans: 10
+  percent: 91
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.5 Keycloak IdP Integration — Phase 30: JWT Validation Infrastructure + Config
+**Current focus:** v1.5 Keycloak IdP Integration — Phase 34: Web UI SSO Button
 
 ## Current Position
 
-Phase: 33 of 35 (OIDC Redirect Web Flow) — COMPLETE
-Plan: 33-02 complete — OidcResource OIDC login + callback endpoints shipped; all 2 plans in phase 33 done
-Status: Phase 33 complete — OIDC Authorization Code Flow with PKCE fully implemented
-Last activity: 2026-03-12 — Completed 33-02: OidcResource GET /oidc/login + GET /oidc/callback (OIDC-01, OIDC-02, OIDC-03, LOUT-02)
+Phase: 34 of 35 (Web UI SSO Button) — IN PROGRESS
+Plan: 34-01 complete — ServerConfigResource unauthenticated GET /api/v3/server-config shipped; 1 of 2 plans in phase 34 done
+Status: Plan 34-01 complete — backend config endpoint for pre-login UI ready
+Last activity: 2026-03-12 — Completed 34-01: ServerConfigResource unauthenticated GET /api/v3/server-config (UI-01, UI-02)
 
 Progress: [██████████] 100%
 
@@ -73,10 +73,11 @@ Progress: [██████████] 100%
 - OidcResource uses Response.status(FOUND) (302) not Response.temporaryRedirect() (307) for auth redirects — browser auth flows conventionally use 302; JAX-RS temporaryRedirect() returns 307
 - OidcResource.exchangeCodeForTokens() is protected (not private) for spy-based test stubbing — avoids adding a TokenExchangeClient interface just for test isolation
 - Lenient Mockito stubs required in setUp() when some tests null out @Inject @Nullable fields — without lenient(), strict mode throws UnnecessaryStubbingException for stubs the null-field-branch tests never consume
+- ServerConfigResource returns only authType (not all DACConfig): unauthenticated endpoint must not expose issuer URLs, client IDs, or secrets — only the string "keycloak" or "internal" is safe to expose pre-login
 
 ### Blockers/Concerns
 
-- Phase 34 (UI SSO button): frontend token delivery mechanism (URL fragment vs cookie) needs tracing in `loginLogout.js` / `localStorageUtils.setUserData()` before implementation plan — MEDIUM confidence on exact flow
+- ~~Phase 34 (UI SSO button): frontend token delivery mechanism (URL fragment vs cookie) needs tracing in `loginLogout.js` / `localStorageUtils.setUserData()` before implementation plan~~ RESOLVED in 34-RESEARCH.md: use `setUserData({ token })` + `window.location.assign('/')` minimal approach
 - ~~Phase 32 (role mapping): `source=keycloak` membership tag requires proto schema change to `rbac.proto`~~ RESOLVED in 32-01
 - Phase 35 (JDBC long sessions): Keycloak's 5-min access token TTL incompatible with long-running BI connections; mitigation is documentation (exchange for Dremio session token via `POST /apiv2/login`)
 
@@ -92,6 +93,6 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-03-12T19:01:00Z
-Stopped at: Completed 33-02-PLAN.md
+Last session: 2026-03-12T19:16:51Z
+Stopped at: Completed 34-01-PLAN.md
 Resume file: None
