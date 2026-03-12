@@ -35,6 +35,9 @@ bash scripts/seed.sh
 The seed script will:
 1. Bootstrap the Dremio admin user
 2. Create a `nessie_catalog` RESTCATALOG source pre-configured with OAuth2 and S3 credentials
+3. Seed sample tables (`demo.customers`, `demo.orders`) via PyIceberg
+4. Create spaces (`analytics`, `engineering`) with views
+5. Create roles (`analysts`, `engineers`) and users with RBAC grants
 
 Open **http://localhost:9047** and navigate to the `nessie_catalog` source.
 
@@ -46,6 +49,30 @@ Open **http://localhost:9047** and navigate to the `nessie_catalog` source.
 | MinIO    | http://localhost:9090       | minioadmin / minioadmin|
 | Keycloak | http://localhost:8080/admin | admin / admin          |
 | Nessie   | http://localhost:19120      | OAuth2 via Keycloak    |
+
+## Users & RBAC
+
+| User    | Password     | Role       | Access                                          |
+|---------|-------------|------------|--------------------------------------------------|
+| admin   | admin123    | (admin)    | Full access to everything                        |
+| alice   | alice123    | analysts   | SELECT on `analytics.*` views                    |
+| bob     | bob12345    | engineers  | SELECT on all views + CREATE_VIEW in engineering |
+| charlie | charlie123  | analysts   | SELECT on `analytics.*` views (same as alice)    |
+
+### Spaces & Views
+
+| Space         | View               | Description                    |
+|---------------|--------------------|--------------------------------|
+| analytics     | customer_overview  | id, name, city                 |
+| analytics     | order_summary      | order_id, customer, product    |
+| analytics     | revenue_by_city    | city, order_count, revenue     |
+| engineering   | raw_customers      | all customer columns           |
+| engineering   | raw_orders         | all order columns              |
+
+### Testing RBAC
+
+Login as `alice` — she can query `analytics.customer_overview` but NOT `engineering.raw_customers` (denied).
+Login as `bob` — he can query all views and create new views in the `engineering` space.
 
 ## Manual Source Creation (UI)
 
