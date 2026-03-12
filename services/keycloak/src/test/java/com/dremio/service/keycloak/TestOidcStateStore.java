@@ -23,20 +23,20 @@ import org.junit.jupiter.api.Test;
 public class TestOidcStateStore {
 
   @Test
-  public void put_thenRemoveIfValid_returnsVerifier() {
+  public void testPutThenRemoveIfValidReturnsVerifier() {
     OidcStateStore store = new OidcStateStore();
     store.put("state1", "verifier1");
     assertThat(store.removeIfValid("state1")).isEqualTo("verifier1");
   }
 
   @Test
-  public void removeIfValid_unknownState_returnsNull() {
+  public void testRemoveIfValidUnknownStateReturnsNull() {
     OidcStateStore store = new OidcStateStore();
     assertThat(store.removeIfValid("unknown")).isNull();
   }
 
   @Test
-  public void removeIfValid_sameStateTwice_returnsNullOnSecond() {
+  public void testRemoveIfValidSameStateTwiceReturnsNullOnSecond() {
     OidcStateStore store = new OidcStateStore();
     store.put("state1", "verifier1");
     // First call returns the verifier
@@ -46,7 +46,7 @@ public class TestOidcStateStore {
   }
 
   @Test
-  public void removeIfValid_expiredState_returnsNull() throws InterruptedException {
+  public void testRemoveIfValidExpiredStateReturnsNull() throws InterruptedException {
     // Use very short TTL (50 ms) for expiry test
     OidcStateStore store = new OidcStateStore(50L);
     store.put("state1", "verifier1");
@@ -56,7 +56,7 @@ public class TestOidcStateStore {
   }
 
   @Test
-  public void put_cleanupExpiredEntries() throws InterruptedException {
+  public void testPutCleanupExpiredEntries() throws InterruptedException {
     // Use very short TTL (50 ms) to test lazy cleanup on subsequent put()
     OidcStateStore store = new OidcStateStore(50L);
     store.put("state1", "verifier1");
@@ -65,7 +65,6 @@ public class TestOidcStateStore {
     // This put() should trigger lazy cleanup of the expired "state1" entry
     store.put("state2", "verifier2");
     // The expired entry should now be gone (cleanup ran)
-    // We verify by checking that state1 is no longer accessible
     assertThat(store.removeIfValid("state1")).isNull();
     // And state2 is accessible (it was just inserted with fresh TTL)
     assertThat(store.removeIfValid("state2")).isEqualTo("verifier2");

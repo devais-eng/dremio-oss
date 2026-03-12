@@ -23,20 +23,20 @@ import org.junit.jupiter.api.Test;
 public class TestOidcSessionStore {
 
   @Test
-  public void put_thenGet_returnsIdToken() {
+  public void testPutThenGetReturnsIdToken() {
     OidcSessionStore store = new OidcSessionStore();
     store.put("dremioToken", "idTokenStr");
     assertThat(store.get("dremioToken")).isEqualTo("idTokenStr");
   }
 
   @Test
-  public void get_unknownToken_returnsNull() {
+  public void testGetUnknownTokenReturnsNull() {
     OidcSessionStore store = new OidcSessionStore();
     assertThat(store.get("unknown")).isNull();
   }
 
   @Test
-  public void remove_thenGet_returnsNull() {
+  public void testRemoveThenGetReturnsNull() {
     OidcSessionStore store = new OidcSessionStore();
     store.put("dremioToken", "idTokenStr");
     store.remove("dremioToken");
@@ -44,7 +44,7 @@ public class TestOidcSessionStore {
   }
 
   @Test
-  public void put_overwrite_returnsLatest() {
+  public void testPutOverwriteReturnsLatest() {
     OidcSessionStore store = new OidcSessionStore();
     store.put("dremioToken", "idTokenFirst");
     store.put("dremioToken", "idTokenSecond");

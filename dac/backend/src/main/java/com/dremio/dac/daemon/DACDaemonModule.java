@@ -275,6 +275,8 @@ import com.dremio.service.jobtelemetry.server.store.ProfileDistStoreConfig;
 import com.dremio.service.keycloak.JitUserProvisioner;
 import com.dremio.service.keycloak.KeycloakConfig;
 import com.dremio.service.keycloak.KeycloakRoleSyncer;
+import com.dremio.service.keycloak.OidcSessionStore;
+import com.dremio.service.keycloak.OidcStateStore;
 import com.dremio.service.keycloak.OidcTokenValidator;
 import com.dremio.service.listing.DatasetListingInvoker;
 import com.dremio.service.listing.DatasetListingService;
@@ -2249,6 +2251,13 @@ public class DACDaemonModule implements DACModule {
               registry.lookup(RbacService.class),
               registry.lookup(RoleStore.class),
               keycloakConfig));
+
+      // Phase 33: OIDC redirect flow stores
+      OidcStateStore oidcStateStore = new OidcStateStore();
+      registry.bind(OidcStateStore.class, oidcStateStore);
+
+      OidcSessionStore oidcSessionStore = new OidcSessionStore();
+      registry.bind(OidcSessionStore.class, oidcSessionStore);
 
       logger.info("Keycloak authentication is configured.");
       return true; // true = internal user records (KVStore-backed SimpleUserService)
