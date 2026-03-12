@@ -20,7 +20,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -53,8 +53,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
  *
  * <p>Covers requirements OIDC-01, OIDC-02, OIDC-03, and LOUT-02.
  *
- * <p>Uses reflection to inject mocked dependencies into {@code OidcResource}'s private {@code
- * @Inject} fields, mirroring the pattern in {@code TestDACAuthFilterKeycloak}.
+ * <p>Uses reflection to inject mocked dependencies into {@code OidcResource}'s private
+ * {@code @Inject} fields, mirroring the pattern in {@code TestDACAuthFilterKeycloak}.
  */
 @ExtendWith(MockitoExtension.class)
 public class TestOidcResource {
@@ -93,10 +93,14 @@ public class TestOidcResource {
     injectField(resource, "tokenManager", tokenManager);
     injectField(resource, "sabotContext", sabotContext);
 
-    when(keycloakConfig.getIssuerUrl()).thenReturn(ISSUER);
-    when(keycloakConfig.getClientId()).thenReturn(CLIENT_ID);
-    when(keycloakConfig.getClientSecret()).thenReturn(CLIENT_SECRET);
-    when(keycloakConfig.getRedirectUri()).thenReturn(REDIRECT_URI);
+    // Use lenient() for keycloakConfig stubs that are only needed by some tests.
+    // Tests that null out oidcStateStore (e.g., testLoginKeycloakNotConfiguredReturns503)
+    // or tests that don't call keycloakConfig methods would otherwise trigger
+    // UnnecessaryStubbingException in Mockito strict mode.
+    lenient().when(keycloakConfig.getIssuerUrl()).thenReturn(ISSUER);
+    lenient().when(keycloakConfig.getClientId()).thenReturn(CLIENT_ID);
+    lenient().when(keycloakConfig.getClientSecret()).thenReturn(CLIENT_SECRET);
+    lenient().when(keycloakConfig.getRedirectUri()).thenReturn(REDIRECT_URI);
   }
 
   // ---------------------------------------------------------------------------
@@ -110,8 +114,7 @@ public class TestOidcResource {
 
     assertThat(response.getStatus()).isEqualTo(302);
     URI location = (URI) response.getHeaders().getFirst("Location");
-    assertThat(location.toString())
-        .startsWith(ISSUER + "/protocol/openid-connect/auth");
+    assertThat(location.toString()).startsWith(ISSUER + "/protocol/openid-connect/auth");
   }
 
   /** OIDC-01: Location URI contains all required PKCE + OIDC parameters. */
@@ -154,8 +157,8 @@ public class TestOidcResource {
   // ---------------------------------------------------------------------------
 
   /**
-   * OIDC-02: Valid code+state exchanges code for tokens, provisions user, syncs roles, mints
-   * Dremio token, returns 302 to /login/sso/landing#token=...
+   * OIDC-02: Valid code+state exchanges code for tokens, provisions user, syncs roles, mints Dremio
+   * token, returns 302 to /login/sso/landing#token=...
    */
   @Test
   void testCallbackHappyPathRedirectsToLandingWithToken() throws Exception {
@@ -183,8 +186,7 @@ public class TestOidcResource {
     // Assert
     assertThat(response.getStatus()).isEqualTo(302);
     URI location = (URI) response.getHeaders().getFirst("Location");
-    assertThat(location.toString())
-        .isEqualTo("/login/sso/landing#token=" + DREMIO_SESSION_TOKEN);
+    assertThat(location.toString()).isEqualTo("/login/sso/landing#token=" + DREMIO_SESSION_TOKEN);
   }
 
   /**
