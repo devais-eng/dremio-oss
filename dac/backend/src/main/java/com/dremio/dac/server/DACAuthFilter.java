@@ -26,6 +26,9 @@ import com.dremio.dac.model.usergroup.UserName;
 import com.dremio.dac.server.tokens.TokenInfo;
 import com.dremio.dac.server.tokens.TokenUtils;
 import com.dremio.exec.rbac.RbacService;
+import com.dremio.service.keycloak.JitUserProvisioner;
+import com.dremio.service.keycloak.KeycloakRoleSyncer;
+import com.dremio.service.keycloak.KeycloakTokenDetails;
 import com.dremio.service.keycloak.OidcTokenValidator;
 import com.dremio.service.tokens.TokenDetails;
 import com.dremio.service.tokens.TokenManager;
@@ -33,6 +36,7 @@ import com.dremio.service.users.User;
 import com.dremio.service.users.UserNotFoundException;
 import com.dremio.service.users.UserService;
 import com.google.common.base.Preconditions;
+import java.io.IOException;
 import java.text.ParseException;
 import java.util.List;
 import java.util.Map;
@@ -61,6 +65,8 @@ public class DACAuthFilter implements ContainerRequestFilter {
   @Inject @Nullable private RbacService rbacService;
   @Inject @Nullable private DremioConfig dremioConfig;
   @Inject @Nullable private OidcTokenValidator oidcTokenValidator;
+  @Inject @Nullable private JitUserProvisioner jitProvisioner;
+  @Inject @Nullable private KeycloakRoleSyncer roleSyncer;
 
   public DACAuthFilter() {}
 
@@ -68,7 +74,36 @@ public class DACAuthFilter implements ContainerRequestFilter {
   public void filter(ContainerRequestContext requestContext) {
     try {
       final UserName userName = getUserNameFromToken(requestContext);
-      final User userConfig = userService.get().getUser(userName.getName());
+
+      // JIT provisioning: create user if absent (Keycloak path only).
+      // KeycloakTokenDetails is stored per-request in ContainerRequestContext (thread-safe:
+      // DACAuthFilter is a singleton, so we must NOT store it in an instance field).
+      User userConfig;
+      KeycloakTokenDetails ktd =
+          (KeycloakTokenDetails) requestContext.getProperty("keycloak.token.details");
+      try {
+        userConfig = userService.get().getUser(userName.getName());
+      } catch (UserNotFoundException e) {
+        if (jitProvisioner != null && ktd != null) {
+          try {
+            jitProvisioner.provision(ktd.getUsername(), ktd.getEmail());
+          } catch (IOException ioe) {
+            throw new NotAuthorizedException("JIT provisioning failed", ioe);
+          }
+          // Retry getUser() after provisioning -- user should now exist.
+          userConfig = userService.get().getUser(userName.getName());
+        } else {
+          // Non-Keycloak path: rethrow -> 401
+          throw e;
+        }
+      }
+
+      // Role sync: sync realm_access.roles on every Keycloak-authenticated request.
+      // Only runs when ktd is non-null (Keycloak path succeeded, not Dremio fallback).
+      if (roleSyncer != null && ktd != null) {
+        roleSyncer.syncRoles(userName.getName(), ktd.getRealmRoles());
+      }
+
       requestContext.setSecurityContext(
           new DACSecurityContext(userName, userConfig, requestContext, rbacService, dremioConfig));
       requestContext.setProperty(
@@ -122,7 +157,15 @@ public class DACAuthFilter implements ContainerRequestFilter {
           // Keycloak JWT path: try OIDC validation first, fall back to Dremio TokenManager
           // for Dremio-issued JWTs (which also start with eyJ) per Pitfall 4 in RESEARCH.md
           try {
-            tokenDetails = oidcTokenValidator.validate(tokenStr);
+            if (jitProvisioner != null) {
+              // Phase 32+: use validateWithClaims to obtain email + realm roles for JIT/sync
+              KeycloakTokenDetails ktd = oidcTokenValidator.validateWithClaims(tokenStr);
+              requestContext.setProperty("keycloak.token.details", ktd);
+              tokenDetails = TokenDetails.of(tokenStr, ktd.getUsername(), ktd.getExpiresAt());
+            } else {
+              // Phase 31 only (no JIT): use simple validate
+              tokenDetails = oidcTokenValidator.validate(tokenStr);
+            }
           } catch (ParseException | IllegalArgumentException e) {
             tokenDetails = tokenManager.validateToken(tokenStr);
           }

@@ -17,6 +17,7 @@ package com.dremio.dac.server;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -38,7 +39,9 @@ import com.dremio.service.users.UserService;
 import java.lang.reflect.Field;
 import java.net.URI;
 import java.text.ParseException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import javax.ws.rs.container.ContainerRequestContext;
 import javax.ws.rs.container.ResourceInfo;
 import javax.ws.rs.core.HttpHeaders;
@@ -105,6 +108,20 @@ public class TestDACAuthFilterJit {
 
     // UserService provider
     when(userServiceProvider.get()).thenReturn(userService);
+
+    // Simulate ContainerRequestContext property bag: setProperty/getProperty must be
+    // consistent since DACAuthFilter stores KeycloakTokenDetails via setProperty and
+    // reads it back via getProperty in the same filter() invocation.
+    Map<String, Object> properties = new HashMap<>();
+    doAnswer(
+            inv -> {
+              properties.put(inv.getArgument(0), inv.getArgument(1));
+              return null;
+            })
+        .when(requestContext)
+        .setProperty(anyString(), any());
+    when(requestContext.getProperty(anyString()))
+        .thenAnswer(inv -> properties.get(inv.getArgument(0)));
   }
 
   // ---------------------------------------------------------------------------
@@ -255,7 +272,7 @@ public class TestDACAuthFilterJit {
   }
 
   // ---------------------------------------------------------------------------
-  // Test 7: Provision failure -> 401 (IOException from provision wraps to NotAuthorizedException)
+  // Test 7: Provision failure (IOException) -> 401
   // ---------------------------------------------------------------------------
 
   @Test

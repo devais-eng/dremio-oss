@@ -272,7 +272,9 @@ import com.dremio.service.jobtelemetry.JobTelemetryClient;
 import com.dremio.service.jobtelemetry.client.JobTelemetryExecutorClientFactory;
 import com.dremio.service.jobtelemetry.server.LocalJobTelemetryServer;
 import com.dremio.service.jobtelemetry.server.store.ProfileDistStoreConfig;
+import com.dremio.service.keycloak.JitUserProvisioner;
 import com.dremio.service.keycloak.KeycloakConfig;
+import com.dremio.service.keycloak.KeycloakRoleSyncer;
 import com.dremio.service.keycloak.OidcTokenValidator;
 import com.dremio.service.listing.DatasetListingInvoker;
 import com.dremio.service.listing.DatasetListingService;
@@ -2234,6 +2236,19 @@ public class DACDaemonModule implements DACModule {
               keycloakConfig.getJwksUri(),
               keycloakConfig.getIssuerUrl(),
               keycloakConfig.getClientId()));
+
+      // Phase 32: JIT provisioning and role sync
+      // RbacService and RoleStore are bound in registerAccessControlStores() which runs
+      // before setupUserService() -- they are available in the registry at this point.
+      registry.bind(
+          JitUserProvisioner.class,
+          new JitUserProvisioner(registry.provider(LegacyKVStoreProvider.class)));
+      registry.bind(
+          KeycloakRoleSyncer.class,
+          new KeycloakRoleSyncer(
+              registry.lookup(RbacService.class),
+              registry.lookup(RoleStore.class),
+              keycloakConfig));
 
       logger.info("Keycloak authentication is configured.");
       return true; // true = internal user records (KVStore-backed SimpleUserService)
