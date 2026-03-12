@@ -59,4 +59,5 @@ message Membership {
   string role_id = 2;    // which role this membership belongs to
   string granted_by = 3; // username of granter
   uint64 granted_at = 4; // epoch millis
+  string source = 5;     // "keycloak" for Keycloak-synced; "" for manually-assigned (proto3 default)
 }

@@ -205,8 +205,8 @@ public class RbacService implements AccessControlListingManager {
   // ---------------------------------------------------------------------------
 
   /**
-   * Adds a user to a role. PUBLIC is rejected (implicit membership). For ADMIN, the role existence
-   * check is skipped (synthetic). For other roles, the role must exist in the store.
+   * Adds a user to a role with an empty source tag. Delegates to the source-aware overload with
+   * {@code source=""} (manually-assigned membership, proto3 default).
    *
    * @param userName the user to add
    * @param roleId the role to assign
@@ -216,6 +216,25 @@ public class RbacService implements AccessControlListingManager {
    * @throws RbacEntityAlreadyExistsException if the membership already exists
    */
   public void addMembership(String userName, String roleId, String grantedBy)
+      throws RbacEntityNotFoundException {
+    addMembership(userName, roleId, grantedBy, "");
+  }
+
+  /**
+   * Adds a user to a role with an explicit source tag. PUBLIC is rejected (implicit membership).
+   * For ADMIN, the role existence check is skipped (synthetic). For other roles, the role must
+   * exist in the store.
+   *
+   * @param userName the user to add
+   * @param roleId the role to assign
+   * @param grantedBy the user who granted the membership
+   * @param source origin of the membership, e.g. {@code "keycloak"} for Keycloak-synced or {@code
+   *     ""} for manually-assigned (proto3 default)
+   * @throws IllegalArgumentException if roleId is PUBLIC
+   * @throws RbacEntityNotFoundException if the role does not exist (non-built-in roles only)
+   * @throws RbacEntityAlreadyExistsException if the membership already exists
+   */
+  public void addMembership(String userName, String roleId, String grantedBy, String source)
       throws RbacEntityNotFoundException {
     Preconditions.checkArgument(
         !PUBLIC_ROLE_ID.equals(roleId),
@@ -234,6 +253,7 @@ public class RbacService implements AccessControlListingManager {
             .setRoleId(roleId)
             .setGrantedBy(grantedBy)
             .setGrantedAt(System.currentTimeMillis())
+            .setSource(source)
             .build();
     membershipStore.add(RbacConfig.membershipKey(userName, roleId), membership);
   }
@@ -327,8 +347,8 @@ public class RbacService implements AccessControlListingManager {
    * Returns all role memberships for the given user. Delegates to {@link
    * MembershipStore#listByUser}.
    *
-   * <p>Used by auto-grant logic to determine which roles should receive privileges on newly
-   * created objects (e.g., views).
+   * <p>Used by auto-grant logic to determine which roles should receive privileges on newly created
+   * objects (e.g., views).
    *
    * @param userName the user whose memberships to list
    * @return list of Membership proto messages; empty if the user has no explicit roles
@@ -338,8 +358,8 @@ public class RbacService implements AccessControlListingManager {
   }
 
   /**
-   * Returns the set of role IDs the user belongs to, including PUBLIC.
-   * Used for user-scoped sys.privileges filtering in SystemTableScanCreator.
+   * Returns the set of role IDs the user belongs to, including PUBLIC. Used for user-scoped
+   * sys.privileges filtering in SystemTableScanCreator.
    *
    * @param userName the user whose roles to look up
    * @return set of role IDs (explicit memberships + PUBLIC)
@@ -458,12 +478,12 @@ public class RbacService implements AccessControlListingManager {
   }
 
   /**
-   * Overload accepting a precomputed set of accessible object paths (from
-   * {@link #getAccessibleObjectPaths}). Does only an in-memory prefix check — no store access.
+   * Overload accepting a precomputed set of accessible object paths (from {@link
+   * #getAccessibleObjectPaths}). Does only an in-memory prefix check — no store access.
    *
-   * <p>Use this overload when filtering multiple containers in a loop to avoid repeated
-   * {@code grantStore.listAll()} scans. The caller is responsible for the ADMIN short-circuit and
-   * for pre-computing the paths via {@code getAccessibleObjectPaths(userName)}.
+   * <p>Use this overload when filtering multiple containers in a loop to avoid repeated {@code
+   * grantStore.listAll()} scans. The caller is responsible for the ADMIN short-circuit and for
+   * pre-computing the paths via {@code getAccessibleObjectPaths(userName)}.
    *
    * @param accessiblePaths precomputed set returned by {@link #getAccessibleObjectPaths}
    * @param containerPath dot-delimited container path (e.g., "myspace" or "myspace.folderA")
