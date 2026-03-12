@@ -51,8 +51,8 @@ public class OidcTokenValidator {
   /**
    * Constructs an OidcTokenValidator targeting the given JWKS endpoint.
    *
-   * @param jwksUri full URL of the Keycloak JWKS endpoint, e.g.
-   *     {@code https://keycloak.host/realms/my-realm/protocol/openid-connect/certs}
+   * @param jwksUri full URL of the Keycloak JWKS endpoint, e.g. {@code
+   *     https://keycloak.host/realms/my-realm/protocol/openid-connect/certs}
    * @param expectedIssuer exact value expected in the JWT {@code iss} claim (Keycloak realm URL)
    * @param expectedAudience exact value expected in the JWT {@code aud} claim (Keycloak client-id)
    * @throws IllegalArgumentException if {@code jwksUri} is not a valid URL
@@ -74,10 +74,7 @@ public class OidcTokenValidator {
     processor.setJWSKeySelector(new JWSVerificationKeySelector<>(JWSAlgorithm.RS256, keySource));
     processor.setJWTClaimsSetVerifier(
         new DefaultJWTClaimsVerifier<>(
-            new JWTClaimsSet.Builder()
-                .issuer(expectedIssuer)
-                .audience(expectedAudience)
-                .build(),
+            new JWTClaimsSet.Builder().issuer(expectedIssuer).audience(expectedAudience).build(),
             new HashSet<>(Arrays.asList("sub", "exp", "iat", "iss", "aud"))));
 
     this.jwtProcessor = processor;
@@ -86,8 +83,8 @@ public class OidcTokenValidator {
   /**
    * Validates the JWT string against the configured JWKS endpoint and claim set.
    *
-   * <p>Extracts {@code preferred_username} as the Dremio username; falls back to {@code sub} if
-   * the claim is absent (e.g. client-credentials grant tokens).
+   * <p>Extracts {@code preferred_username} as the Dremio username; falls back to {@code sub} if the
+   * claim is absent (e.g. client-credentials grant tokens).
    *
    * @param jwtString compact serialised JWT (three Base64URL parts separated by dots)
    * @return {@link TokenDetails} with the original JWT string, resolved username, and expiry epoch

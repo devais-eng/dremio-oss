@@ -273,6 +273,7 @@ import com.dremio.service.jobtelemetry.client.JobTelemetryExecutorClientFactory;
 import com.dremio.service.jobtelemetry.server.LocalJobTelemetryServer;
 import com.dremio.service.jobtelemetry.server.store.ProfileDistStoreConfig;
 import com.dremio.service.keycloak.KeycloakConfig;
+import com.dremio.service.keycloak.OidcTokenValidator;
 import com.dremio.service.listing.DatasetListingInvoker;
 import com.dremio.service.listing.DatasetListingService;
 import com.dremio.service.listing.DatasetListingServiceImpl;
@@ -2225,6 +2226,14 @@ public class DACDaemonModule implements DACModule {
       // Bind KeycloakConfig for downstream injection
       final KeycloakConfig keycloakConfig = new KeycloakConfig(dacConfig.getConfig());
       registry.bind(KeycloakConfig.class, keycloakConfig);
+
+      // Bind OidcTokenValidator for Phase 31 (DACAuthFilter) and Phase 35 (Arrow Flight)
+      registry.bind(
+          OidcTokenValidator.class,
+          new OidcTokenValidator(
+              keycloakConfig.getJwksUri(),
+              keycloakConfig.getIssuerUrl(),
+              keycloakConfig.getClientId()));
 
       logger.info("Keycloak authentication is configured.");
       return true; // true = internal user records (KVStore-backed SimpleUserService)

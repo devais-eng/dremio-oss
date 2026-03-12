@@ -18,6 +18,7 @@ package com.dremio.service.keycloak;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.dremio.common.SuppressForbidden;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.JWSSigner;
@@ -43,7 +44,12 @@ import org.junit.jupiter.api.Test;
 /**
  * Unit tests for OidcTokenValidator. Uses an in-process HTTP server to serve JWKS, so no external
  * dependencies or mocking frameworks are required.
+ *
+ * <p>{@code @SuppressForbidden}: {@code com.sun.net.httpserver.HttpServer} is an internal JDK API,
+ * but it is the lightest way to serve the JWKS JSON document in-process without adding WireMock or
+ * Jetty as a test dependency. The class is available in all JDK 11+ distributions.
  */
+@SuppressForbidden
 class TestOidcTokenValidator {
 
   private static final String ISSUER = "https://keycloak.example.com/realms/test";
@@ -205,8 +211,7 @@ class TestOidcTokenValidator {
 
     OidcTokenValidator validator = new OidcTokenValidator(jwksUrl, ISSUER, AUDIENCE);
 
-    assertThatThrownBy(() -> validator.validate(jwt))
-        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> validator.validate(jwt)).isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
@@ -220,8 +225,7 @@ class TestOidcTokenValidator {
 
     OidcTokenValidator validator = new OidcTokenValidator(jwksUrl, ISSUER, AUDIENCE);
 
-    assertThatThrownBy(() -> validator.validate(jwt))
-        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> validator.validate(jwt)).isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
@@ -229,7 +233,8 @@ class TestOidcTokenValidator {
     jwksContent.set(buildJwks(rsaJwk1));
     // Sign with key2 but JWKS only has key1 -- key2's kid is not in JWKS
     // Use key2 with key-id-1 to simulate a bad signature (wrong key, matching kid label trick)
-    // Actually: sign with key2 but set kid to "key-id-1" so the validator looks up key1 but sig fails
+    // Actually: sign with key2 but set kid to "key-id-1" so the validator looks up key1 but sig
+    // fails
     JWSSigner signer = new RSASSASigner(keyPair2.getPrivate());
     JWSHeader header =
         new JWSHeader.Builder(JWSAlgorithm.RS256)
@@ -281,9 +286,7 @@ class TestOidcTokenValidator {
   void testUsernameIsPreferredUsernameNotSub() throws Exception {
     jwksContent.set(buildJwks(rsaJwk1));
     JWTClaimsSet.Builder claims =
-        validClaims()
-            .subject("sub-uuid-456")
-            .claim("preferred_username", "bob");
+        validClaims().subject("sub-uuid-456").claim("preferred_username", "bob");
     String jwt = signJwt(rsaJwk1, claims);
 
     OidcTokenValidator validator = new OidcTokenValidator(jwksUrl, ISSUER, AUDIENCE);
@@ -293,14 +296,13 @@ class TestOidcTokenValidator {
     assertThat(details.username).isNotEqualTo("sub-uuid-456");
   }
 
-  /** Unique JWT ID test: different tokens with same claims should produce different TokenDetails. */
+  /**
+   * Unique JWT ID test: different tokens with same claims should produce different TokenDetails.
+   */
   @Test
   void testTokenStringPreservedInDetails() throws Exception {
     jwksContent.set(buildJwks(rsaJwk1));
-    String jwt =
-        signJwt(
-            rsaJwk1,
-            validClaims().jwtID(UUID.randomUUID().toString()));
+    String jwt = signJwt(rsaJwk1, validClaims().jwtID(UUID.randomUUID().toString()));
 
     OidcTokenValidator validator = new OidcTokenValidator(jwksUrl, ISSUER, AUDIENCE);
     var details = validator.validate(jwt);
