@@ -25,6 +25,11 @@ import com.dremio.exec.catalog.conf.SecretRef;
 import com.dremio.exec.catalog.conf.SourceType;
 import com.dremio.plugins.jdbc.JdbcStoragePlugin;
 import com.dremio.plugins.jdbc.conf.BaseJdbcConf;
+import com.dremio.plugins.jdbc.exec.JdbcSubScan;
+import com.dremio.plugins.jdbc.pool.JdbcConnectionPool;
+import com.dremio.plugins.jdbc.reader.JdbcRecordReader;
+import com.dremio.plugins.jdbc.schema.JdbcSchemaFetcher;
+import com.dremio.sabot.exec.context.OperatorContext;
 import io.protostuff.Tag;
 import java.util.Properties;
 import javax.inject.Provider;
@@ -213,17 +218,33 @@ public class PostgresConf extends BaseJdbcConf<PostgresConf, JdbcStoragePlugin> 
   // -------------------------------------------------------------------------
 
   /**
-   * Creates a {@link JdbcStoragePlugin} instance for this PostgreSQL source.
+   * Creates a {@link JdbcStoragePlugin} instance wired with PostgreSQL-specific schema fetcher
+   * and record reader factory overrides.
    *
-   * <p>The returned plugin is wired with PostgreSQL-specific factory overrides in Task 3
-   * (see {@code createSchemaFetcher} and {@code createRecordReader} overrides added to
-   * the anonymous subclass).
+   * <p>The anonymous subclass overrides:
+   * <ul>
+   *   <li>{@code createSchemaFetcher} — returns a {@link PostgresSchemaFetcher} for PG-native type
+   *       mapping (UUID, JSONB, arrays, etc.).</li>
+   *   <li>{@code createRecordReader} — returns a {@link PostgresRecordReader} that sets
+   *       {@code autoCommit=false} on the connection to enable cursor-based result set streaming.</li>
+   * </ul>
    */
   @Override
   public JdbcStoragePlugin newPlugin(
       PluginSabotContext pluginSabotContext,
       String name,
       Provider<StoragePluginId> pluginIdProvider) {
-    return new JdbcStoragePlugin(this, name);
+    return new JdbcStoragePlugin(this, name) {
+      @Override
+      protected JdbcSchemaFetcher createSchemaFetcher(JdbcConnectionPool pool) {
+        return new PostgresSchemaFetcher(pool);
+      }
+
+      @Override
+      public JdbcRecordReader createRecordReader(
+          OperatorContext ctx, JdbcSubScan config, JdbcConnectionPool pool) {
+        return new PostgresRecordReader(ctx, config, pool);
+      }
+    };
   }
 }

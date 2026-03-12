@@ -41,7 +41,7 @@ public class JdbcScanCreator implements ProducerOperator.Creator<JdbcSubScan> {
       FragmentExecutionContext fec, OperatorContext context, JdbcSubScan config)
       throws ExecutionSetupException {
     JdbcStoragePlugin plugin = fec.getStoragePlugin(config.getPluginId());
-    JdbcRecordReader reader = new JdbcRecordReader(context, config, plugin.getPool());
+    JdbcRecordReader reader = plugin.createRecordReader(context, config, plugin.getPool());
     return new ScanOperator(fec, config, context, RecordReaderIterator.from(reader));
   }
 }

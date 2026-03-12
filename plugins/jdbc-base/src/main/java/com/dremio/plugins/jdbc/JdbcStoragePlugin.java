@@ -33,9 +33,12 @@ import com.dremio.exec.record.BatchSchema;
 import com.dremio.exec.store.StoragePlugin;
 import com.dremio.exec.store.StoragePluginRulesFactory;
 import com.dremio.plugins.jdbc.conf.BaseJdbcConf;
+import com.dremio.plugins.jdbc.exec.JdbcSubScan;
 import com.dremio.plugins.jdbc.planning.JdbcRulesFactory;
 import com.dremio.plugins.jdbc.pool.JdbcConnectionPool;
+import com.dremio.plugins.jdbc.reader.JdbcRecordReader;
 import com.dremio.plugins.jdbc.schema.JdbcSchemaFetcher;
+import com.dremio.sabot.exec.context.OperatorContext;
 import com.dremio.service.namespace.NamespaceKey;
 import com.dremio.service.namespace.SourceState;
 import com.dremio.service.namespace.capabilities.SourceCapabilities;
@@ -100,6 +103,23 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
    */
   protected JdbcSchemaFetcher createSchemaFetcher(JdbcConnectionPool pool) {
     return new JdbcSchemaFetcher(pool);
+  }
+
+  /**
+   * Creates the record reader for this plugin. Subclasses can override to return a
+   * database-specific record reader (e.g., PostgresRecordReader with autoCommit=false).
+   *
+   * <p>This method is public so that {@link com.dremio.plugins.jdbc.exec.JdbcScanCreator} (in a
+   * sibling package) can call it on the resolved plugin instance.
+   *
+   * @param ctx the operator context providing batch sizing and allocator
+   * @param config the sub-scan carrying the SQL query and schema
+   * @param pool the connection pool to acquire execution connections from
+   * @return a new {@link JdbcRecordReader} (or subclass) for this source
+   */
+  public JdbcRecordReader createRecordReader(
+      OperatorContext ctx, JdbcSubScan config, JdbcConnectionPool pool) {
+    return new JdbcRecordReader(ctx, config, pool);
   }
 
   /**
