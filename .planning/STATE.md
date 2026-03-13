@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: in_progress
-stopped_at: Completed 33-01-PLAN.md
-last_updated: "2026-03-13T15:13:43Z"
-last_activity: "2026-03-13 — Completed Phase 33 Plan 01 (Bind parameters + expanded operator coverage)"
+stopped_at: Completed 33-02-PLAN.md
+last_updated: "2026-03-13T15:34:26Z"
+last_activity: "2026-03-13 — Completed Phase 33 Plan 02 (ORDER BY and TopN pushdown)"
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 9
-  completed_plans: 7
-  percent: 78
+  completed_plans: 8
+  percent: 89
 ---
 
 # Project State
@@ -26,18 +26,18 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 ## Current Position
 
 Phase: 33 of 33 (Advanced Query Pushdown Hardening)
-Plan: 1 of 3 complete (33-01 bind parameters + expanded operators)
+Plan: 2 of 3 complete (33-02 ORDER BY and TopN pushdown)
 Status: In Progress
-Last activity: 2026-03-13 — Completed 33-01 (PreparedStatement bind parameters, expanded RexToSqlString operators, SqlBuildRequest DTO, end-to-end parameter threading)
+Last activity: 2026-03-13 — Completed 33-02 (ORDER BY pushdown rule, TopN via sequential sort-then-limit, PG/Oracle integration tests)
 
-Progress: [███████░░░] 78% (7 of 9 plans complete)
+Progress: [████████░░] 89% (8 of 9 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7 (v1.5)
-- Average duration: 13.0 min
-- Total execution time: 1.51 hours
+- Total plans completed: 8 (v1.5)
+- Average duration: 13.5 min
+- Total execution time: 1.80 hours
 
 **By Phase:**
 
@@ -51,9 +51,10 @@ Progress: [███████░░░] 78% (7 of 9 plans complete)
 | 32-oracle-connector P01 | 1 | 10 min | 10 min |
 | 32-oracle-connector P02 | 1 | 4 min | 4 min |
 | 33-advanced-query-pushdown-hardening P01 | 1 | 14 min | 14 min |
+| 33-advanced-query-pushdown-hardening P02 | 1 | 17 min | 17 min |
 
 **Recent Trend:**
-- Last 5 plans: 13.2 min avg
+- Last 5 plans: 13.6 min avg
 - Trend: stable
 
 *Updated after each plan completion*
@@ -96,10 +97,13 @@ Progress: [███████░░░] 78% (7 of 9 plans complete)
 - [Phase 33-01]: OracleSqlBuilder overrides appendLimit() hook method instead of full buildSql(SqlBuildRequest) — reduces duplication
 - [Phase 33-01]: OR-of-EQUALS on same column auto-converts to IN (?, ?, ...) for cleaner SQL
 - [Phase 33-01]: SqlBuildRequest includes future-facing fields (selectExprs, groupByClause, orderByClause) for Plans 02/03
+- [Phase 33-02]: TopN uses sequential rule firing (sort absorbed first, then limit) rather than single combined rule -- reuses existing JdbcPushLimitIntoScan
+- [Phase 33-02]: SortPrel.offset/fetch always null in Dremio (SortRelBase asserts this) -- no secondary TopN path needed
+- [Phase 33-02]: Backward-compatible JdbcScanPrel constructors: old 2-arg and 3-arg delegate to full 4-arg with orderByClause
 
 ### Pending Todos
 
-None — bind parameters and IN support both completed in Phase 33-01.
+None — ORDER BY and TopN pushdown completed in Phase 33-02.
 
 ### Roadmap Evolution
 
@@ -112,5 +116,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-13
-Stopped at: Completed 33-01-PLAN.md — PreparedStatement bind parameters, expanded operators, SqlBuildRequest DTO
+Stopped at: Completed 33-02-PLAN.md — ORDER BY pushdown rule, TopN via sequential sort-then-limit, PG/Oracle integration tests
 Resume file: None
