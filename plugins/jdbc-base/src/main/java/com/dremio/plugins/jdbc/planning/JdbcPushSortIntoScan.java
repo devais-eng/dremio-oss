@@ -46,7 +46,7 @@ import org.apache.calcite.rel.type.RelDataType;
  * <p>Registered in both {@code PHYSICAL} (Volcano) and {@code PHYSICAL_HEP}
  * phases via {@link JdbcRulesFactory}.
  */
-public class JdbcPushSortIntoScan extends RelOptRule {
+public final class JdbcPushSortIntoScan extends RelOptRule {
 
   public static final RelOptRule INSTANCE = new JdbcPushSortIntoScan();
 

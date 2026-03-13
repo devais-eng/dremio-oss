@@ -21,6 +21,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.dremio.common.expression.SchemaPath;
+import com.dremio.plugins.jdbc.planning.SqlBuildRequest;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -327,6 +328,142 @@ public class TestOraclePushdown {
         count++;
       }
       assertTrue("FETCH FIRST 2 must return at most 2 rows", count <= 2);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // ORDER BY pushdown SQL generation tests
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verifies that ORDER BY clause is generated via SqlBuildRequest for Oracle.
+   * ORDER BY is dialect-independent; only the row-limiting syntax differs.
+   */
+  @Test
+  public void testOrderByPushdownSqlGeneration() {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("TEST_USER")
+        .table("PUSHDOWN_TEST")
+        .orderBy("\"AGE\" ASC NULLS LAST")
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    assertTrue("SQL must contain ORDER BY", sql.contains("ORDER BY"));
+    assertTrue("SQL must contain the sort expression",
+        sql.contains("ORDER BY \"AGE\" ASC NULLS LAST"));
+    // Oracle ORDER BY should NOT produce LIMIT keyword
+    assertFalse("Oracle SQL with ORDER BY only must NOT contain LIMIT",
+        sql.contains("LIMIT"));
+  }
+
+  /**
+   * Verifies TopN (ORDER BY + FETCH FIRST) SQL generation for Oracle.
+   * Must produce ORDER BY ... FETCH FIRST N ROWS ONLY (not LIMIT).
+   */
+  @Test
+  public void testTopNPushdownSqlGeneration() {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("TEST_USER")
+        .table("PUSHDOWN_TEST")
+        .orderBy("\"AGE\" DESC NULLS FIRST")
+        .limit(3)
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    assertTrue("SQL must contain ORDER BY", sql.contains("ORDER BY"));
+    assertTrue("SQL must contain FETCH FIRST 3 ROWS ONLY",
+        sql.contains("FETCH FIRST 3 ROWS ONLY"));
+    assertTrue("ORDER BY must appear before FETCH FIRST",
+        sql.indexOf("ORDER BY") < sql.indexOf("FETCH FIRST"));
+    assertFalse("Oracle TopN SQL must NOT contain LIMIT keyword",
+        sql.contains("LIMIT"));
+  }
+
+  /**
+   * Critical Oracle-specific test: ORDER BY + limit generates FETCH FIRST, never LIMIT.
+   */
+  @Test
+  public void testNoLimitKeywordWithOrderBy() {
+    // ORDER BY only
+    SqlBuildRequest requestOrderOnly = SqlBuildRequest.builder()
+        .schema("TEST_USER")
+        .table("PUSHDOWN_TEST")
+        .orderBy("\"AGE\" ASC NULLS LAST")
+        .build();
+    String sqlOrderOnly = SQL_BUILDER.buildSql(requestOrderOnly);
+    assertFalse("Oracle SQL (ORDER BY only) must NOT contain LIMIT: " + sqlOrderOnly,
+        sqlOrderOnly.contains("LIMIT"));
+
+    // ORDER BY + limit
+    SqlBuildRequest requestTopN = SqlBuildRequest.builder()
+        .schema("TEST_USER")
+        .table("PUSHDOWN_TEST")
+        .orderBy("\"AGE\" DESC NULLS FIRST")
+        .limit(5)
+        .build();
+    String sqlTopN = SQL_BUILDER.buildSql(requestTopN);
+    assertFalse("Oracle TopN SQL must NOT contain LIMIT: " + sqlTopN,
+        sqlTopN.contains("LIMIT"));
+    assertTrue("Oracle TopN SQL must contain FETCH FIRST", sqlTopN.contains("FETCH FIRST"));
+  }
+
+  // ---------------------------------------------------------------------------
+  // ORDER BY container-based execution tests
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verifies ORDER BY execution against a real Oracle container.
+   * Sorts by AGE ASC NULLS LAST: Bob(25), Dave(28), Alice(30), Charlie(35), Eve(40).
+   */
+  @Test
+  public void testOrderByExecutesAgainstOracle() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("TEST_USER")
+        .table("PUSHDOWN_TEST")
+        .orderBy("\"AGE\" ASC NULLS LAST")
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    try (Connection conn = DriverManager.getConnection(
+            OracleTestContainer.getJdbcUrl(),
+            OracleTestContainer.getUsername(),
+            OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have at least one row", rs.next());
+      int firstAge = rs.getInt("AGE");
+      assertEquals("First row should have AGE=25 (Bob)", 25, firstAge);
+      // Advance to last row
+      int lastAge = firstAge;
+      while (rs.next()) {
+        lastAge = rs.getInt("AGE");
+      }
+      assertEquals("Last row should have AGE=40 (Eve)", 40, lastAge);
+    }
+  }
+
+  /**
+   * Verifies TopN (ORDER BY + FETCH FIRST) execution: top 2 by AGE DESC.
+   * Should return Eve(40) and Charlie(35).
+   */
+  @Test
+  public void testTopNExecutesAgainstOracle() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("TEST_USER")
+        .table("PUSHDOWN_TEST")
+        .orderBy("\"AGE\" DESC NULLS FIRST")
+        .limit(2)
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    try (Connection conn = DriverManager.getConnection(
+            OracleTestContainer.getJdbcUrl(),
+            OracleTestContainer.getUsername(),
+            OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have first row", rs.next());
+      assertEquals("First row AGE should be 40 (Eve)", 40, rs.getInt("AGE"));
+      assertTrue("Must have second row", rs.next());
+      assertEquals("Second row AGE should be 35 (Charlie)", 35, rs.getInt("AGE"));
+      // Should be exactly 2 rows
+      assertFalse("FETCH FIRST 2 should return exactly 2 rows", rs.next());
     }
   }
 }

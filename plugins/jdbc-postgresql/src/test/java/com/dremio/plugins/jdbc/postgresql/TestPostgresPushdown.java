@@ -20,6 +20,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.dremio.common.expression.SchemaPath;
+import com.dremio.plugins.jdbc.planning.SqlBuildRequest;
 import com.dremio.plugins.jdbc.planning.SqlBuilder;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -299,6 +300,140 @@ public class TestPostgresPushdown {
         count++;
       }
       assertTrue("LIMIT 2 must return at most 2 rows", count <= 2);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // ORDER BY pushdown SQL generation tests
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verifies that ORDER BY clause is generated via SqlBuildRequest.
+   */
+  @Test
+  public void testOrderByPushdownSqlGeneration() {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("public")
+        .table("pushdown_test")
+        .orderBy("\"age\" ASC NULLS LAST")
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    assertTrue("SQL must contain ORDER BY", sql.contains("ORDER BY"));
+    assertTrue("SQL must contain the sort expression",
+        sql.contains("ORDER BY \"age\" ASC NULLS LAST"));
+    assertTrue("ORDER BY must appear after FROM",
+        sql.indexOf("FROM") < sql.indexOf("ORDER BY"));
+  }
+
+  /**
+   * Verifies TopN (ORDER BY + LIMIT) SQL generation for PostgreSQL.
+   */
+  @Test
+  public void testTopNPushdownSqlGeneration() {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("public")
+        .table("pushdown_test")
+        .orderBy("\"age\" DESC NULLS FIRST")
+        .limit(3)
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    assertTrue("SQL must contain ORDER BY", sql.contains("ORDER BY"));
+    assertTrue("SQL must contain LIMIT 3", sql.contains("LIMIT 3"));
+    assertTrue("ORDER BY must appear before LIMIT",
+        sql.indexOf("ORDER BY") < sql.indexOf("LIMIT"));
+  }
+
+  // ---------------------------------------------------------------------------
+  // ORDER BY container-based execution tests
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verifies ORDER BY execution against a real PostgreSQL container.
+   * Sorts by age ASC NULLS LAST: Bob(25), Dave(28), Alice(30), Charlie(35), Eve(40).
+   */
+  @Test
+  public void testOrderByExecutesAgainstPostgres() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("public")
+        .table("pushdown_test")
+        .orderBy("\"age\" ASC NULLS LAST")
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    try (Connection conn = DriverManager.getConnection(
+            PostgresTestContainer.getJdbcUrl(),
+            PostgresTestContainer.getUsername(),
+            PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have at least one row", rs.next());
+      int firstAge = rs.getInt("age");
+      assertEquals("First row should have age=25 (Bob)", 25, firstAge);
+      // Advance to last row
+      int lastAge = firstAge;
+      while (rs.next()) {
+        lastAge = rs.getInt("age");
+      }
+      assertEquals("Last row should have age=40 (Eve)", 40, lastAge);
+    }
+  }
+
+  /**
+   * Verifies TopN (ORDER BY + LIMIT) execution: top 2 by age DESC.
+   * Should return Eve(40) and Charlie(35).
+   */
+  @Test
+  public void testTopNExecutesAgainstPostgres() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("public")
+        .table("pushdown_test")
+        .orderBy("\"age\" DESC NULLS FIRST")
+        .limit(2)
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    try (Connection conn = DriverManager.getConnection(
+            PostgresTestContainer.getJdbcUrl(),
+            PostgresTestContainer.getUsername(),
+            PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have first row", rs.next());
+      assertEquals("First row age should be 40 (Eve)", 40, rs.getInt("age"));
+      assertTrue("Must have second row", rs.next());
+      assertEquals("Second row age should be 35 (Charlie)", 35, rs.getInt("age"));
+      // Should be exactly 2 rows
+      assertTrue("LIMIT 2 should return exactly 2 rows", !rs.next());
+    }
+  }
+
+  /**
+   * Verifies ORDER BY with WHERE filter: age > 28 ordered by name ASC.
+   * Should return Alice(30), Charlie(35), Eve(40) in alphabetical order.
+   */
+  @Test
+  public void testOrderByWithFilterExecutesAgainstPostgres() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("public")
+        .table("pushdown_test")
+        .where("\"age\" > 28")
+        .orderBy("\"name\" ASC NULLS LAST")
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    try (Connection conn = DriverManager.getConnection(
+            PostgresTestContainer.getJdbcUrl(),
+            PostgresTestContainer.getUsername(),
+            PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      String previousName = "";
+      while (rs.next()) {
+        String name = rs.getString("name");
+        assertTrue("Names should be in ascending order: " + previousName + " < " + name,
+            name.compareTo(previousName) > 0);
+        previousName = name;
+        count++;
+      }
+      assertEquals("Expected 3 rows with age > 28", 3, count);
     }
   }
 }
