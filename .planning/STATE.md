@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: in_progress
-stopped_at: Completed 32-02-PLAN.md
-last_updated: "2026-03-13T01:53:44Z"
-last_activity: "2026-03-13 — Completed Phase 32 Plan 02 (Oracle integration tests — 5 test files)"
+stopped_at: Completed 33-01-PLAN.md
+last_updated: "2026-03-13T15:13:43Z"
+last_activity: "2026-03-13 — Completed Phase 33 Plan 01 (Bind parameters + expanded operator coverage)"
 progress:
-  total_phases: 3
+  total_phases: 4
   completed_phases: 1
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
+  total_plans: 9
+  completed_plans: 7
+  percent: 78
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.5 Phase 32 — Oracle Connector
+**Current focus:** v1.5 Phase 33 — Advanced Query Pushdown Hardening
 
 ## Current Position
 
-Phase: 32 of 32 (Oracle Connector) — COMPLETE
-Plan: 2 of 2 complete (32-01 source code + 32-02 integration tests)
-Status: Complete
-Last activity: 2026-03-13 — Completed 32-02 (Oracle integration tests — DremioOracleContainer, OracleTestContainer, TestOracleTypeMapping, TestOracleSchemaDiscovery, TestOraclePushdown)
+Phase: 33 of 33 (Advanced Query Pushdown Hardening)
+Plan: 1 of 3 complete (33-01 bind parameters + expanded operators)
+Status: In Progress
+Last activity: 2026-03-13 — Completed 33-01 (PreparedStatement bind parameters, expanded RexToSqlString operators, SqlBuildRequest DTO, end-to-end parameter threading)
 
-Progress: [██████████] 100% (all plans complete — v1.5 RDBMS JDBC milestone complete)
+Progress: [███████░░░] 78% (7 of 9 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6 (v1.5)
-- Average duration: 12.8 min
-- Total execution time: 1.28 hours
+- Total plans completed: 7 (v1.5)
+- Average duration: 13.0 min
+- Total execution time: 1.51 hours
 
 **By Phase:**
 
@@ -48,15 +48,15 @@ Progress: [██████████] 100% (all plans complete — v1.5 RDB
 | 30-base-jdbc-framework P03 | 1 | 10 min | 10 min |
 | 31-postgresql-connector P01 | 1 | 21 min | 21 min |
 | 31-postgresql-connector P02 | 1 | 17 min | 17 min |
+| 32-oracle-connector P01 | 1 | 10 min | 10 min |
+| 32-oracle-connector P02 | 1 | 4 min | 4 min |
+| 33-advanced-query-pushdown-hardening P01 | 1 | 14 min | 14 min |
 
 **Recent Trend:**
-- Last 5 plans: 13.4 min avg
+- Last 5 plans: 13.2 min avg
 - Trend: stable
 
 *Updated after each plan completion*
-
-| Phase 32-oracle-connector P01 | 1 | 10 min | 10 min |
-| Phase 32-oracle-connector P02 | 1 | 4 min | 4 min |
 
 ## Shipped Milestones
 
@@ -91,18 +91,26 @@ Progress: [██████████] 100% (all plans complete — v1.5 RDB
 - [Phase 32-oracle-connector P02]: Oracle test schema/table names are UPPERCASE (TEST_USER, TYPE_TEST, DISCOVERY_TABLE) — DatabaseMetaData returns uppercase identifiers for Oracle
 - [Phase 32-oracle-connector P02]: testNoLimitKeyword() in TestOraclePushdown is the critical Oracle-specific correctness gate — asserts LIMIT never appears in generated SQL when a row limit is requested
 - [Phase 32-oracle-connector P02]: Oracle multi-row insert uses INSERT ALL...INTO...INTO...SELECT 1 FROM DUAL syntax (not PostgreSQL-style VALUES (r1),(r2))
+- [Phase 33-01]: NULL, TRUE, FALSE literals stay inline (SQL keywords, not injection risk) — only data literals parameterized
+- [Phase 33-01]: Date/Time/Timestamp values stored as epoch millis Long in BindParam for Jackson serialization
+- [Phase 33-01]: OracleSqlBuilder overrides appendLimit() hook method instead of full buildSql(SqlBuildRequest) — reduces duplication
+- [Phase 33-01]: OR-of-EQUALS on same column auto-converts to IN (?, ?, ...) for cleaner SQL
+- [Phase 33-01]: SqlBuildRequest includes future-facing fields (selectExprs, groupByClause, orderByClause) for Plans 02/03
 
 ### Pending Todos
 
-- [Hardening] Refactor WHERE pushdown to use PreparedStatement bind parameters (`?`) instead of string-escaped literals — eliminates SQL injection risk structurally rather than relying on correct escaping in RexToSqlString
-- [Pushdown] Add IN operator support to RexToSqlString — check whether Calcite produces SqlKind.IN or rewrites to OR chains first; if IN nodes reach pushdown rules, handle them with per-value escaping via existing convertLiteral()
+None — bind parameters and IN support both completed in Phase 33-01.
+
+### Roadmap Evolution
+
+- Phase 33 added: Advanced Query Pushdown Hardening
 
 ### Blockers/Concerns
 
-None yet.
+None.
 
 ## Session Continuity
 
 Last session: 2026-03-13
-Stopped at: Completed 32-02-PLAN.md — Oracle integration tests (DremioOracleContainer, OracleTestContainer, TestOracleTypeMapping, TestOracleSchemaDiscovery, TestOraclePushdown)
+Stopped at: Completed 33-01-PLAN.md — PreparedStatement bind parameters, expanded operators, SqlBuildRequest DTO
 Resume file: None
