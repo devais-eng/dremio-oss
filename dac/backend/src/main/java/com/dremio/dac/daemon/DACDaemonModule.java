@@ -2216,6 +2216,13 @@ public class DACDaemonModule implements DACModule {
       registry.bindSelf(simpleUserService);
       // UserResolver is only needed on Coordinator
       registry.bindProvider(UserResolver.class, () -> simpleUserService);
+
+      // Bind null providers for optional keycloak types so HK2 can resolve
+      // @Nullable injection points in DACAuthFilter when keycloak is not configured.
+      registry.bindProvider(OidcTokenValidator.class, () -> null);
+      registry.bindProvider(JitUserProvisioner.class, () -> null);
+      registry.bindProvider(KeycloakRoleSyncer.class, () -> null);
+
       logger.info("Internal user/group service is configured.");
       return true;
     }

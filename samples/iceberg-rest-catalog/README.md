@@ -1,6 +1,6 @@
 # Iceberg REST Catalog Demo
 
-Dremio OSS + Nessie (Iceberg REST Catalog) + MinIO (S3 storage) + Keycloak (OIDC auth).
+Dremio OSS + Nessie (Iceberg REST Catalog) + MinIO (S3 storage), with optional Keycloak SSO.
 
 ## Architecture
 
@@ -11,7 +11,7 @@ Dremio OSS + Nessie (Iceberg REST Catalog) + MinIO (S3 storage) + Keycloak (OIDC
  └──────────┘       └──────────┘       └───────┘
                          │
                     ┌──────────┐
-                    │ Keycloak │
+                    │ Keycloak │  (SSO mode only)
                     │  :8080   │
                     └──────────┘
 ```
@@ -24,55 +24,65 @@ Dremio OSS + Nessie (Iceberg REST Catalog) + MinIO (S3 storage) + Keycloak (OIDC
 
 ## Quick Start
 
-```bash
-# Start all services
-docker compose up -d
+### Internal auth (no Keycloak)
 
-# Wait ~90 seconds for all services to become healthy, then:
-bash scripts/seed.sh
+```bash
+docker compose up -d
 ```
 
-The seed script will:
-1. Bootstrap the Dremio admin user
-2. Create a `nessie_catalog` RESTCATALOG source pre-configured with OAuth2 and S3 credentials
-3. Seed sample tables (`demo.customers`, `demo.orders`) via PyIceberg
-4. Create spaces (`analytics`, `engineering`) with views
-5. Create roles (`analysts`, `engineers`) and users with RBAC grants
+Dremio uses its built-in user/password authentication. Nessie runs without auth.
 
-Open **http://localhost:9047** and navigate to the `nessie_catalog` source.
+### SSO with Keycloak
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.sso.yml up --profile sso -d
+```
+
+This starts everything including Keycloak and the `keycloak-init` service which
+automatically creates the required client scopes and role mappers.
+
+### Seed sample data
+
+After all services are healthy (~90 seconds):
+
+```bash
+# Internal auth mode
+docker compose run --rm seed
+
+# SSO mode
+docker compose -f docker-compose.yml -f docker-compose.sso.yml run --rm seed
+```
+
+The seed script creates:
+1. A `demo` namespace with `demo.customers` (5 rows) and `demo.orders` (6 rows)
+
+Open **http://localhost:9047** and create a Dremio admin user via the first-user form.
 
 ## Services
 
-| Service  | URL                        | Credentials            |
-|----------|----------------------------|------------------------|
-| Dremio   | http://localhost:9047       | admin / admin123       |
-| MinIO    | http://localhost:9090       | minioadmin / minioadmin|
-| Keycloak | http://localhost:8080/admin | admin / admin          |
-| Nessie   | http://localhost:19120      | OAuth2 via Keycloak    |
+| Service       | URL                        | Credentials            | Mode |
+|---------------|----------------------------|------------------------|------|
+| Dremio        | http://localhost:9047       | (created at first run) | both |
+| MinIO Console | http://localhost:9090       | minioadmin / minioadmin| both |
+| Nessie        | http://localhost:19120      | (no auth / OAuth2)     | both |
+| Keycloak      | http://localhost:8080/admin | admin / admin          | SSO  |
 
-## Users & RBAC
+## Keycloak Users (SSO mode)
 
-| User    | Password     | Role       | Access                                          |
-|---------|-------------|------------|--------------------------------------------------|
-| admin   | admin123    | (admin)    | Full access to everything                        |
-| alice   | alice123    | analysts   | SELECT on `analytics.*` views                    |
-| bob     | bob12345    | engineers  | SELECT on all views + CREATE_VIEW in engineering |
-| charlie | charlie123  | analysts   | SELECT on `analytics.*` views (same as alice)    |
+| User     | Password  | Realm Role | Description                          |
+|----------|-----------|------------|--------------------------------------|
+| admin    | admin123  | ADMIN      | Maps to Dremio admin via role sync   |
+| testuser | testpass  | analysts   | Regular user, analyst role           |
+| alice    | alice123  | analysts   | Regular user, analyst role           |
 
-### Spaces & Views
+The `keycloak-init` service automatically:
+- Creates `catalog` and `sign` scopes (for Nessie OAuth2)
+- Creates a `roles` scope with a realm-role mapper (`realm_access.roles` claim)
+- Assigns scopes to the appropriate clients (`client1`, `dremio-web`)
 
-| Space         | View               | Description                    |
-|---------------|--------------------|--------------------------------|
-| analytics     | customer_overview  | id, name, city                 |
-| analytics     | order_summary      | order_id, customer, product    |
-| analytics     | revenue_by_city    | city, order_count, revenue     |
-| engineering   | raw_customers      | all customer columns           |
-| engineering   | raw_orders         | all order columns              |
-
-### Testing RBAC
-
-Login as `alice` — she can query `analytics.customer_overview` but NOT `engineering.raw_customers` (denied).
-Login as `bob` — he can query all views and create new views in the `engineering` space.
+> **Note:** The first Dremio user must be created via the bootstrap form at
+> http://localhost:9047 before SSO login works. After that, Keycloak users
+> can log in via the "Sign in with SSO" button.
 
 ## Manual Source Creation (UI)
 
@@ -92,7 +102,7 @@ If you prefer to create the source through the Dremio web UI instead of the seed
    | fs.s3a.connection.ssl.enabled  | false                                                    |
    | dremio.s3.compat               | true                                                     |
    | fs.s3a.aws.credentials.provider| org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider     |
-5. In **Secret Credentials**, add:
+5. In **Secret Credentials**, add (SSO mode only):
    | Property           | Value                                                                        |
    |--------------------|------------------------------------------------------------------------------|
    | oauth2-server-uri  | http://keycloak:8080/realms/iceberg/protocol/openid-connect/token            |
@@ -105,7 +115,7 @@ If you prefer to create the source through the Dremio web UI instead of the seed
 Get a token and query the Nessie REST Catalog:
 
 ```bash
-# Obtain OAuth2 token from Keycloak
+# SSO mode — obtain OAuth2 token from Keycloak
 TOKEN=$(curl -s -X POST \
   http://localhost:8080/realms/iceberg/protocol/openid-connect/token \
   -d "grant_type=client_credentials&client_id=client1&client_secret=s3cr3t&scope=catalog sign" \
@@ -115,14 +125,13 @@ TOKEN=$(curl -s -X POST \
 curl -H "Authorization: Bearer $TOKEN" \
   http://localhost:19120/iceberg/v1/namespaces
 
-# Nessie API v2
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:19120/api/v2/trees
+# Internal auth mode — no token needed
+curl http://localhost:19120/iceberg/v1/namespaces
 ```
 
 ## Troubleshooting
 
-**Nessie returns 401 Unauthorized**
+**Nessie returns 401 Unauthorized (SSO mode)**
 Keycloak may still be starting. Check `docker compose logs keycloak` and wait for `Listening on: http://0.0.0.0:8080`.
 
 **Source shows BAD state in Dremio**
@@ -139,6 +148,8 @@ Dremio's `DremioFileIO` replaces the Iceberg SDK's `ResolvingFileIO`, so credent
 
 ```bash
 docker compose down -v
+# or for SSO mode:
+docker compose -f docker-compose.yml -f docker-compose.sso.yml down --profile sso -v
 ```
 
 The `-v` flag removes named volumes (MinIO data, Dremio data).

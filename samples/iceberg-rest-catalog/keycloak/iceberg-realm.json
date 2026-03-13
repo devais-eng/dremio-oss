@@ -3,24 +3,6 @@
   "enabled": true,
   "sslRequired": "none",
   "registrationAllowed": false,
-  "clientScopes": [
-    {
-      "name": "catalog",
-      "protocol": "openid-connect",
-      "attributes": {
-        "include.in.token.scope": "true",
-        "display.on.consent.screen": "false"
-      }
-    },
-    {
-      "name": "sign",
-      "protocol": "openid-connect",
-      "attributes": {
-        "include.in.token.scope": "true",
-        "display.on.consent.screen": "false"
-      }
-    }
-  ],
   "clients": [
     {
       "clientId": "client1",
@@ -31,10 +13,6 @@
       "directAccessGrantsEnabled": true,
       "standardFlowEnabled": false,
       "protocol": "openid-connect",
-      "optionalClientScopes": [
-        "catalog",
-        "sign"
-      ],
       "attributes": {
         "access.token.lifespan": "3600"
       }
@@ -65,6 +43,10 @@
   "roles": {
     "realm": [
       {
+        "name": "ADMIN",
+        "description": "Admin role mapped to Dremio admin"
+      },
+      {
         "name": "analysts",
         "description": "Analyst role for Dremio RBAC mapping"
       },
@@ -75,6 +57,23 @@
     ]
   },
   "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "admin@example.com",
+      "firstName": "Admin",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "ADMIN"
+      ]
+    },
     {
       "username": "testuser",
       "enabled": true,

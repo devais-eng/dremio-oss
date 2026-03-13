@@ -24,9 +24,17 @@ wait_for() {
   exit 1
 }
 
+# ── Detect SSO mode ────────────────────────────────────────────────────
+SSO_MODE=false
+if curl -sf "http://localhost:8080/realms/iceberg" >/dev/null 2>&1; then
+  SSO_MODE=true
+fi
+
 # ── 1. Wait for services ───────────────────────────────────────────────
 wait_for "MinIO"    "http://localhost:9000/minio/health/live" 30
-wait_for "Keycloak" "http://localhost:8080/realms/iceberg"     60
+if [ "$SSO_MODE" = true ]; then
+  wait_for "Keycloak" "http://localhost:8080/realms/iceberg"   60
+fi
 wait_for "Nessie"   "http://localhost:9001/q/health/ready"    30
 wait_for "Dremio"   "$DREMIO_URL"                             60
 
@@ -68,35 +76,43 @@ echo "  Logged in."
 
 # ── 4. Create RESTCATALOG source ────────────────────────────────────────
 echo "Creating RESTCATALOG source 'nessie_catalog'..."
+
+# OAuth2 credentials only needed when Keycloak is running (SSO mode)
+if [ "$SSO_MODE" = true ]; then
+  SECRET_PROPS='[
+        { "name": "oauth2-server-uri", "value": "http://keycloak:8080/realms/iceberg/protocol/openid-connect/token" },
+        { "name": "credential",        "value": "client1:s3cr3t" },
+        { "name": "scope",             "value": "catalog sign" }
+      ]'
+else
+  SECRET_PROPS='[]'
+fi
+
 SOURCE_RESP=$(curl -s -w "\n%{http_code}" \
   -X PUT "$DREMIO_URL/apiv2/source/nessie_catalog" \
   -H "Content-Type: application/json" \
   -H "Authorization: _dremio${TOKEN}" \
-  -d '{
-    "name": "nessie_catalog",
-    "config": {
-      "restEndpointUri": "http://nessie:19120/iceberg/",
-      "propertyList": [
-        { "name": "warehouse",                     "value": "warehouse" },
-        { "name": "fs.s3a.endpoint",                "value": "minio:9000" },
-        { "name": "fs.s3a.access.key",              "value": "minioadmin" },
-        { "name": "fs.s3a.secret.key",              "value": "minioadmin" },
-        { "name": "fs.s3a.path.style.access",       "value": "true" },
-        { "name": "fs.s3a.connection.ssl.enabled",   "value": "false" },
-        { "name": "dremio.s3.compat",               "value": "true" },
-        { "name": "fs.s3a.aws.credentials.provider", "value": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider" }
+  -d "{
+    \"name\": \"nessie_catalog\",
+    \"config\": {
+      \"restEndpointUri\": \"http://nessie:19120/iceberg/\",
+      \"propertyList\": [
+        { \"name\": \"warehouse\",                     \"value\": \"warehouse\" },
+        { \"name\": \"fs.s3a.endpoint\",                \"value\": \"minio:9000\" },
+        { \"name\": \"fs.s3a.access.key\",              \"value\": \"minioadmin\" },
+        { \"name\": \"fs.s3a.secret.key\",              \"value\": \"minioadmin\" },
+        { \"name\": \"fs.s3a.path.style.access\",       \"value\": \"true\" },
+        { \"name\": \"fs.s3a.connection.ssl.enabled\",   \"value\": \"false\" },
+        { \"name\": \"dremio.s3.compat\",               \"value\": \"true\" },
+        { \"name\": \"fs.s3a.aws.credentials.provider\", \"value\": \"org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider\" }
       ],
-      "secretPropertyList": [
-        { "name": "oauth2-server-uri", "value": "http://keycloak:8080/realms/iceberg/protocol/openid-connect/token" },
-        { "name": "credential",        "value": "client1:s3cr3t" },
-        { "name": "scope",             "value": "catalog sign" }
-      ],
-      "enableAsync": true,
-      "isCachingEnabled": true,
-      "maxCacheSpacePct": 100
+      \"secretPropertyList\": ${SECRET_PROPS},
+      \"enableAsync\": true,
+      \"isCachingEnabled\": true,
+      \"maxCacheSpacePct\": 100
     },
-    "type": "RESTCATALOG"
-  }')
+    \"type\": \"RESTCATALOG\"
+  }")
 
 SOURCE_CODE=$(echo "$SOURCE_RESP" | tail -1)
 SOURCE_BODY=$(echo "$SOURCE_RESP" | sed '$d')
@@ -113,7 +129,11 @@ fi
 # ── 5. Seed sample data via PyIceberg (runs inside Docker) ──────────────
 echo ""
 echo "Seeding sample data (demo.customers, demo.orders)..."
-docker compose --profile seed run --rm seed
+if [ "$SSO_MODE" = true ]; then
+  docker compose -f docker-compose.yml -f docker-compose.sso.yml --profile seed run --rm seed
+else
+  docker compose --profile seed run --rm seed
+fi
 
 # ── Helper: run SQL via Dremio REST API ───────────────────────────────
 run_sql() {
@@ -367,8 +387,14 @@ cat <<'EOF'
 
   MinIO Console:  http://localhost:9090
                   Login: minioadmin / minioadmin
-
-  Keycloak:       http://localhost:8080
-                  Login: admin / admin
 ============================================================
 EOF
+
+if [ "$SSO_MODE" = true ]; then
+  echo "  Keycloak:       http://localhost:8080"
+  echo "                  Login: admin / admin"
+  echo "============================================================"
+else
+  echo "  (No Keycloak — internal auth mode)"
+  echo "============================================================"
+fi
