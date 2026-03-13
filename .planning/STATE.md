@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: in_progress
-stopped_at: Completed 31-01-PLAN.md
-last_updated: "2026-03-12T23:53:25Z"
-last_activity: "2026-03-12 — Completed Phase 31 Plan 01 (PostgreSQL connector source code)"
+stopped_at: Completed 31-02-PLAN.md
+last_updated: "2026-03-13T00:14:59Z"
+last_activity: "2026-03-13 — Completed Phase 31 Plan 02 (PostgreSQL connector integration tests)"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
-  percent: 67
+  completed_plans: 5
+  percent: 83
 ---
 
 # Project State
@@ -26,18 +26,18 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 ## Current Position
 
 Phase: 31 of 32 (PostgreSQL Connector) — IN PROGRESS
-Plan: 1 of 2+ complete (31-01 done; 31-02 integration tests next)
+Plan: 2 of 2 complete (31-01 source code done; 31-02 integration tests done)
 Status: In Progress
-Last activity: 2026-03-12 — Completed 31-01 (PostgreSQL connector source code + base class hooks)
+Last activity: 2026-03-13 — Completed 31-02 (PostgreSQL connector integration tests — TestContainers suite)
 
-Progress: [██████░░░░] 67%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4 (v1.5)
-- Average duration: 12.3 min
-- Total execution time: 0.82 hours
+- Total plans completed: 5 (v1.5)
+- Average duration: 13.4 min
+- Total execution time: 1.12 hours
 
 **By Phase:**
 
@@ -47,9 +47,10 @@ Progress: [██████░░░░] 67%
 | 30-base-jdbc-framework P02 | 1 | 10 min | 10 min |
 | 30-base-jdbc-framework P03 | 1 | 10 min | 10 min |
 | 31-postgresql-connector P01 | 1 | 21 min | 21 min |
+| 31-postgresql-connector P02 | 1 | 17 min | 17 min |
 
 **Recent Trend:**
-- Last 5 plans: 12.5 min avg
+- Last 5 plans: 13.4 min avg
 - Trend: stable
 
 *Updated after each plan completion*
@@ -78,6 +79,8 @@ Progress: [██████░░░░] 67%
 - [Phase 31-01]: SecretRef.get() used directly for getPassword() rather than toConfiguration() (which requires a hadoop-style prefix string)
 - [Phase 31-01]: PostgresConf.newPlugin() uses anonymous JdbcStoragePlugin subclass to wire factory overrides without a named PostgresStoragePlugin class
 - [Phase 31-01]: Tag numbers start at 10 in PostgresConf (10-41); BaseJdbcConf Tags 1-3 (poolSize/idleTimeoutMs/validationQuery) satisfy PG-01 maxIdleConns/idleTimeSec requirements
+- [Phase 31-postgresql-connector]: DremioPostgresContainer wraps PostgreSQLContainer implementing DremioContainer marker — satisfies DremioRestrictedTestcontainersUsage error-prone rule that cannot be suppressed
+- [Phase 31-postgresql-connector]: TestJdbcConf is a named static inner class not anonymous — BaseJdbcConf<T extends BaseJdbcConf<T,P>, P> self-referential bound cannot be satisfied by anonymous classes with wildcard type args
 
 ### Pending Todos
 
@@ -90,6 +93,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12
-Stopped at: Completed 31-01-PLAN.md — PostgreSQL connector source code, base class hooks, module wiring
+Last session: 2026-03-13
+Stopped at: Completed 31-02-PLAN.md — PostgreSQL connector integration tests (TestContainers suite)
 Resume file: None
