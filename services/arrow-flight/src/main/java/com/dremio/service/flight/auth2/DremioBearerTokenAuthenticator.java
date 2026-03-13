@@ -17,9 +17,16 @@ package com.dremio.service.flight.auth2;
 
 import com.dremio.service.flight.DremioFlightSessionsManager;
 import com.dremio.service.flight.utils.DremioFlightAuthUtils;
+import com.dremio.service.keycloak.JitUserProvisioner;
+import com.dremio.service.keycloak.KeycloakRoleSyncer;
+import com.dremio.service.keycloak.KeycloakTokenDetails;
+import com.dremio.service.keycloak.OidcTokenValidator;
 import com.dremio.service.tokens.TokenManager;
 import com.dremio.service.users.UserService;
 import com.google.common.annotations.VisibleForTesting;
+import java.io.IOException;
+import java.text.ParseException;
+import javax.annotation.Nullable;
 import javax.inject.Provider;
 import org.apache.arrow.flight.CallHeaders;
 import org.apache.arrow.flight.CallStatus;
@@ -40,18 +47,62 @@ public class DremioBearerTokenAuthenticator implements CallHeaderAuthenticator {
   private static final Logger LOGGER =
       LoggerFactory.getLogger(DremioBearerTokenAuthenticator.class);
 
+  /** Prefix shared by all JWT compact-serialized tokens (base64url header). */
+  private static final String JWT_COMPACT_PREFIX = "eyJ";
+
   private final CallHeaderAuthenticator initialAuthenticator;
   private final Provider<TokenManager> tokenManagerProvider;
   private final DremioFlightSessionsManager dremioFlightSessionsManager;
+  @Nullable private final OidcTokenValidator oidcTokenValidator;
+  @Nullable private final JitUserProvisioner jitProvisioner;
+  @Nullable private final KeycloakRoleSyncer roleSyncer;
 
+  /**
+   * Constructor with Keycloak support.
+   *
+   * @param userServiceProvider UserService provider
+   * @param tokenManagerProvider TokenManager provider
+   * @param dremioFlightSessionsManager Flight session manager
+   * @param oidcTokenValidator OidcTokenValidator instance (null when Keycloak not configured)
+   * @param jitProvisioner JitUserProvisioner instance (null when Keycloak not configured)
+   * @param roleSyncer KeycloakRoleSyncer instance (null when Keycloak not configured)
+   */
+  public DremioBearerTokenAuthenticator(
+      Provider<UserService> userServiceProvider,
+      Provider<TokenManager> tokenManagerProvider,
+      DremioFlightSessionsManager dremioFlightSessionsManager,
+      @Nullable OidcTokenValidator oidcTokenValidator,
+      @Nullable JitUserProvisioner jitProvisioner,
+      @Nullable KeycloakRoleSyncer roleSyncer) {
+    this.initialAuthenticator =
+        new BasicCallHeaderAuthenticator(
+            new DremioCredentialValidator(
+                userServiceProvider, oidcTokenValidator, jitProvisioner, roleSyncer));
+    this.tokenManagerProvider = tokenManagerProvider;
+    this.dremioFlightSessionsManager = dremioFlightSessionsManager;
+    this.oidcTokenValidator = oidcTokenValidator;
+    this.jitProvisioner = jitProvisioner;
+    this.roleSyncer = roleSyncer;
+  }
+
+  /**
+   * Backward-compatible constructor without Keycloak support.
+   *
+   * @param userServiceProvider UserService provider
+   * @param tokenManagerProvider TokenManager provider
+   * @param dremioFlightSessionsManager Flight session manager
+   */
   public DremioBearerTokenAuthenticator(
       Provider<UserService> userServiceProvider,
       Provider<TokenManager> tokenManagerProvider,
       DremioFlightSessionsManager dremioFlightSessionsManager) {
-    this.initialAuthenticator =
-        new BasicCallHeaderAuthenticator(new DremioCredentialValidator(userServiceProvider));
-    this.tokenManagerProvider = tokenManagerProvider;
-    this.dremioFlightSessionsManager = dremioFlightSessionsManager;
+    this(
+        userServiceProvider,
+        tokenManagerProvider,
+        dremioFlightSessionsManager,
+        null,
+        null,
+        null);
   }
 
   /**
@@ -79,13 +130,33 @@ public class DremioBearerTokenAuthenticator implements CallHeaderAuthenticator {
   }
 
   /**
-   * Validates provided token.
+   * Validates provided token. If the token starts with {@code eyJ} and Keycloak is configured,
+   * validates as a Keycloak JWT and mints a new Dremio session token. Otherwise, validates as a
+   * Dremio opaque token.
    *
    * @param token the token to validate.
    * @return an AuthResult with the bearer token and peer identity.
    */
   @VisibleForTesting
   AuthResult validateBearer(String token) {
+    if (oidcTokenValidator != null && token.startsWith(JWT_COMPACT_PREFIX)) {
+      try {
+        KeycloakTokenDetails ktd = oidcTokenValidator.validateWithClaims(token);
+        if (jitProvisioner != null) {
+          jitProvisioner.provision(ktd.getUsername(), ktd.getEmail());
+        }
+        if (roleSyncer != null) {
+          roleSyncer.syncRoles(ktd.getUsername(), ktd.getRealmRoles());
+        }
+        final String dremioToken =
+            DremioFlightAuthUtils.createUserSessionWithTokenAndProperties(
+                tokenManagerProvider, ktd.getUsername());
+        return createAuthResultWithBearerToken(dremioToken);
+      } catch (ParseException | IllegalArgumentException | IOException e) {
+        LOGGER.error("Keycloak JWT bearer validation failed in Flight", e);
+        throw CallStatus.UNAUTHENTICATED.toRuntimeException();
+      }
+    }
     try {
       tokenManagerProvider.get().validateToken(token);
       return createAuthResultWithBearerToken(token);
