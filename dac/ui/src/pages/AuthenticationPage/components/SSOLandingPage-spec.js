@@ -17,6 +17,25 @@ import { shallow } from "enzyme";
 import localStorageUtils from "#oss/utils/storageUtils/localStorageUtils";
 import { SSOLandingPage } from "./SSOLandingPage";
 
+const ADMIN_PERMISSIONS = {
+  canUploadProfiles: true,
+  canDownloadProfiles: true,
+  canEmailForSupport: true,
+  canChatForSupport: true,
+  canViewAllJobs: true,
+  canCreateUser: true,
+  canCreateRole: true,
+  canCreateSource: true,
+  canUploadFile: true,
+  canManageNodeActivity: true,
+  canManageEngines: true,
+  canManageQueues: true,
+  canManageEngineRouting: true,
+  canManageSupportSettings: true,
+  canConfigureSecurity: true,
+  canRunDiagnostic: true,
+};
+
 describe("SSOLandingPage", () => {
   let navigateStub;
   let getHashStub;
@@ -35,7 +54,7 @@ describe("SSOLandingPage", () => {
     sinon.restore();
   });
 
-  it("should call setUserData with token, userName and admin and navigate to /", () => {
+  it("should call setUserData with token, userName, admin and permissions and navigate to /", () => {
     getHashStub.returns("#token=abc123&userName=testuser&admin=true");
     const wrapper = shallow(<SSOLandingPage />);
     wrapper.instance().componentDidMount();
@@ -43,11 +62,12 @@ describe("SSOLandingPage", () => {
       token: "abc123",
       userName: "testuser",
       admin: true,
+      permissions: ADMIN_PERMISSIONS,
     });
     expect(navigateStub).to.have.been.calledWith("/");
   });
 
-  it("should set admin to false when admin=false in hash", () => {
+  it("should set admin to false and empty permissions when admin=false in hash", () => {
     getHashStub.returns("#token=abc123&userName=testuser&admin=false");
     const wrapper = shallow(<SSOLandingPage />);
     wrapper.instance().componentDidMount();
@@ -55,6 +75,7 @@ describe("SSOLandingPage", () => {
       token: "abc123",
       userName: "testuser",
       admin: false,
+      permissions: {},
     });
     expect(navigateStub).to.have.been.calledWith("/");
   });
@@ -67,6 +88,7 @@ describe("SSOLandingPage", () => {
       token: "abc=123",
       userName: "test@user",
       admin: true,
+      permissions: ADMIN_PERMISSIONS,
     });
     expect(navigateStub).to.have.been.calledWith("/");
   });
@@ -79,6 +101,7 @@ describe("SSOLandingPage", () => {
       token: "abc123",
       userName: null,
       admin: false,
+      permissions: {},
     });
     expect(navigateStub).to.have.been.calledWith("/");
   });

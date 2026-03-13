@@ -39,7 +39,27 @@ export class SSOLandingPage extends Component {
         : null;
       const adminMatch = hash.match(/[#&]admin=([^&]+)/);
       const admin = adminMatch ? adminMatch[1] === "true" : false;
-      localStorageUtils.setUserData({ token, userName, admin });
+      const permissions = admin
+        ? {
+            canUploadProfiles: true,
+            canDownloadProfiles: true,
+            canEmailForSupport: true,
+            canChatForSupport: true,
+            canViewAllJobs: true,
+            canCreateUser: true,
+            canCreateRole: true,
+            canCreateSource: true,
+            canUploadFile: true,
+            canManageNodeActivity: true,
+            canManageEngines: true,
+            canManageQueues: true,
+            canManageEngineRouting: true,
+            canManageSupportSettings: true,
+            canConfigureSecurity: true,
+            canRunDiagnostic: true,
+          }
+        : {};
+      localStorageUtils.setUserData({ token, userName, admin, permissions });
       SSOLandingPage._navigate("/");
     } else {
       SSOLandingPage._navigate(LOGIN_PATH);
