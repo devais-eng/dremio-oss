@@ -7,7 +7,7 @@
 - ✅ **v1.2 GitHub Actions Docker Distribution** — Phases 9-11 (shipped 2026-02-21)
 - ✅ **v1.3 Privilege Context & Enforcement** — Phases 12-20 (shipped 2026-02-24)
 - ✅ **v1.4 RBAC Issue Hardening** — Phases 21-29 (shipped 2026-03-11)
-- 🚧 **v1.5 Open-Source RDBMS JDBC Plugin** — Phases 30-32 (in progress)
+- 🚧 **v1.5 Open-Source RDBMS JDBC Plugin** — Phases 30-33 (in progress)
 
 ## Phases
 
@@ -87,6 +87,7 @@ See `milestones/v1.4-ROADMAP.md` for full phase details.
 - [x] **Phase 30: Base JDBC Framework** - Module structure, HikariCP pooling, schema discovery, type mapping, Arrow conversion, basic pushdown, health check (completed 2026-03-12)
 - [x] **Phase 31: PostgreSQL Connector** - POSTGRES_DB source type with full PG type mapping, SSL/TLS, UI form, Testcontainers tests (completed 2026-03-13)
 - [ ] **Phase 32: Oracle Connector** - ORACLE_DB source type with full Oracle type mapping, NUMBER handling, SSL/TLS, UI form, Testcontainers tests
+- [ ] **Phase 33: Advanced Query Pushdown Hardening** - PreparedStatement parameterization, expression expansion, ORDER BY, TopN, aggregation pushdown
 
 ## Phase Details
 
@@ -136,6 +137,24 @@ Plans:
 - [ ] 32-01-PLAN.md — Oracle connector source code: base SqlBuilder pluggability, OracleConf, OracleSchemaFetcher, OracleSqlBuilder, UI layout, icons, Maven wiring
 - [ ] 32-02-PLAN.md — Testcontainers integration tests: type roundtrips, schema discovery, pushdown verification against gvenzl/oracle-xe:21-slim
 
+### Phase 33: Advanced Query Pushdown Hardening
+**Goal**: Harden and extend JDBC query pushdown for both PostgreSQL and Oracle sources — PreparedStatement parameterization, expression expansion (IN, BETWEEN, arithmetic, COALESCE, NULLIF), ORDER BY pushdown, TopN (ORDER BY + LIMIT), and aggregation pushdown (GROUP BY + COUNT/SUM/MIN/MAX/AVG)
+**Depends on**: Phase 32
+**Requirements**: PUSH-01, PUSH-02, PUSH-03
+**Success Criteria** (what must be TRUE):
+  1. All WHERE clause literal values are sent as PreparedStatement bind parameters (? placeholders), not string-interpolated
+  2. RexToSqlString handles IN (via OR-of-EQUALS detection), BETWEEN, arithmetic (+,-,*,/), COALESCE, NULLIF, LIKE, IS NULL, IS NOT NULL
+  3. ORDER BY pushdown: SortPrel above JdbcScanPrel is absorbed into the scan with explicit NULLS FIRST/LAST
+  4. TopN: ORDER BY + LIMIT combined in SQL when both SortPrel and LimitPrel are above JdbcScanPrel
+  5. Aggregation pushdown: single-phase HashAggPrel/StreamAggPrel above JdbcScanPrel generates GROUP BY + aggregate SELECT
+  6. SqlBuilder produces correct SQL for both PostgreSQL (LIMIT N) and Oracle (FETCH FIRST N ROWS ONLY) with ORDER BY
+  7. Testcontainers integration tests verify pushdown for both PG and Oracle
+**Plans:** 3 plans
+Plans:
+- [ ] 33-01-PLAN.md — PreparedStatement bind parameters, RexToSqlString extraction and expression expansion, SqlBuildRequest DTO, pipeline parameterization
+- [ ] 33-02-PLAN.md — ORDER BY pushdown (JdbcPushSortIntoScan) and TopN (ORDER BY + LIMIT combined), integration tests
+- [ ] 33-03-PLAN.md — Aggregation pushdown (JdbcPushAggIntoScan: GROUP BY + COUNT/SUM/MIN/MAX/AVG), integration tests
+
 ## Quick Tasks
 
 Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for details.
@@ -150,7 +169,7 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 30 → 31 → 32
+Phases execute in numeric order: 30 → 31 → 32 → 33
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -186,3 +205,4 @@ Phases execute in numeric order: 30 → 31 → 32
 | 30. Base JDBC Framework | v1.5 | Complete    | 2026-03-12 | - |
 | 31. PostgreSQL Connector | v1.5 | Complete    | 2026-03-13 | - |
 | 32. Oracle Connector | v1.5 | 0/? | Not started | - |
+| 33. Advanced Query Pushdown Hardening | v1.5 | 0/3 | Not started | - |
