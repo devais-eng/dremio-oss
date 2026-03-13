@@ -4,8 +4,8 @@ milestone: v1.5
 milestone_name: Keycloak IdP Integration
 status: completed
 stopped_at: Completed 35-01-PLAN.md
-last_updated: "2026-03-13T11:09:02.391Z"
-last_activity: "2026-03-12 — Completed 34-02: SSOLandingPage token extraction + LoginFormContainer SSO button (UI-01, UI-02, UI-03)"
+last_updated: "2026-03-13T11:13:31.433Z"
+last_activity: "2026-03-13 — Completed 35-01: Arrow Flight JWT authentication with JIT provisioning and role sync (JDBC-01, JDBC-02)"
 progress:
   total_phases: 6
   completed_phases: 6

@@ -46,8 +46,8 @@ Requirements for Keycloak IdP Integration. Each maps to roadmap phases.
 
 ### JDBC/ODBC
 
-- [ ] **JDBC-01**: Arrow Flight credential validator accepts Keycloak JWT as password (detects `eyJ` prefix, validates via JWKS)
-- [ ] **JDBC-02**: JIT provisioning triggers on JDBC/ODBC first login (user auto-created if not exists)
+- [x] **JDBC-01**: Arrow Flight credential validator accepts Keycloak JWT as password (detects `eyJ` prefix, validates via JWKS)
+- [x] **JDBC-02**: JIT provisioning triggers on JDBC/ODBC first login (user auto-created if not exists)
 
 ### Internal Auth Coexistence
 
@@ -119,8 +119,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | UI-01 | Phase 34 | Complete |
 | UI-02 | Phase 34 | Complete |
 | UI-03 | Phase 34 | Complete |
-| JDBC-01 | Phase 35 | Pending |
-| JDBC-02 | Phase 35 | Pending |
+| JDBC-01 | Phase 35 | Complete |
+| JDBC-02 | Phase 35 | Complete |
 | LOUT-01 | Phase 35 | Pending |
 
 **Coverage:**

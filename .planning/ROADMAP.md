@@ -247,4 +247,4 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 32. JIT Provisioning + Role Mapping | v1.5 | 4/4 | Complete | 2026-03-12 |
 | 33. OIDC Redirect Web Flow | v1.5 | 2/2 | Complete | 2026-03-12 |
 | 34. Web UI SSO Button | v1.5 | 2/2 | Complete | 2026-03-12 |
-| 35. Arrow Flight JWT Authentication | 1/1 | Complete   | 2026-03-13 | - |
+| 35. Arrow Flight JWT Authentication | 1/1 | Complete    | 2026-03-13 | - |
