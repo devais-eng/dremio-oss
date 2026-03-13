@@ -29,6 +29,7 @@ import com.dremio.plugins.jdbc.exec.JdbcGroupScan;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelOptTable;
@@ -43,9 +44,10 @@ import org.apache.calcite.rel.metadata.RelMetadataQuery;
  *
  * <p>Carries the pushdown state accumulated during the PHYSICAL planning phase:
  * <ul>
- *   <li>{@link #whereClause} — SQL WHERE predicate pushed down from a FilterPrel</li>
- *   <li>{@link #limit} — row limit pushed down from a LimitPrel</li>
- *   <li>projected columns — columns to project (inherited from ScanPrelBase)</li>
+ *   <li>{@link #whereClause} -- SQL WHERE predicate pushed down from a FilterPrel</li>
+ *   <li>{@link #bindParams} -- ordered bind parameters for WHERE clause ? placeholders</li>
+ *   <li>{@link #limit} -- row limit pushed down from a LimitPrel</li>
+ *   <li>projected columns -- columns to project (inherited from ScanPrelBase)</li>
  * </ul>
  *
  * <p>The {@link #getPhysicalOperator} method assembles the final SQL string via
@@ -56,6 +58,7 @@ public class JdbcScanPrel extends ScanPrelBase {
   private final String schemaName;
   private final String tableName;
   private final String whereClause;
+  private final List<BindParam> bindParams;
   private final Integer limit;
 
   public JdbcScanPrel(
@@ -72,6 +75,26 @@ public class JdbcScanPrel extends ScanPrelBase {
       String tableName,
       String whereClause,
       Integer limit) {
+    this(cluster, traitSet, table, pluginId, dataset, projectedColumns,
+        observedRowcountAdjustment, hints, runtimeFilters,
+        schemaName, tableName, whereClause, Collections.emptyList(), limit);
+  }
+
+  public JdbcScanPrel(
+      RelOptCluster cluster,
+      RelTraitSet traitSet,
+      RelOptTable table,
+      StoragePluginId pluginId,
+      TableMetadata dataset,
+      List<SchemaPath> projectedColumns,
+      double observedRowcountAdjustment,
+      List<RelHint> hints,
+      List<Info> runtimeFilters,
+      String schemaName,
+      String tableName,
+      String whereClause,
+      List<BindParam> bindParams,
+      Integer limit) {
     super(
         cluster,
         traitSet,
@@ -85,6 +108,7 @@ public class JdbcScanPrel extends ScanPrelBase {
     this.schemaName = Preconditions.checkNotNull(schemaName, "schemaName");
     this.tableName = Preconditions.checkNotNull(tableName, "tableName");
     this.whereClause = whereClause;
+    this.bindParams = ImmutableList.copyOf(bindParams != null ? bindParams : Collections.emptyList());
     this.limit = limit;
   }
 
@@ -93,7 +117,7 @@ public class JdbcScanPrel extends ScanPrelBase {
   // -------------------------------------------------------------------------
 
   /**
-   * Returns a new JdbcScanPrel with updated projected columns, preserving filter and limit.
+   * Returns a new JdbcScanPrel with updated projected columns, preserving filter, bindParams and limit.
    */
   @Override
   public JdbcScanPrel cloneWithProject(List<SchemaPath> projection) {
@@ -110,6 +134,7 @@ public class JdbcScanPrel extends ScanPrelBase {
         schemaName,
         tableName,
         whereClause,
+        bindParams,
         limit);
   }
 
@@ -118,14 +143,14 @@ public class JdbcScanPrel extends ScanPrelBase {
    * Backward-compatible signature (no bind params).
    */
   public JdbcScanPrel cloneWithFilter(String newWhereClause) {
-    return cloneWithFilter(newWhereClause, java.util.Collections.emptyList());
+    return cloneWithFilter(newWhereClause, Collections.emptyList());
   }
 
   /**
    * Returns a new JdbcScanPrel with an updated WHERE clause and bind parameters,
    * preserving projection and limit.
    */
-  public JdbcScanPrel cloneWithFilter(String newWhereClause, java.util.List<BindParam> newBindParams) {
+  public JdbcScanPrel cloneWithFilter(String newWhereClause, List<BindParam> newBindParams) {
     return new JdbcScanPrel(
         getCluster(),
         getTraitSet(),
@@ -139,11 +164,12 @@ public class JdbcScanPrel extends ScanPrelBase {
         schemaName,
         tableName,
         newWhereClause,
+        newBindParams,
         limit);
   }
 
   /**
-   * Returns a new JdbcScanPrel with an updated LIMIT, preserving filter and projection.
+   * Returns a new JdbcScanPrel with an updated LIMIT, preserving filter, bindParams and projection.
    */
   public JdbcScanPrel cloneWithLimit(int newLimit) {
     return new JdbcScanPrel(
@@ -159,6 +185,7 @@ public class JdbcScanPrel extends ScanPrelBase {
         schemaName,
         tableName,
         whereClause,
+        bindParams,
         newLimit);
   }
 
@@ -216,6 +243,7 @@ public class JdbcScanPrel extends ScanPrelBase {
         schemaName,
         tableName,
         whereClause,
+        bindParams,
         limit);
   }
 
@@ -225,6 +253,7 @@ public class JdbcScanPrel extends ScanPrelBase {
     pw.itemIf("schema", schemaName, schemaName != null);
     pw.itemIf("table", tableName, tableName != null);
     pw.itemIf("where", whereClause, whereClause != null);
+    pw.itemIf("bindParams", bindParams.size(), !bindParams.isEmpty());
     pw.itemIf("limit", limit, limit != null);
     return pw;
   }
@@ -244,7 +273,17 @@ public class JdbcScanPrel extends ScanPrelBase {
     SqlBuilder sb = (rawPlugin instanceof JdbcStoragePlugin)
         ? ((JdbcStoragePlugin) rawPlugin).createSqlBuilder()
         : new SqlBuilder();
-    String sql = sb.buildSql(schemaName, tableName, getProjectedColumns(), whereClause, limit);
+
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema(schemaName)
+        .table(tableName)
+        .projectedColumns(getProjectedColumns())
+        .where(whereClause)
+        .bindParams(bindParams)
+        .limit(limit)
+        .build();
+    String sql = sb.buildSql(request);
+
     List<String> tableSchemaPath = getTableMetadata().getName().getPathComponents();
 
     // Schema may be null if the catalog hasn't completed a full metadata refresh yet.
@@ -273,7 +312,8 @@ public class JdbcScanPrel extends ScanPrelBase {
         getProjectedColumns(),
         fullSchema,
         getPluginId(),
-        tableSchemaPath);
+        tableSchemaPath,
+        bindParams);
   }
 
   // -------------------------------------------------------------------------
@@ -290,6 +330,10 @@ public class JdbcScanPrel extends ScanPrelBase {
 
   public String getWhereClause() {
     return whereClause;
+  }
+
+  public List<BindParam> getBindParams() {
+    return bindParams;
   }
 
   public Integer getLimit() {

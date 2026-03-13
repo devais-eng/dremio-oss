@@ -21,8 +21,8 @@ import com.dremio.exec.physical.base.AbstractSubScan;
 import com.dremio.exec.physical.base.OpProps;
 import com.dremio.exec.proto.UserBitShared.CoreOperatorType;
 import com.dremio.exec.record.BatchSchema;
+import com.dremio.plugins.jdbc.planning.BindParam;
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import java.util.Collections;
@@ -32,9 +32,9 @@ import java.util.List;
  * Serializable sub-scan that carries all the information needed by {@link JdbcRecordReader} to
  * execute a single JDBC query fragment.
  *
- * <p>The {@code sql} field holds the fully constructed SELECT statement. In plan 02 this is a
- * plain {@code SELECT * FROM schema.table} query; later plans (03) will add WHERE / LIMIT clauses
- * via pushdown.
+ * <p>The {@code sql} field holds the fully constructed SELECT statement with {@code ?} placeholders.
+ * The {@code bindParams} field carries the ordered bind parameter values that correspond to the
+ * placeholders. These are set on the {@link java.sql.PreparedStatement} before execution.
  *
  * <p>JSON serialization follows the same {@code @JsonTypeName} / {@code @JsonCreator} pattern used
  * by {@code InfoSchemaSubScan} and {@code ElasticsearchSubScan}.
@@ -45,6 +45,7 @@ public class JdbcSubScan extends AbstractSubScan {
   private final String sql;
   private final List<SchemaPath> columns;
   private final StoragePluginId pluginId;
+  private final List<BindParam> bindParams;
 
   /**
    * JSON deserialization constructor.
@@ -52,9 +53,10 @@ public class JdbcSubScan extends AbstractSubScan {
    * @param props operator properties (memory, parallelism metadata)
    * @param fullSchema the full table schema (Arrow BatchSchema)
    * @param tableSchemaPath the table path used for catalog look-ups
-   * @param sql the SQL query to execute
+   * @param sql the SQL query to execute (may contain ? placeholders)
    * @param columns projected columns, or null / star for all columns
    * @param pluginId reference to the owning JDBC storage plugin
+   * @param bindParams ordered bind parameters for PreparedStatement ? placeholders
    */
   @JsonCreator
   public JdbcSubScan(
@@ -63,11 +65,26 @@ public class JdbcSubScan extends AbstractSubScan {
       @JsonProperty("tableSchemaPath") List<String> tableSchemaPath,
       @JsonProperty("sql") String sql,
       @JsonProperty("columns") List<SchemaPath> columns,
-      @JsonProperty("pluginId") StoragePluginId pluginId) {
+      @JsonProperty("pluginId") StoragePluginId pluginId,
+      @JsonProperty("bindParams") List<BindParam> bindParams) {
     super(props, fullSchema, tableSchemaPath);
     this.sql = sql;
     this.columns = columns != null ? columns : Collections.emptyList();
     this.pluginId = pluginId;
+    this.bindParams = bindParams != null ? bindParams : Collections.emptyList();
+  }
+
+  /**
+   * Backward-compatible constructor without bindParams.
+   */
+  public JdbcSubScan(
+      OpProps props,
+      BatchSchema fullSchema,
+      List<String> tableSchemaPath,
+      String sql,
+      List<SchemaPath> columns,
+      StoragePluginId pluginId) {
+    this(props, fullSchema, tableSchemaPath, sql, columns, pluginId, Collections.emptyList());
   }
 
   /** The SQL SELECT statement that this sub-scan should execute. */
@@ -83,6 +100,11 @@ public class JdbcSubScan extends AbstractSubScan {
   /** The storage plugin that owns the pool needed to execute {@link #getSql()}. */
   public StoragePluginId getPluginId() {
     return pluginId;
+  }
+
+  /** Returns the ordered bind parameters for PreparedStatement ? placeholders. */
+  public List<BindParam> getBindParams() {
+    return bindParams;
   }
 
   @Override

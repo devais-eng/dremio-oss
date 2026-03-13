@@ -20,7 +20,9 @@ import com.dremio.exec.expr.TypeHelper;
 import com.dremio.exec.record.BatchSchema;
 import com.dremio.exec.store.AbstractRecordReader;
 import com.dremio.plugins.jdbc.exec.JdbcSubScan;
+import com.dremio.plugins.jdbc.planning.BindParam;
 import com.dremio.plugins.jdbc.pool.JdbcConnectionPool;
+import org.apache.calcite.sql.type.SqlTypeName;
 import com.dremio.sabot.exec.context.OperatorContext;
 import com.dremio.sabot.op.scan.OutputMutator;
 import java.math.BigDecimal;
@@ -152,6 +154,7 @@ public class JdbcRecordReader extends AbstractRecordReader {
       if (queryTimeoutSec > 0) {
         stmt.setQueryTimeout(queryTimeoutSec);
       }
+      setBindParameters(stmt, config.getBindParams());
       stmt.setFetchSize(numRowsPerBatch);
       rs = stmt.executeQuery();
     } catch (SQLException e) {
@@ -218,6 +221,85 @@ public class JdbcRecordReader extends AbstractRecordReader {
         logger.warn("Error closing JDBC Connection", e);
       }
       conn = null;
+    }
+  }
+
+  /**
+   * Sets bind parameters on the PreparedStatement before execution.
+   *
+   * <p>Dispatches to the correct {@code stmt.setXxx()} method based on each
+   * {@link BindParam#getTypeName()}. Null values are handled via
+   * {@code stmt.setNull()} with {@link java.sql.Types#NULL}.
+   *
+   * @param stmt the prepared statement to set parameters on
+   * @param params ordered bind parameters (one per ? placeholder)
+   * @throws SQLException if a database access error occurs
+   */
+  private void setBindParameters(PreparedStatement stmt, List<BindParam> params) throws SQLException {
+    if (params == null || params.isEmpty()) {
+      return;
+    }
+    for (int i = 0; i < params.size(); i++) {
+      int paramIndex = i + 1; // JDBC uses 1-based indexing
+      BindParam param = params.get(i);
+      if (param.getValue() == null) {
+        stmt.setNull(paramIndex, java.sql.Types.NULL);
+        continue;
+      }
+      SqlTypeName typeName = param.getTypeName();
+      Object value = param.getValue();
+      switch (typeName) {
+        case TINYINT:
+        case SMALLINT:
+        case INTEGER:
+          stmt.setInt(paramIndex, ((Number) value).intValue());
+          break;
+        case BIGINT:
+          stmt.setLong(paramIndex, ((Number) value).longValue());
+          break;
+        case FLOAT:
+        case REAL:
+          stmt.setFloat(paramIndex, ((Number) value).floatValue());
+          break;
+        case DOUBLE:
+          stmt.setDouble(paramIndex, ((Number) value).doubleValue());
+          break;
+        case DECIMAL:
+          if (value instanceof BigDecimal) {
+            stmt.setBigDecimal(paramIndex, (BigDecimal) value);
+          } else {
+            stmt.setBigDecimal(paramIndex, new BigDecimal(value.toString()));
+          }
+          break;
+        case CHAR:
+        case VARCHAR:
+          stmt.setString(paramIndex, value.toString());
+          break;
+        case DATE:
+          if (value instanceof Number) {
+            stmt.setDate(paramIndex, new java.sql.Date(((Number) value).longValue()));
+          } else {
+            stmt.setObject(paramIndex, value);
+          }
+          break;
+        case TIME:
+          if (value instanceof Number) {
+            stmt.setTime(paramIndex, new java.sql.Time(((Number) value).longValue()));
+          } else {
+            stmt.setObject(paramIndex, value);
+          }
+          break;
+        case TIMESTAMP:
+          if (value instanceof Number) {
+            stmt.setTimestamp(paramIndex, new java.sql.Timestamp(((Number) value).longValue()));
+          } else {
+            stmt.setObject(paramIndex, value);
+          }
+          break;
+        default:
+          stmt.setObject(paramIndex, value);
+          break;
+      }
     }
   }
 

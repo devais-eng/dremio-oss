@@ -29,6 +29,7 @@ import com.dremio.exec.planner.fragment.ExecutionNodeMap;
 import com.dremio.exec.proto.UserBitShared.CoreOperatorType;
 import com.dremio.exec.record.BatchSchema;
 import com.dremio.exec.store.schedule.SimpleCompleteWork;
+import com.dremio.plugins.jdbc.planning.BindParam;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Objects;
@@ -41,9 +42,10 @@ import java.util.List;
  *
  * <p>JDBC sources are always single-node: {@link #getMaxParallelizationWidth()} returns 1 and
  * {@link #getSplits} returns a single unit of work. The {@link #getSpecificScan} method creates a
- * {@link JdbcSubScan} that carries the SQL query and schema to the executor thread.
+ * {@link JdbcSubScan} that carries the SQL query, schema, and bind parameters to the executor
+ * thread.
  *
- * <p>Modelled on {@code InfoSchemaGroupScan} — the simplest GroupScan in the codebase.
+ * <p>Modelled on {@code InfoSchemaGroupScan} -- the simplest GroupScan in the codebase.
  */
 public class JdbcGroupScan extends AbstractBase implements GroupScan<SimpleCompleteWork> {
 
@@ -52,6 +54,7 @@ public class JdbcGroupScan extends AbstractBase implements GroupScan<SimpleCompl
   private final BatchSchema schema;
   private final StoragePluginId pluginId;
   private final List<String> tableSchemaPath;
+  private final List<BindParam> bindParams;
 
   /**
    * Creates a new group scan.
@@ -62,6 +65,7 @@ public class JdbcGroupScan extends AbstractBase implements GroupScan<SimpleCompl
    * @param schema the full table schema
    * @param pluginId identifies the owning JDBC storage plugin
    * @param tableSchemaPath path components used for catalog resolution
+   * @param bindParams ordered bind parameters for PreparedStatement ? placeholders
    */
   @JsonCreator
   public JdbcGroupScan(
@@ -70,13 +74,28 @@ public class JdbcGroupScan extends AbstractBase implements GroupScan<SimpleCompl
       @JsonProperty("columns") List<SchemaPath> columns,
       @JsonProperty("schema") BatchSchema schema,
       @JsonProperty("pluginId") StoragePluginId pluginId,
-      @JsonProperty("tableSchemaPath") List<String> tableSchemaPath) {
+      @JsonProperty("tableSchemaPath") List<String> tableSchemaPath,
+      @JsonProperty("bindParams") List<BindParam> bindParams) {
     super(props);
     this.sql = sql;
     this.columns = columns;
     this.schema = schema;
     this.pluginId = pluginId;
     this.tableSchemaPath = tableSchemaPath;
+    this.bindParams = bindParams != null ? bindParams : Collections.emptyList();
+  }
+
+  /**
+   * Backward-compatible constructor without bindParams.
+   */
+  public JdbcGroupScan(
+      OpProps props,
+      String sql,
+      List<SchemaPath> columns,
+      BatchSchema schema,
+      StoragePluginId pluginId,
+      List<String> tableSchemaPath) {
+    this(props, sql, columns, schema, pluginId, tableSchemaPath, Collections.emptyList());
   }
 
   public String getSql() {
@@ -93,6 +112,10 @@ public class JdbcGroupScan extends AbstractBase implements GroupScan<SimpleCompl
 
   public List<String> getTableSchemaPath() {
     return tableSchemaPath;
+  }
+
+  public List<BindParam> getBindParams() {
+    return bindParams;
   }
 
   // -------------------------------------------------------------------------
@@ -129,7 +152,7 @@ public class JdbcGroupScan extends AbstractBase implements GroupScan<SimpleCompl
   /** Creates the {@link JdbcSubScan} that will be sent to the executor fragment. */
   @Override
   public SubScan getSpecificScan(List<SimpleCompleteWork> work) throws ExecutionSetupException {
-    return new JdbcSubScan(props, schema, tableSchemaPath, sql, columns, pluginId);
+    return new JdbcSubScan(props, schema, tableSchemaPath, sql, columns, pluginId, bindParams);
   }
 
   @Override
