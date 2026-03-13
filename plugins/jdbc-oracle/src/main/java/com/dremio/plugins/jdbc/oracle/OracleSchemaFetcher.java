@@ -45,6 +45,7 @@ public class OracleSchemaFetcher extends JdbcSchemaFetcher {
   /**
    * Oracle JDBC type code for BINARY_FLOAT (single-precision IEEE 754).
    * Not defined in {@link java.sql.Types}; specific to the Oracle JDBC driver.
+   * The driver may report this as 100 (OracleTypes.BINARY_FLOAT) or -100
    */
   private static final int ORACLE_BINARY_FLOAT_TYPE = 100;
 
@@ -53,6 +54,13 @@ public class OracleSchemaFetcher extends JdbcSchemaFetcher {
    * Not defined in {@link java.sql.Types}; specific to the Oracle JDBC driver.
    */
   private static final int ORACLE_BINARY_DOUBLE_TYPE = 101;
+
+  /**
+   * Oracle JDBC type code for TIMESTAMP WITH TIME ZONE.
+   * The Oracle driver uses -101 (OracleTypes.TIMESTAMPTZ) instead of the standard
+   * {@link java.sql.Types#TIMESTAMP_WITH_TIMEZONE} (2014).
+   */
+  private static final int ORACLE_TIMESTAMPTZ_TYPE = -101;
 
   /**
    * Scale value Oracle uses to represent FLOAT columns (e.g., {@code FLOAT(126)}) in
@@ -104,15 +112,9 @@ public class OracleSchemaFetcher extends JdbcSchemaFetcher {
    */
   @Override
   protected ArrowType mapJdbcType(int jdbcType, String typeName, int precision, int scale) {
-    // Oracle BINARY_FLOAT — single-precision IEEE 754
-    if (jdbcType == ORACLE_BINARY_FLOAT_TYPE) {
-      return new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE);
-    }
-    // Oracle BINARY_DOUBLE — double-precision IEEE 754
-    if (jdbcType == ORACLE_BINARY_DOUBLE_TYPE) {
-      return new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
-    }
-    // Type-name based checks (covers CLOB, NCLOB, NVARCHAR2, NCHAR)
+    // Type-name based checks first — typeName is more specific than jdbcType codes.
+    // Oracle FLOAT (NUMBER-based, 126 binary digits) shares the same JDBC type code as
+    // BINARY_FLOAT in some driver versions, so typeName is the only reliable discriminator.
     if (typeName != null) {
       String lower = typeName.toLowerCase();
       switch (lower) {
@@ -120,9 +122,24 @@ public class OracleSchemaFetcher extends JdbcSchemaFetcher {
           return new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE);
         case "binary_double":
           return new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
+        case "float":
+          // Oracle FLOAT is NUMBER-based with up to 126 binary digits — map to DOUBLE
+          return new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
         default:
           break;
       }
+    }
+    // Oracle BINARY_FLOAT — single-precision IEEE 754 (fallback for null typeName)
+    if (jdbcType == ORACLE_BINARY_FLOAT_TYPE) {
+      return new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE);
+    }
+    // Oracle BINARY_DOUBLE — double-precision IEEE 754 (fallback for null typeName)
+    if (jdbcType == ORACLE_BINARY_DOUBLE_TYPE) {
+      return new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
+    }
+    // Oracle TIMESTAMP WITH TIME ZONE — driver uses -101 instead of standard Types.TIMESTAMP_WITH_TIMEZONE
+    if (jdbcType == ORACLE_TIMESTAMPTZ_TYPE) {
+      return new ArrowType.Timestamp(TimeUnit.MILLISECOND, null);
     }
     // CLOB / NCLOB — large character objects → VARCHAR
     if (jdbcType == Types.CLOB || jdbcType == Types.NCLOB) {

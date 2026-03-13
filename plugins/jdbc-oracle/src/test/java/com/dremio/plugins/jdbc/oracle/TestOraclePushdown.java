@@ -217,7 +217,7 @@ public class TestOraclePushdown {
    */
   @Test
   public void testPushdownQueryExecutesAgainstOracle() throws Exception {
-    String sql = SQL_BUILDER.buildSql("TEST_USER", "pushdown_test", null, null, null);
+    String sql = SQL_BUILDER.buildSql("TEST_USER", "PUSHDOWN_TEST", null, null, null);
     try (Connection conn = DriverManager.getConnection(
             OracleTestContainer.getJdbcUrl(),
             OracleTestContainer.getUsername(),
@@ -241,7 +241,7 @@ public class TestOraclePushdown {
   @Test
   public void testFilterPushdownResultCorrectness() throws Exception {
     // Oracle column names are UPPERCASE
-    String sql = SQL_BUILDER.buildSql("TEST_USER", "pushdown_test", null, "\"AGE\" > 28", null);
+    String sql = SQL_BUILDER.buildSql("TEST_USER", "PUSHDOWN_TEST", null, "\"AGE\" > 28", null);
     assertTrue("SQL must contain WHERE", sql.contains("WHERE"));
     try (Connection conn = DriverManager.getConnection(
             OracleTestContainer.getJdbcUrl(),
@@ -264,7 +264,7 @@ public class TestOraclePushdown {
    */
   @Test
   public void testLimitPushdownResultCorrectness() throws Exception {
-    String sql = SQL_BUILDER.buildSql("TEST_USER", "pushdown_test", null, null, 2);
+    String sql = SQL_BUILDER.buildSql("TEST_USER", "PUSHDOWN_TEST", null, null, 2);
     assertTrue("SQL must contain FETCH FIRST 2 ROWS ONLY", sql.contains("FETCH FIRST 2 ROWS ONLY"));
     try (Connection conn = DriverManager.getConnection(
             OracleTestContainer.getJdbcUrl(),
@@ -287,7 +287,7 @@ public class TestOraclePushdown {
   public void testProjectionPushdownResultCorrectness() throws Exception {
     // Project only the NAME column (Oracle UPPERCASE)
     List<SchemaPath> cols = Collections.singletonList(SchemaPath.getSimplePath("NAME"));
-    String sql = SQL_BUILDER.buildSql("TEST_USER", "pushdown_test", cols, null, null);
+    String sql = SQL_BUILDER.buildSql("TEST_USER", "PUSHDOWN_TEST", cols, null, null);
     assertTrue("SQL must project 'NAME'", sql.contains("\"NAME\""));
     try (Connection conn = DriverManager.getConnection(
             OracleTestContainer.getJdbcUrl(),
@@ -309,7 +309,7 @@ public class TestOraclePushdown {
     List<SchemaPath> cols = Arrays.asList(
         SchemaPath.getSimplePath("NAME"),
         SchemaPath.getSimplePath("AGE"));
-    String sql = SQL_BUILDER.buildSql("TEST_USER", "pushdown_test", cols, "\"AGE\" >= 30", 2);
+    String sql = SQL_BUILDER.buildSql("TEST_USER", "PUSHDOWN_TEST", cols, "\"AGE\" >= 30", 2);
     assertTrue("SQL must project 'NAME'", sql.contains("\"NAME\""));
     assertTrue("SQL must contain WHERE", sql.contains("WHERE"));
     assertTrue("SQL must contain FETCH FIRST", sql.contains("FETCH FIRST"));
