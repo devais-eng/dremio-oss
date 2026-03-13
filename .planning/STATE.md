@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
-status: in_progress
-stopped_at: Completed 33-02-PLAN.md
-last_updated: "2026-03-13T15:34:26Z"
-last_activity: "2026-03-13 — Completed Phase 33 Plan 02 (ORDER BY and TopN pushdown)"
+status: complete
+stopped_at: Completed 33-03-PLAN.md
+last_updated: "2026-03-13T15:49:38Z"
+last_activity: "2026-03-13 — Completed Phase 33 Plan 03 (Aggregation pushdown) — v1.5 milestone complete"
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 4
   total_plans: 9
-  completed_plans: 8
-  percent: 89
+  completed_plans: 9
+  percent: 100
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.5 Phase 33 — Advanced Query Pushdown Hardening
+**Current focus:** v1.5 Complete — All phases delivered
 
 ## Current Position
 
 Phase: 33 of 33 (Advanced Query Pushdown Hardening)
-Plan: 2 of 3 complete (33-02 ORDER BY and TopN pushdown)
-Status: In Progress
-Last activity: 2026-03-13 — Completed 33-02 (ORDER BY pushdown rule, TopN via sequential sort-then-limit, PG/Oracle integration tests)
+Plan: 3 of 3 complete (33-03 Aggregation pushdown)
+Status: Complete
+Last activity: 2026-03-13 — Completed 33-03 (Aggregation pushdown rule, GROUP BY + COUNT/SUM/MIN/MAX/AVG, PG/Oracle integration tests)
 
-Progress: [████████░░] 89% (8 of 9 plans complete)
+Progress: [██████████] 100% (9 of 9 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8 (v1.5)
-- Average duration: 13.5 min
-- Total execution time: 1.80 hours
+- Total plans completed: 9 (v1.5)
+- Average duration: 12.4 min
+- Total execution time: 1.88 hours
 
 **By Phase:**
 
@@ -52,9 +52,10 @@ Progress: [████████░░] 89% (8 of 9 plans complete)
 | 32-oracle-connector P02 | 1 | 4 min | 4 min |
 | 33-advanced-query-pushdown-hardening P01 | 1 | 14 min | 14 min |
 | 33-advanced-query-pushdown-hardening P02 | 1 | 17 min | 17 min |
+| 33-advanced-query-pushdown-hardening P03 | 1 | 5 min | 5 min |
 
 **Recent Trend:**
-- Last 5 plans: 13.6 min avg
+- Last 5 plans: 10.6 min avg
 - Trend: stable
 
 *Updated after each plan completion*
@@ -100,10 +101,14 @@ Progress: [████████░░] 89% (8 of 9 plans complete)
 - [Phase 33-02]: TopN uses sequential rule firing (sort absorbed first, then limit) rather than single combined rule -- reuses existing JdbcPushLimitIntoScan
 - [Phase 33-02]: SortPrel.offset/fetch always null in Dremio (SortRelBase asserts this) -- no secondary TopN path needed
 - [Phase 33-02]: Backward-compatible JdbcScanPrel constructors: old 2-arg and 3-arg delegate to full 4-arg with orderByClause
+- [Phase 33-03]: Only PHASE_1of1 aggregates pushed -- 2-phase partial/final produce incorrect results against single JDBC source
+- [Phase 33-03]: DISTINCT aggregates rejected in v1 -- graceful decline rather than incorrect SQL
+- [Phase 33-03]: Aggregation registered in PHYSICAL only (not PHYSICAL_HEP) -- structural rowType change benefits from cost-based Volcano decisions
+- [Phase 33-03]: overrideRowType mechanism in JdbcScanPrel: deriveRowType() returns override when set, enabling aggregated schema different from base table
 
 ### Pending Todos
 
-None — ORDER BY and TopN pushdown completed in Phase 33-02.
+None — v1.5 milestone complete. All phases delivered.
 
 ### Roadmap Evolution
 
@@ -116,5 +121,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-13
-Stopped at: Completed 33-02-PLAN.md — ORDER BY pushdown rule, TopN via sequential sort-then-limit, PG/Oracle integration tests
+Stopped at: Completed 33-03-PLAN.md — Aggregation pushdown (GROUP BY + COUNT/SUM/MIN/MAX/AVG) — v1.5 milestone complete
 Resume file: None
