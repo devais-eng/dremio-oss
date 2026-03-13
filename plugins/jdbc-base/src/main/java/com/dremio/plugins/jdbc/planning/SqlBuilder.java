@@ -49,6 +49,9 @@ public class SqlBuilder {
   /**
    * Builds a SQL SELECT statement from the provided pushdown components.
    *
+   * <p>This is the backward-compatible signature; it delegates to
+   * {@link #buildSql(SqlBuildRequest)} by constructing a request from the individual parameters.
+   *
    * @param schemaName       remote schema name (double-quoted in output)
    * @param tableName        remote table name (double-quoted in output)
    * @param projectedColumns columns to project; if null or empty, {@code SELECT *} is used
@@ -62,42 +65,106 @@ public class SqlBuilder {
       List<SchemaPath> projectedColumns,
       String whereClause,
       Integer limit) {
+    return buildSql(SqlBuildRequest.builder()
+        .schema(schemaName)
+        .table(tableName)
+        .projectedColumns(projectedColumns)
+        .where(whereClause)
+        .limit(limit)
+        .build());
+  }
 
+  /**
+   * Builds a SQL SELECT statement from a {@link SqlBuildRequest} DTO.
+   *
+   * <p>Assembles SQL in clause order: SELECT ... FROM ... WHERE ... GROUP BY ...
+   * ORDER BY ... LIMIT N. Subclasses may override to adjust dialect-specific syntax
+   * (e.g. Oracle's FETCH FIRST instead of LIMIT).
+   *
+   * @param request the pushdown request containing all SQL components
+   * @return syntactically complete SQL SELECT string
+   */
+  public String buildSql(SqlBuildRequest request) {
     StringBuilder sb = new StringBuilder();
 
     // SELECT list
-    if (projectedColumns == null || projectedColumns.isEmpty()) {
-      sb.append("SELECT *");
-    } else {
-      sb.append("SELECT ");
-      boolean first = true;
-      for (SchemaPath col : projectedColumns) {
-        if (!first) {
-          sb.append(", ");
-        }
-        sb.append(quoteIdentifier(col.getRootSegment().getPath()));
-        first = false;
-      }
-    }
+    appendSelectList(sb, request);
 
     // FROM clause
     sb.append(" FROM ");
-    sb.append(quoteIdentifier(schemaName));
+    sb.append(quoteIdentifier(request.getSchemaName()));
     sb.append(".");
-    sb.append(quoteIdentifier(tableName));
+    sb.append(quoteIdentifier(request.getTableName()));
 
     // Optional WHERE clause
+    String whereClause = request.getWhereClause();
     if (whereClause != null && !whereClause.isEmpty()) {
       sb.append(" WHERE ");
       sb.append(whereClause);
     }
 
+    // Optional GROUP BY clause
+    String groupBy = request.getGroupByClause();
+    if (groupBy != null && !groupBy.isEmpty()) {
+      sb.append(" GROUP BY ");
+      sb.append(groupBy);
+    }
+
+    // Optional ORDER BY clause
+    String orderBy = request.getOrderByClause();
+    if (orderBy != null && !orderBy.isEmpty()) {
+      sb.append(" ORDER BY ");
+      sb.append(orderBy);
+    }
+
     // Optional LIMIT clause
+    appendLimit(sb, request.getLimit());
+
+    return sb.toString();
+  }
+
+  /**
+   * Appends the SELECT list to the builder. Uses selectExprs (for aggregation) when
+   * present, otherwise uses projectedColumns, falling back to SELECT *.
+   */
+  protected void appendSelectList(StringBuilder sb, SqlBuildRequest request) {
+    List<String> selectExprs = request.getSelectExprs();
+    if (selectExprs != null && !selectExprs.isEmpty()) {
+      sb.append("SELECT ");
+      boolean first = true;
+      for (String expr : selectExprs) {
+        if (!first) {
+          sb.append(", ");
+        }
+        sb.append(expr);
+        first = false;
+      }
+    } else {
+      List<SchemaPath> projectedColumns = request.getProjectedColumns();
+      if (projectedColumns == null || projectedColumns.isEmpty()) {
+        sb.append("SELECT *");
+      } else {
+        sb.append("SELECT ");
+        boolean first = true;
+        for (SchemaPath col : projectedColumns) {
+          if (!first) {
+            sb.append(", ");
+          }
+          sb.append(quoteIdentifier(col.getRootSegment().getPath()));
+          first = false;
+        }
+      }
+    }
+  }
+
+  /**
+   * Appends the LIMIT clause. Standard SQL uses {@code LIMIT N}. Subclasses override
+   * for dialect-specific row-limiting syntax (e.g. Oracle's FETCH FIRST).
+   */
+  protected void appendLimit(StringBuilder sb, Integer limit) {
     if (limit != null) {
       sb.append(" LIMIT ");
       sb.append(limit);
     }
-
-    return sb.toString();
   }
 }

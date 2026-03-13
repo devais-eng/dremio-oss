@@ -115,8 +115,17 @@ public class JdbcScanPrel extends ScanPrelBase {
 
   /**
    * Returns a new JdbcScanPrel with an updated WHERE clause, preserving projection and limit.
+   * Backward-compatible signature (no bind params).
    */
   public JdbcScanPrel cloneWithFilter(String newWhereClause) {
+    return cloneWithFilter(newWhereClause, java.util.Collections.emptyList());
+  }
+
+  /**
+   * Returns a new JdbcScanPrel with an updated WHERE clause and bind parameters,
+   * preserving projection and limit.
+   */
+  public JdbcScanPrel cloneWithFilter(String newWhereClause, java.util.List<BindParam> newBindParams) {
     return new JdbcScanPrel(
         getCluster(),
         getTraitSet(),

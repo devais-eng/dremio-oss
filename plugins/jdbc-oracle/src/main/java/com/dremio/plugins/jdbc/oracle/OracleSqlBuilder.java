@@ -16,6 +16,7 @@
 package com.dremio.plugins.jdbc.oracle;
 
 import com.dremio.common.expression.SchemaPath;
+import com.dremio.plugins.jdbc.planning.SqlBuildRequest;
 import com.dremio.plugins.jdbc.planning.SqlBuilder;
 import java.util.List;
 
@@ -27,23 +28,16 @@ import java.util.List;
  * clause ({@code FETCH FIRST}). The proprietary {@code ROWNUM} approach is not used here
  * because it requires a subquery wrapper and interacts poorly with ORDER BY.
  *
- * <p>SELECT, FROM, and WHERE clauses are identical to the base {@link SqlBuilder}.
+ * <p>SELECT, FROM, WHERE, GROUP BY, and ORDER BY clauses are identical to the base
+ * {@link SqlBuilder}. Only the row-limiting clause differs.
  */
 public class OracleSqlBuilder extends SqlBuilder {
 
   /**
    * Builds a SQL SELECT statement using Oracle row-limiting syntax.
    *
-   * <p>All clauses except the row limit are identical to {@link SqlBuilder#buildSql}.
-   * The {@code LIMIT N} clause is replaced with {@code FETCH FIRST N ROWS ONLY} to
-   * comply with Oracle SQL dialect.
-   *
-   * @param schemaName       remote schema name (double-quoted in output)
-   * @param tableName        remote table name (double-quoted in output)
-   * @param projectedColumns columns to project; if null or empty, {@code SELECT *} is used
-   * @param whereClause      SQL WHERE expression; appended as-is when non-null
-   * @param limit            row limit; appended as {@code FETCH FIRST N ROWS ONLY} when non-null
-   * @return syntactically complete SQL SELECT string using Oracle dialect
+   * <p>This is the backward-compatible 5-parameter signature. Delegates to
+   * {@link #buildSql(SqlBuildRequest)}.
    */
   @Override
   public String buildSql(
@@ -52,41 +46,23 @@ public class OracleSqlBuilder extends SqlBuilder {
       List<SchemaPath> projectedColumns,
       String whereClause,
       Integer limit) {
+    return buildSql(SqlBuildRequest.builder()
+        .schema(schemaName)
+        .table(tableName)
+        .projectedColumns(projectedColumns)
+        .where(whereClause)
+        .limit(limit)
+        .build());
+  }
 
-    StringBuilder sb = new StringBuilder();
-
-    // SELECT list
-    if (projectedColumns == null || projectedColumns.isEmpty()) {
-      sb.append("SELECT *");
-    } else {
-      sb.append("SELECT ");
-      boolean first = true;
-      for (SchemaPath col : projectedColumns) {
-        if (!first) {
-          sb.append(", ");
-        }
-        sb.append(quoteIdentifier(col.getRootSegment().getPath()));
-        first = false;
-      }
-    }
-
-    // FROM clause
-    sb.append(" FROM ");
-    sb.append(quoteIdentifier(schemaName));
-    sb.append(".");
-    sb.append(quoteIdentifier(tableName));
-
-    // Optional WHERE clause
-    if (whereClause != null && !whereClause.isEmpty()) {
-      sb.append(" WHERE ");
-      sb.append(whereClause);
-    }
-
-    // Oracle 12c+ FETCH FIRST instead of LIMIT
+  /**
+   * Appends Oracle's row-limiting clause ({@code FETCH FIRST N ROWS ONLY}) instead of
+   * the standard {@code LIMIT N}. ORDER BY is emitted before FETCH FIRST per Oracle syntax.
+   */
+  @Override
+  protected void appendLimit(StringBuilder sb, Integer limit) {
     if (limit != null) {
       sb.append(" FETCH FIRST ").append(limit).append(" ROWS ONLY");
     }
-
-    return sb.toString();
   }
 }
