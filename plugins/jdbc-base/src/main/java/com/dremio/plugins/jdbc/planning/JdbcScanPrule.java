@@ -16,6 +16,7 @@
 package com.dremio.plugins.jdbc.planning;
 
 import com.dremio.exec.planner.logical.RelOptHelper;
+import com.dremio.exec.planner.physical.DistributionTrait;
 import com.dremio.exec.planner.physical.Prel;
 import com.google.common.collect.ImmutableList;
 import java.util.List;
@@ -29,6 +30,14 @@ import org.apache.calcite.plan.RelOptRuleCall;
  * <p>The schema name and table name are extracted from the last two components of
  * the dataset's namespace key path so the {@link JdbcScanPrel} can use them to
  * construct the {@code FROM "schema"."table"} clause via {@link SqlBuilder}.
+ *
+ * <p>The physical scan is created with {@link DistributionTrait#SINGLETON} because
+ * JDBC sources are always single-node ({@code getMaxParallelizationWidth() == 1}).
+ * This is critical for limit pushdown: {@code LimitPrule} enforces SINGLETON
+ * distribution on its input, so without SINGLETON on the scan the Volcano planner
+ * would insert a distribution-enforcing exchange between {@code LimitPrel} and
+ * {@code JdbcScanPrel}, preventing {@link JdbcPushLimitIntoScan} from matching
+ * the direct parent-child pattern.
  *
  * <p>Registered in {@link JdbcRulesFactory} for the PHYSICAL phase alongside
  * the pushdown rules.
@@ -64,7 +73,8 @@ public class JdbcScanPrule extends RelOptRule {
     JdbcScanPrel physicalScan =
         new JdbcScanPrel(
             logicalScan.getCluster(),
-            logicalScan.getTraitSet().replace(Prel.PHYSICAL),
+            // SINGLETON: JDBC is single-node; matches LimitPrule's required input distribution.
+            logicalScan.getTraitSet().replace(Prel.PHYSICAL).plus(DistributionTrait.SINGLETON),
             logicalScan.getTable(),
             logicalScan.getPluginId(),
             logicalScan.getTableMetadata(),

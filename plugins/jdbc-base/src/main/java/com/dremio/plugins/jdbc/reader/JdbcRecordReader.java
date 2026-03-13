@@ -72,6 +72,7 @@ public class JdbcRecordReader extends AbstractRecordReader {
 
   private final JdbcSubScan config;
   private final JdbcConnectionPool pool;
+  private final int queryTimeoutSec;
 
   private Connection conn;
   private PreparedStatement stmt;
@@ -86,12 +87,14 @@ public class JdbcRecordReader extends AbstractRecordReader {
    * @param context operator context providing batch sizing and allocator
    * @param config the sub-scan carrying the SQL query and schema
    * @param pool connection pool to acquire execution connections from
+   * @param queryTimeoutSec maximum query execution time in seconds; 0 means no timeout
    */
   public JdbcRecordReader(
-      OperatorContext context, JdbcSubScan config, JdbcConnectionPool pool) {
+      OperatorContext context, JdbcSubScan config, JdbcConnectionPool pool, int queryTimeoutSec) {
     super(context, config.getColumns());
     this.config = config;
     this.pool = pool;
+    this.queryTimeoutSec = queryTimeoutSec;
   }
 
   /**
@@ -146,6 +149,9 @@ public class JdbcRecordReader extends AbstractRecordReader {
               config.getSql(),
               ResultSet.TYPE_FORWARD_ONLY,
               ResultSet.CONCUR_READ_ONLY);
+      if (queryTimeoutSec > 0) {
+        stmt.setQueryTimeout(queryTimeoutSec);
+      }
       stmt.setFetchSize(numRowsPerBatch);
       rs = stmt.executeQuery();
     } catch (SQLException e) {

@@ -23,16 +23,20 @@ import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 
 /**
- * Pushdown rule that converts a {@link LimitPrel} above a {@link JdbcScanPrel}
- * into a LIMIT clause carried by the scan node itself (BASE-07).
+ * Pushdown rule that absorbs a {@link LimitPrel} into the {@link JdbcScanPrel}
+ * below it, so the generated SQL includes a LIMIT (PostgreSQL) or FETCH FIRST
+ * (Oracle) clause and fewer rows cross the network.
  *
  * <p>Only pure row limits with no non-zero offset are pushed down. When the
  * scan already carries a limit the minimum of the two values is used, so
  * repeated application of the rule is idempotent.
  *
- * <p>JDBC sources are always single-node ({@code getMaxParallelizationWidth() == 1}),
- * so pushing the limit to the source is always safe — there is no risk of
- * under-fetching in a distributed context.
+ * <p>Registered in both {@code PHYSICAL} (Volcano) and {@code PHYSICAL_HEP}
+ * phases. The Volcano match works because {@link JdbcScanPrule} creates the
+ * scan with {@link com.dremio.exec.planner.physical.DistributionTrait#SINGLETON},
+ * which is the same distribution {@code LimitPrule} requires on its input —
+ * so no exchange is inserted between the two nodes and the direct parent-child
+ * pattern matches. The HEP registration acts as a safety net.
  */
 public class JdbcPushLimitIntoScan extends RelOptRule {
 

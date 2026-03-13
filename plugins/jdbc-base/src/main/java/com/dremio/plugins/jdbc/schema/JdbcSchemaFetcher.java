@@ -25,6 +25,8 @@ import java.util.ArrayList;
 import java.util.List;
 import org.apache.arrow.adapter.jdbc.JdbcFieldInfo;
 import org.apache.arrow.adapter.jdbc.JdbcToArrowUtils;
+import org.apache.arrow.vector.types.DateUnit;
+import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
@@ -167,6 +169,21 @@ public class JdbcSchemaFetcher {
       logger.warn(
           "No Arrow mapping for JDBC type {} ({}); falling back to VARCHAR", jdbcType, typeName);
       return new ArrowType.Utf8();
+    }
+    // Dremio's vector system does not support timezone-aware timestamps.
+    // Strip the timezone to avoid "Unable to determine vector class" errors.
+    if (mapped instanceof ArrowType.Timestamp) {
+      ArrowType.Timestamp ts = (ArrowType.Timestamp) mapped;
+      if (ts.getTimezone() != null) {
+        return new ArrowType.Timestamp(ts.getUnit(), null);
+      }
+    }
+    // Dremio uses DATEMILLI (DateUnit.MILLISECOND), not DATEDAY.
+    if (mapped instanceof ArrowType.Date) {
+      ArrowType.Date d = (ArrowType.Date) mapped;
+      if (d.getUnit() != DateUnit.MILLISECOND) {
+        return new ArrowType.Date(DateUnit.MILLISECOND);
+      }
     }
     return mapped;
   }

@@ -185,6 +185,11 @@ public class OracleConf extends BaseJdbcConf<OracleConf, JdbcStoragePlugin> {
     return password.get();
   }
 
+  @Override
+  public int getQueryTimeoutSec() {
+    return queryTimeoutSec;
+  }
+
   /**
    * Returns additional JDBC connection properties for this Oracle source.
    *
@@ -241,7 +246,7 @@ public class OracleConf extends BaseJdbcConf<OracleConf, JdbcStoragePlugin> {
       @Override
       public JdbcRecordReader createRecordReader(
           OperatorContext ctx, JdbcSubScan config, JdbcConnectionPool pool) {
-        return new OracleRecordReader(ctx, config, pool);
+        return new OracleRecordReader(ctx, config, pool, getQueryTimeoutSec());
       }
 
       @Override

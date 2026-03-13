@@ -42,9 +42,6 @@ import java.util.List;
 @JsonTypeName("jdbc-sub-scan")
 public class JdbcSubScan extends AbstractSubScan {
 
-  private static final org.slf4j.Logger logger =
-      org.slf4j.LoggerFactory.getLogger(JdbcSubScan.class);
-
   private final String sql;
   private final List<SchemaPath> columns;
   private final StoragePluginId pluginId;
@@ -93,8 +90,8 @@ public class JdbcSubScan extends AbstractSubScan {
     return CoreOperatorType.JDBC_SUB_SCAN_VALUE;
   }
 
-  @JsonIgnore
   @Override
+  @JsonProperty("fullSchema")
   public BatchSchema getFullSchema() {
     return super.getFullSchema();
   }

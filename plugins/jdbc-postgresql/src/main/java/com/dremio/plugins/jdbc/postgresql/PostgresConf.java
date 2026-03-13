@@ -195,6 +195,11 @@ public class PostgresConf extends BaseJdbcConf<PostgresConf, JdbcStoragePlugin> 
     return password.get();
   }
 
+  @Override
+  public int getQueryTimeoutSec() {
+    return queryTimeoutSec;
+  }
+
   /**
    * Returns additional JDBC connection properties for this PostgreSQL source.
    *
@@ -243,7 +248,7 @@ public class PostgresConf extends BaseJdbcConf<PostgresConf, JdbcStoragePlugin> 
       @Override
       public JdbcRecordReader createRecordReader(
           OperatorContext ctx, JdbcSubScan config, JdbcConnectionPool pool) {
-        return new PostgresRecordReader(ctx, config, pool);
+        return new PostgresRecordReader(ctx, config, pool, getQueryTimeoutSec());
       }
     };
   }

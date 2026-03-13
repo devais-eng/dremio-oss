@@ -18,6 +18,7 @@ package com.dremio.plugins.jdbc.planning;
 import com.dremio.common.expression.SchemaPath;
 import com.dremio.exec.catalog.StoragePluginId;
 import com.dremio.exec.physical.base.PhysicalOperator;
+import com.dremio.exec.record.BatchSchema;
 import com.dremio.exec.planner.fragment.DistributionAffinity;
 import com.dremio.exec.planner.physical.PhysicalPlanCreator;
 import com.dremio.exec.planner.physical.ScanPrelBase;
@@ -35,6 +36,7 @@ import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.hint.RelHint;
+import org.apache.calcite.rel.metadata.RelMetadataQuery;
 
 /**
  * Physical scan node for JDBC-backed tables in the Dremio planner.
@@ -176,6 +178,15 @@ public class JdbcScanPrel extends ScanPrelBase {
   }
 
   @Override
+  public double estimateRowCount(RelMetadataQuery mq) {
+    double baseCount = super.estimateRowCount(mq);
+    if (limit != null) {
+      return Math.min(baseCount, limit);
+    }
+    return baseCount;
+  }
+
+  @Override
   public DistributionAffinity getDistributionAffinity() {
     return DistributionAffinity.SOFT;
   }
@@ -226,14 +237,32 @@ public class JdbcScanPrel extends ScanPrelBase {
         : new SqlBuilder();
     String sql = sb.buildSql(schemaName, tableName, getProjectedColumns(), whereClause, limit);
     List<String> tableSchemaPath = getTableMetadata().getName().getPathComponents();
+
+    // Schema may be null if the catalog hasn't completed a full metadata refresh yet.
+    // Fall back to fetching directly from the plugin's schema fetcher.
+    BatchSchema fullSchema = getTableMetadata().getSchema();
+    if (fullSchema == null && rawPlugin instanceof JdbcStoragePlugin) {
+      try {
+        fullSchema = ((JdbcStoragePlugin) rawPlugin).getSchemaFetcher()
+            .getTableSchema(schemaName, tableName);
+      } catch (java.sql.SQLException e) {
+        throw new IOException("Failed to fetch schema for " + schemaName + "." + tableName, e);
+      }
+    }
+    if (fullSchema == null) {
+      throw new IOException(
+          "Schema not available for " + schemaName + "." + tableName
+              + ". Try refreshing the source metadata.");
+    }
+
     return new JdbcGroupScan(
         creator.props(
             this,
             getTableMetadata().getUser(),
-            getTableMetadata().getSchema().maskAndReorder(getProjectedColumns())),
+            fullSchema.maskAndReorder(getProjectedColumns())),
         sql,
         getProjectedColumns(),
-        getTableMetadata().getSchema(),
+        fullSchema,
         getPluginId(),
         tableSchemaPath);
   }

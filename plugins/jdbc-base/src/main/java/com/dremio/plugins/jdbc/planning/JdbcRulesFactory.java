@@ -36,6 +36,9 @@ import org.apache.calcite.plan.RelOptRule;
  *   <dd>{@link JdbcPushFilterIntoScan} — pushes WHERE predicates into the scan.</dd>
  *   <dd>{@link JdbcPushProjectIntoScan} — narrows the SELECT list to projected columns.</dd>
  *   <dd>{@link JdbcPushLimitIntoScan} — pushes LIMIT into the scan.</dd>
+ *   <dt>PHYSICAL_HEP</dt>
+ *   <dd>{@link JdbcPushLimitIntoScan} — safety-net registration so the HEP planner can
+ *       absorb any limit that the Volcano phase did not.</dd>
  * </dl>
  *
  * <p>Wired to {@link com.dremio.plugins.jdbc.JdbcStoragePlugin} via
@@ -59,6 +62,10 @@ public class JdbcRulesFactory extends StoragePluginTypeRulesFactory {
             JdbcPushFilterIntoScan.INSTANCE,
             JdbcPushProjectIntoScan.INSTANCE,
             JdbcPushLimitIntoScan.INSTANCE);
+
+      case PHYSICAL_HEP:
+        // Safety net: absorb any remaining LimitPrel that the Volcano phase did not.
+        return ImmutableSet.<RelOptRule>of(JdbcPushLimitIntoScan.INSTANCE);
 
       default:
         return ImmutableSet.of();

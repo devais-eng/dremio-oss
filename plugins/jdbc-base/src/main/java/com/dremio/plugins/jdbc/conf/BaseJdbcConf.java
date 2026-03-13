@@ -80,6 +80,17 @@ public abstract class BaseJdbcConf<T extends BaseJdbcConf<T, P>, P extends Stora
   }
 
   /**
+   * Returns the maximum time in seconds that a query may run before being cancelled.
+   * 0 (the default) means no timeout. Concrete subclasses that expose a
+   * {@code queryTimeoutSec} configuration field should override this method.
+   *
+   * @return query timeout in seconds, or 0 for no timeout
+   */
+  public int getQueryTimeoutSec() {
+    return 0;
+  }
+
+  /**
    * Returns the full JDBC URL for the target database.
    * Concrete implementations supply the driver-specific URL.
    *

@@ -41,10 +41,11 @@ public class PostgresRecordReader extends JdbcRecordReader {
    * @param context operator context providing batch sizing and allocator
    * @param config the sub-scan carrying the SQL query and schema
    * @param pool connection pool to acquire execution connections from
+   * @param queryTimeoutSec maximum query execution time in seconds; 0 means no timeout
    */
   public PostgresRecordReader(
-      OperatorContext context, JdbcSubScan config, JdbcConnectionPool pool) {
-    super(context, config, pool);
+      OperatorContext context, JdbcSubScan config, JdbcConnectionPool pool, int queryTimeoutSec) {
+    super(context, config, pool, queryTimeoutSec);
   }
 
   /**

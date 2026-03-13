@@ -120,7 +120,7 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
    */
   public JdbcRecordReader createRecordReader(
       OperatorContext ctx, JdbcSubScan config, JdbcConnectionPool pool) {
-    return new JdbcRecordReader(ctx, config, pool);
+    return new JdbcRecordReader(ctx, config, pool, conf.getQueryTimeoutSec());
   }
 
   /**
