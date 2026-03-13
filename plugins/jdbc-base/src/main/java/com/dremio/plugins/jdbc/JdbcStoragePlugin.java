@@ -35,6 +35,7 @@ import com.dremio.exec.store.StoragePluginRulesFactory;
 import com.dremio.plugins.jdbc.conf.BaseJdbcConf;
 import com.dremio.plugins.jdbc.exec.JdbcSubScan;
 import com.dremio.plugins.jdbc.planning.JdbcRulesFactory;
+import com.dremio.plugins.jdbc.planning.SqlBuilder;
 import com.dremio.plugins.jdbc.pool.JdbcConnectionPool;
 import com.dremio.plugins.jdbc.reader.JdbcRecordReader;
 import com.dremio.plugins.jdbc.schema.JdbcSchemaFetcher;
@@ -120,6 +121,19 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
   public JdbcRecordReader createRecordReader(
       OperatorContext ctx, JdbcSubScan config, JdbcConnectionPool pool) {
     return new JdbcRecordReader(ctx, config, pool);
+  }
+
+  /**
+   * Creates the SQL builder for this plugin. Subclasses can override to return a
+   * database-specific SQL builder (e.g., OracleSqlBuilder using FETCH FIRST instead of LIMIT).
+   *
+   * <p>This method is public so that {@link com.dremio.plugins.jdbc.planning.JdbcScanPrel}
+   * can call it on the resolved plugin instance to obtain the correct SQL dialect.
+   *
+   * @return a new {@link SqlBuilder} (or subclass) for this source
+   */
+  public SqlBuilder createSqlBuilder() {
+    return new SqlBuilder();
   }
 
   /**

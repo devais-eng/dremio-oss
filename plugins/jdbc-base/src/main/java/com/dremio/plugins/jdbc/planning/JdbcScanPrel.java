@@ -21,7 +21,9 @@ import com.dremio.exec.physical.base.PhysicalOperator;
 import com.dremio.exec.planner.fragment.DistributionAffinity;
 import com.dremio.exec.planner.physical.PhysicalPlanCreator;
 import com.dremio.exec.planner.physical.ScanPrelBase;
+import com.dremio.exec.store.StoragePlugin;
 import com.dremio.exec.store.TableMetadata;
+import com.dremio.plugins.jdbc.JdbcStoragePlugin;
 import com.dremio.plugins.jdbc.exec.JdbcGroupScan;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -53,7 +55,6 @@ public class JdbcScanPrel extends ScanPrelBase {
   private final String tableName;
   private final String whereClause;
   private final Integer limit;
-  private final SqlBuilder sqlBuilder;
 
   public JdbcScanPrel(
       RelOptCluster cluster,
@@ -83,7 +84,6 @@ public class JdbcScanPrel extends ScanPrelBase {
     this.tableName = Preconditions.checkNotNull(tableName, "tableName");
     this.whereClause = whereClause;
     this.limit = limit;
-    this.sqlBuilder = new SqlBuilder();
   }
 
   // -------------------------------------------------------------------------
@@ -212,10 +212,19 @@ public class JdbcScanPrel extends ScanPrelBase {
   /**
    * Assembles the final SQL query via {@link SqlBuilder} and creates the
    * {@link JdbcGroupScan} physical operator for execution.
+   *
+   * <p>Resolves the {@link JdbcStoragePlugin} for the source at plan time to obtain the
+   * correct {@link SqlBuilder} dialect (e.g., Oracle uses FETCH FIRST instead of LIMIT).
+   * Falls back to a base {@code SqlBuilder} if the plugin is unavailable.
    */
   @Override
   public PhysicalOperator getPhysicalOperator(PhysicalPlanCreator creator) throws IOException {
-    String sql = sqlBuilder.buildSql(schemaName, tableName, getProjectedColumns(), whereClause, limit);
+    StoragePlugin rawPlugin = creator.getContext().getCatalogService()
+        .getSource(getPluginId().getName());
+    SqlBuilder sb = (rawPlugin instanceof JdbcStoragePlugin)
+        ? ((JdbcStoragePlugin) rawPlugin).createSqlBuilder()
+        : new SqlBuilder();
+    String sql = sb.buildSql(schemaName, tableName, getProjectedColumns(), whereClause, limit);
     List<String> tableSchemaPath = getTableMetadata().getName().getPathComponents();
     return new JdbcGroupScan(
         creator.props(
