@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: in_progress
-stopped_at: Completed 31-02-PLAN.md
-last_updated: "2026-03-13T00:14:59Z"
-last_activity: "2026-03-13 — Completed Phase 31 Plan 02 (PostgreSQL connector integration tests)"
+stopped_at: Completed 32-01-PLAN.md
+last_updated: "2026-03-13T01:13:23Z"
+last_activity: "2026-03-13 — Completed Phase 32 Plan 01 (Oracle connector source code)"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 6
-  completed_plans: 5
-  percent: 83
+  completed_plans: 6
+  percent: 100
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.5 Phase 31 — PostgreSQL Connector
+**Current focus:** v1.5 Phase 32 — Oracle Connector
 
 ## Current Position
 
-Phase: 31 of 32 (PostgreSQL Connector) — IN PROGRESS
-Plan: 2 of 2 complete (31-01 source code done; 31-02 integration tests done)
+Phase: 32 of 32 (Oracle Connector) — IN PROGRESS
+Plan: 1 of 1 complete (32-01 source code done)
 Status: In Progress
-Last activity: 2026-03-13 — Completed 31-02 (PostgreSQL connector integration tests — TestContainers suite)
+Last activity: 2026-03-13 — Completed 32-01 (Oracle connector source code — OracleConf, OracleSchemaFetcher, OracleSqlBuilder, SqlBuilder pluggability)
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100% (all plans complete; awaiting 32-02 integration tests plan)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5 (v1.5)
-- Average duration: 13.4 min
-- Total execution time: 1.12 hours
+- Total plans completed: 6 (v1.5)
+- Average duration: 12.8 min
+- Total execution time: 1.28 hours
 
 **By Phase:**
 
@@ -54,6 +54,8 @@ Progress: [████████░░] 83%
 - Trend: stable
 
 *Updated after each plan completion*
+
+| Phase 32-oracle-connector P01 | 1 | 10 min | 10 min |
 
 ## Shipped Milestones
 
@@ -81,6 +83,10 @@ Progress: [████████░░] 83%
 - [Phase 31-01]: Tag numbers start at 10 in PostgresConf (10-41); BaseJdbcConf Tags 1-3 (poolSize/idleTimeoutMs/validationQuery) satisfy PG-01 maxIdleConns/idleTimeSec requirements
 - [Phase 31-postgresql-connector]: DremioPostgresContainer wraps PostgreSQLContainer implementing DremioContainer marker — satisfies DremioRestrictedTestcontainersUsage error-prone rule that cannot be suppressed
 - [Phase 31-postgresql-connector]: TestJdbcConf is a named static inner class not anonymous — BaseJdbcConf<T extends BaseJdbcConf<T,P>, P> self-referential bound cannot be satisfied by anonymous classes with wildcard type args
+- [Phase 32-oracle-connector]: OracleSchemaFetcher.isSystemSchema() does NOT call super — base filters PG-specific schemas; full replacement avoids false positives for Oracle
+- [Phase 32-oracle-connector]: JdbcScanPrel removes sqlBuilder field entirely; resolves plugin-provided SqlBuilder at getPhysicalOperator() time via PhysicalPlanCreator
+- [Phase 32-oracle-connector]: Oracle FLOAT sentinel: NUMERIC with scale=-127 mapped to DOUBLE; bare NUMBER with precision=0 also mapped to DOUBLE
+- [Phase 32-oracle-connector]: OracleConf.validationQuery set to SELECT 1 FROM DUAL in constructor to override BaseJdbcConf default
 
 ### Pending Todos
 
@@ -94,5 +100,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-13
-Stopped at: Completed 31-02-PLAN.md — PostgreSQL connector integration tests (TestContainers suite)
+Stopped at: Completed 32-01-PLAN.md — Oracle connector source code (OracleConf, OracleSchemaFetcher, OracleSqlBuilder, SqlBuilder pluggability in base framework)
 Resume file: None
