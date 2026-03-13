@@ -78,6 +78,11 @@
       <artifactId>dremio-services-usersessions</artifactId>
     </dependency>
     <dependency>
+      <groupId>com.dremio.services</groupId>
+      <artifactId>dremio-services-keycloak</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
       <groupId>org.bouncycastle</groupId>
       <artifactId>bcprov-jdk18on</artifactId>
     </dependency>

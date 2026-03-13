@@ -1767,7 +1767,10 @@ public class DACDaemonModule implements DACModule {
           new DremioFlightAuthProviderImpl(
               registry.provider(DremioConfig.class),
               registry.provider(UserService.class),
-              registry.provider(TokenManager.class)));
+              registry.provider(TokenManager.class),
+              registry.provider(OidcTokenValidator.class),
+              registry.provider(JitUserProvisioner.class),
+              registry.provider(KeycloakRoleSyncer.class)));
       registry.bind(FlightRequestContextDecorator.class, FlightRequestContextDecorator.DEFAULT);
 
       registry.bindSelf(
