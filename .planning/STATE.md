@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Keycloak IdP Integration
 status: completed
-stopped_at: Completed 34-02-PLAN.md
-last_updated: "2026-03-12T19:26:07.173Z"
-last_activity: "2026-03-12 — Completed 34-01: ServerConfigResource unauthenticated GET /api/v3/server-config (UI-01, UI-02)"
+stopped_at: Completed 35-01-PLAN.md
+last_updated: "2026-03-13T11:09:02.391Z"
+last_activity: "2026-03-12 — Completed 34-02: SSOLandingPage token extraction + LoginFormContainer SSO button (UI-01, UI-02, UI-03)"
 progress:
   total_phases: 6
-  completed_phases: 5
-  total_plans: 11
-  completed_plans: 11
+  completed_phases: 6
+  total_plans: 12
+  completed_plans: 12
   percent: 100
 ---
 
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 
 ## Current Position
 
-Phase: 34 of 35 (Web UI SSO Button) — COMPLETE
-Plan: 34-02 complete — SSOLandingPage + LoginFormContainer SSO button shipped; all 2 plans in phase 34 done
-Status: Phase 34 complete — full browser-side OIDC login flow wired end-to-end
-Last activity: 2026-03-12 — Completed 34-02: SSOLandingPage token extraction + LoginFormContainer SSO button (UI-01, UI-02, UI-03)
+Phase: 35 of 35 (Arrow Flight JWT Authentication) — COMPLETE
+Plan: 35-01 complete — JWT dispatch wired into all three Flight auth validators (auth2 credential, auth2 bearer, legacy basic); all 1 plan in phase 35 done
+Status: Phase 35 complete — v1.5 Keycloak IdP Integration COMPLETE (all 6 phases, 12 plans shipped)
+Last activity: 2026-03-13 — Completed 35-01: Arrow Flight JWT authentication with JIT provisioning and role sync (JDBC-01, JDBC-02)
 
 Progress: [██████████] 100%
 
@@ -76,6 +76,7 @@ Progress: [██████████] 100%
 - ServerConfigResource returns only authType (not all DACConfig): unauthenticated endpoint must not expose issuer URLs, client IDs, or secrets — only the string "keycloak" or "internal" is safe to expose pre-login
 - SSOLandingPage uses static _navigate/_getHash for testable window.location access: jsdom marks window.location as non-configurable — cannot delete or redefine it; expose statics for sinon.stub() without touching the real location object
 - LoginFormContainer SSO button: Button from dremio-ui-lib renders as ForwardRef in enzyme shallow mode (not 'Button' string); use find({variant:'secondary'}) to locate the SSO button in tests; static _navigate for click handler stubbing
+- Arrow Flight JWT auth (Phase 35): Store Provider<OidcTokenValidator> (not raw instance) in DremioFlightAuthProviderImpl — Flight binding at line 1764 runs AFTER setupUserService() (line 831); lazy .get() in addAuthHandler() resolves at DremioFlightService.start() time; both auth2 (DremioCredentialValidator, DremioBearerTokenAuthenticator) and legacy (DremioFlightServerBasicAuthValidator) validators extended with eyJ-prefix dispatch; invalid JWT throws UNAUTHENTICATED FlightRuntimeException
 
 ### Blockers/Concerns
 
@@ -95,6 +96,6 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-03-12T19:26:07.171Z
-Stopped at: Completed 34-02-PLAN.md
+Last session: 2026-03-13T11:09:02.388Z
+Stopped at: Completed 35-01-PLAN.md
 Resume file: None

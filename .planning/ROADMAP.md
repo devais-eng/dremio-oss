@@ -80,7 +80,7 @@ See `milestones/v1.4-ROADMAP.md` for full phase details.
 
 </details>
 
-### 🚧 v1.5 Keycloak IdP Integration (In Progress)
+### v1.5 Keycloak IdP Integration (In Progress)
 
 **Milestone Goal:** Make Dremio OSS authenticate users via Keycloak OIDC as a pluggable identity provider, with JIT provisioning, role mapping, and full login flow support (UI + API + JDBC/ODBC), while keeping internal auth and KVStore RBAC as the authorization layer.
 
@@ -89,7 +89,7 @@ See `milestones/v1.4-ROADMAP.md` for full phase details.
 - [x] **Phase 32: JIT Provisioning + Role Mapping** — OidcJitProvisioner, KeycloakRoleMapper, additive-tagged sync, DACAuthFilter JIT trigger (completed 2026-03-12)
 - [x] **Phase 33: OIDC Redirect Web Flow** — OidcCallbackResource (login + callback endpoints), state/PKCE, code exchange, Dremio session issuance, id_token_hint storage (completed 2026-03-12)
 - [x] **Phase 34: Web UI SSO Button** — LoginForm SSO button, config-discovery endpoint, SSO landing page completes login saga (completed 2026-03-12)
-- [ ] **Phase 35: Arrow Flight JDBC/ODBC + RP-Initiated Logout** — DremioBearerTokenAuthenticator OIDC branch, JDBC JIT provisioning, Keycloak session termination on logout
+- [x] **Phase 35: Arrow Flight JWT Authentication** — `DremioFlightAuthProviderImpl` eyJ dispatch to OidcTokenValidator, JIT provisioning for Flight SQL clients (completed 2026-03-13)
 
 ## Phase Details
 
@@ -134,10 +134,10 @@ Plans:
   6. In authoritative mode, Dremio role memberships not present in the current Keycloak token are revoked on re-login
 **Plans:** 4/4 plans complete
 Plans:
-- [ ] 32-01-PLAN.md — Foundation: Membership.source proto field, RbacService source overload, KeycloakTokenDetails, validateWithClaims()
-- [ ] 32-02-PLAN.md — TDD: JitUserProvisioner (REMOTE user creation with race-safe idempotency)
-- [ ] 32-03-PLAN.md — TDD: KeycloakRoleSyncer (additive/authoritative RBAC membership sync)
-- [ ] 32-04-PLAN.md — DACAuthFilter JIT+sync wiring, DACDaemonModule bindings, integration tests
+- [x] 32-01-PLAN.md — Foundation: Membership.source proto field, RbacService source overload, KeycloakTokenDetails, validateWithClaims()
+- [x] 32-02-PLAN.md — TDD: JitUserProvisioner (REMOTE user creation with race-safe idempotency)
+- [x] 32-03-PLAN.md — TDD: KeycloakRoleSyncer (additive/authoritative RBAC membership sync)
+- [x] 32-04-PLAN.md — DACAuthFilter JIT+sync wiring, DACDaemonModule bindings, integration tests
 
 ### Phase 33: OIDC Redirect Web Flow
 **Goal**: A browser user can initiate login via Keycloak's authorization code flow, and after Keycloak authentication, land back in Dremio with a valid session token — with CSRF protection throughout
@@ -150,8 +150,8 @@ Plans:
   4. The `id_token_hint` from the OIDC callback is stored server-side and associated with the Dremio session (available for logout use in Phase 35)
 **Plans:** 2/2 plans complete
 Plans:
-- [ ] 33-01-PLAN.md — TDD: OidcStateStore + OidcSessionStore + oauth2-oidc-sdk dep + DACDaemonModule wiring
-- [ ] 33-02-PLAN.md — TDD: OidcResource login + callback endpoints (Authorization Code Flow with PKCE)
+- [x] 33-01-PLAN.md — TDD: OidcStateStore + OidcSessionStore + oauth2-oidc-sdk dep + DACDaemonModule wiring
+- [x] 33-02-PLAN.md — TDD: OidcResource login + callback endpoints (Authorization Code Flow with PKCE)
 
 ### Phase 34: Web UI SSO Button
 **Goal**: The Dremio login page shows a "Login with SSO" button when Keycloak auth is configured, and the SSO landing page correctly completes the login saga in the browser
@@ -163,18 +163,38 @@ Plans:
   3. Clicking "Login with SSO" initiates the Keycloak redirect flow and, after successful Keycloak authentication, the browser lands on the Dremio home page fully logged in (localStorage populated with the same session data as a form-based login)
 **Plans:** 2/2 plans complete
 Plans:
-- [ ] 34-01-PLAN.md — TDD: ServerConfigResource unauthenticated GET /api/v3/server-config endpoint
-- [ ] 34-02-PLAN.md — SSOLandingPage component + LoginFormContainer SSO button
+- [x] 34-01-PLAN.md — TDD: ServerConfigResource unauthenticated GET /api/v3/server-config endpoint
+- [x] 34-02-PLAN.md — SSOLandingPage component + LoginFormContainer SSO button
 
-### Phase 35: Arrow Flight JDBC/ODBC + RP-Initiated Logout
-**Goal**: JDBC/ODBC clients can authenticate with a Keycloak JWT as the password, and logging out of Dremio also terminates the user's Keycloak SSO session
+### Post-Phase Fixes and Infrastructure (v1.5)
+
+Bug fixes and infrastructure work done after the main phases were completed:
+
+- **Audience contains-check** — `OidcTokenValidator.verifyAudience()` uses contains-check instead of exact-match to support multi-audience JWTs (e.g. `["dremio-web", "account"]`)
+- **OIDC redirect fragment** — Include `userName` and `admin` flag in OIDC callback redirect fragment so the UI can initialize correctly
+- **SessionPermissions in SSO localStorage** — SSO landing page stores `SessionPermissions` for admin UI controls
+- **RoleStore HK2 binding** — `RoleStore` was created as a local variable but never bound in the HK2 registry; `KeycloakRoleSyncer` couldn't resolve it via `Provider<RoleStore>`
+- **Null-provider bindings** — Added null-provider bindings for `OidcTokenValidator`, `JitUserProvisioner`, and `KeycloakRoleSyncer` in the internal-auth branch so HK2 can resolve `@Nullable` injection points in `DACAuthFilter`
+- **Docker Compose dual-mode** — `docker-compose.yml` (base: Dremio + Nessie + MinIO, no auth) and `docker-compose.sso.yml` (SSO overlay: Keycloak deps, OIDC auth on Nessie, `dremio-sso.conf` mount)
+- **Keycloak realm + init script** — `iceberg-realm.json` (users, roles, clients, audience mapper) and `keycloak-init.sh` (idempotent client scope creation via Admin API)
+- **Seed script dual-mode** — Auto-detects SSO mode by probing Keycloak, conditionally includes OAuth2 credentials, runs RBAC setup in both modes
+- **dremio-sso.conf** — Keycloak auth config: issuer-url, client-id/secret, redirect-uri, additive role sync mode
+
+### Phase 35: Arrow Flight JWT Authentication
+**Goal**: Arrow Flight SQL clients (e.g. columnar.tech DBC, any Flight SQL JDBC driver) can authenticate by passing a Keycloak JWT as the password, reusing the same JIT provisioning and role sync as the REST API path
 **Depends on**: Phase 32
-**Requirements**: JDBC-01, JDBC-02, LOUT-01
+**Requirements**: JDBC-01, JDBC-02
 **Success Criteria** (what must be TRUE):
-  1. An Arrow Flight / JDBC client connecting with a Keycloak access token as the password (detected by `eyJ` prefix) is authenticated and can execute queries
-  2. A Keycloak user connecting via JDBC for the first time (no prior Dremio account) is auto-provisioned via JIT — the connection succeeds without manual admin intervention
-  3. When a Keycloak-authenticated user clicks logout in Dremio, their Keycloak SSO session is terminated (RP-Initiated Logout), and subsequent Keycloak-SSO-initiated logins require re-authentication with Keycloak
-**Plans**: TBD
+  1. A Flight SQL client connecting with a Keycloak access token as the password (detected by `eyJ` prefix in `DremioFlightAuthProviderImpl`) is authenticated and can execute queries
+  2. A Keycloak user connecting via Flight SQL for the first time (no prior Dremio account) is auto-provisioned via JIT — the connection succeeds without manual admin intervention
+  3. Dremio opaque token authentication via Flight SQL continues to work unchanged
+**Scope notes**:
+  - Server-side only: modify `DremioFlightAuthProviderImpl` to dispatch `eyJ`-prefixed passwords to `OidcTokenValidator` (same pattern as `DACAuthFilter`)
+  - No JDBC driver changes needed — the Dremio JDBC driver is closed-source; any Arrow Flight SQL JDBC driver that can send a Bearer token works
+  - RP-Initiated Logout deferred — can be added as a separate phase if needed
+**Plans:** 1/1 plans complete
+Plans:
+- [ ] 35-01-PLAN.md — Foundation + auth2/legacy JWT dispatch + DACDaemonModule wiring + unit tests
 
 ## Quick Tasks
 
@@ -186,6 +206,8 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 2 | Split docker-ecr workflow into build and docker jobs | 2026-02-25 | Done |
 | 3 | Switch Docker push from ECR to GHCR | 2026-02-28 | Done |
 | 4 | Merge develop into rbac and align .planning directory | 2026-03-01 | Done |
+| 5 | RBAC UAT (internal auth) — 47/47 pass | 2026-03-11 | Done |
+| 6 | RBAC + SSO UAT (Keycloak) — 47/47 pass | 2026-03-13 | Done |
 
 ## Progress
 
@@ -224,5 +246,5 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 | 31. REST API Bearer JWT Authentication | v1.5 | 1/1 | Complete | 2026-03-12 |
 | 32. JIT Provisioning + Role Mapping | v1.5 | 4/4 | Complete | 2026-03-12 |
 | 33. OIDC Redirect Web Flow | v1.5 | 2/2 | Complete | 2026-03-12 |
-| 34. Web UI SSO Button | 2/2 | Complete   | 2026-03-12 | - |
-| 35. Arrow Flight JDBC/ODBC + RP-Initiated Logout | v1.5 | 0/TBD | Not started | - |
+| 34. Web UI SSO Button | v1.5 | 2/2 | Complete | 2026-03-12 |
+| 35. Arrow Flight JWT Authentication | 1/1 | Complete   | 2026-03-13 | - |
