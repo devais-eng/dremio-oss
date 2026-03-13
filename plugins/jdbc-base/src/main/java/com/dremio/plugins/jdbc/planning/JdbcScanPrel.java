@@ -18,10 +18,11 @@ package com.dremio.plugins.jdbc.planning;
 import com.dremio.common.expression.SchemaPath;
 import com.dremio.exec.catalog.StoragePluginId;
 import com.dremio.exec.physical.base.PhysicalOperator;
-import com.dremio.exec.record.BatchSchema;
 import com.dremio.exec.planner.fragment.DistributionAffinity;
 import com.dremio.exec.planner.physical.PhysicalPlanCreator;
 import com.dremio.exec.planner.physical.ScanPrelBase;
+import com.dremio.exec.planner.sql.CalciteArrowHelper;
+import com.dremio.exec.record.BatchSchema;
 import com.dremio.exec.store.StoragePlugin;
 import com.dremio.exec.store.TableMetadata;
 import com.dremio.plugins.jdbc.JdbcStoragePlugin;
@@ -38,6 +39,7 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.hint.RelHint;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
+import org.apache.calcite.rel.type.RelDataType;
 
 /**
  * Physical scan node for JDBC-backed tables in the Dremio planner.
@@ -46,6 +48,8 @@ import org.apache.calcite.rel.metadata.RelMetadataQuery;
  * <ul>
  *   <li>{@link #whereClause} -- SQL WHERE predicate pushed down from a FilterPrel</li>
  *   <li>{@link #bindParams} -- ordered bind parameters for WHERE clause ? placeholders</li>
+ *   <li>{@link #selectExprs} -- aggregation SELECT expressions (e.g. COUNT(*), SUM("col"))</li>
+ *   <li>{@link #groupByClause} -- GROUP BY expression pushed down from an AggregatePrel</li>
  *   <li>{@link #orderByClause} -- ORDER BY expression pushed down from a SortPrel</li>
  *   <li>{@link #limit} -- row limit pushed down from a LimitPrel</li>
  *   <li>projected columns -- columns to project (inherited from ScanPrelBase)</li>
@@ -62,6 +66,9 @@ public class JdbcScanPrel extends ScanPrelBase {
   private final List<BindParam> bindParams;
   private final String orderByClause;
   private final Integer limit;
+  private final List<String> selectExprs;
+  private final String groupByClause;
+  private final RelDataType overrideRowType;
 
   public JdbcScanPrel(
       RelOptCluster cluster,
@@ -118,6 +125,40 @@ public class JdbcScanPrel extends ScanPrelBase {
       List<BindParam> bindParams,
       String orderByClause,
       Integer limit) {
+    this(cluster, traitSet, table, pluginId, dataset, projectedColumns,
+        observedRowcountAdjustment, hints, runtimeFilters,
+        schemaName, tableName, whereClause, bindParams, orderByClause, limit,
+        null, null, null);
+  }
+
+  /**
+   * Full constructor with all pushdown state including aggregation fields.
+   *
+   * @param selectExprs aggregation SELECT expressions (e.g., COUNT(*), SUM("col")); null when
+   *     no aggregation is pushed
+   * @param groupByClause GROUP BY expression (e.g., "name", "category"); null when no grouping
+   * @param overrideRowType when non-null, overrides the base-class derived rowType to reflect
+   *     the aggregated output schema
+   */
+  public JdbcScanPrel(
+      RelOptCluster cluster,
+      RelTraitSet traitSet,
+      RelOptTable table,
+      StoragePluginId pluginId,
+      TableMetadata dataset,
+      List<SchemaPath> projectedColumns,
+      double observedRowcountAdjustment,
+      List<RelHint> hints,
+      List<Info> runtimeFilters,
+      String schemaName,
+      String tableName,
+      String whereClause,
+      List<BindParam> bindParams,
+      String orderByClause,
+      Integer limit,
+      List<String> selectExprs,
+      String groupByClause,
+      RelDataType overrideRowType) {
     super(
         cluster,
         traitSet,
@@ -134,6 +175,9 @@ public class JdbcScanPrel extends ScanPrelBase {
     this.bindParams = ImmutableList.copyOf(bindParams != null ? bindParams : Collections.emptyList());
     this.orderByClause = orderByClause;
     this.limit = limit;
+    this.selectExprs = selectExprs != null ? ImmutableList.copyOf(selectExprs) : null;
+    this.groupByClause = groupByClause;
+    this.overrideRowType = overrideRowType;
   }
 
   // -------------------------------------------------------------------------
@@ -141,8 +185,7 @@ public class JdbcScanPrel extends ScanPrelBase {
   // -------------------------------------------------------------------------
 
   /**
-   * Returns a new JdbcScanPrel with updated projected columns, preserving filter, bindParams,
-   * orderBy and limit.
+   * Returns a new JdbcScanPrel with updated projected columns, preserving all pushdown state.
    */
   @Override
   public JdbcScanPrel cloneWithProject(List<SchemaPath> projection) {
@@ -161,7 +204,10 @@ public class JdbcScanPrel extends ScanPrelBase {
         whereClause,
         bindParams,
         orderByClause,
-        limit);
+        limit,
+        selectExprs,
+        groupByClause,
+        overrideRowType);
   }
 
   /**
@@ -174,7 +220,7 @@ public class JdbcScanPrel extends ScanPrelBase {
 
   /**
    * Returns a new JdbcScanPrel with an updated WHERE clause and bind parameters,
-   * preserving projection, orderBy and limit.
+   * preserving all other pushdown state.
    */
   public JdbcScanPrel cloneWithFilter(String newWhereClause, List<BindParam> newBindParams) {
     return new JdbcScanPrel(
@@ -192,12 +238,14 @@ public class JdbcScanPrel extends ScanPrelBase {
         newWhereClause,
         newBindParams,
         orderByClause,
-        limit);
+        limit,
+        selectExprs,
+        groupByClause,
+        overrideRowType);
   }
 
   /**
-   * Returns a new JdbcScanPrel with an updated LIMIT, preserving filter, bindParams, orderBy
-   * and projection.
+   * Returns a new JdbcScanPrel with an updated LIMIT, preserving all other pushdown state.
    */
   public JdbcScanPrel cloneWithLimit(int newLimit) {
     return new JdbcScanPrel(
@@ -215,12 +263,14 @@ public class JdbcScanPrel extends ScanPrelBase {
         whereClause,
         bindParams,
         orderByClause,
-        newLimit);
+        newLimit,
+        selectExprs,
+        groupByClause,
+        overrideRowType);
   }
 
   /**
-   * Returns a new JdbcScanPrel with an ORDER BY clause, preserving filter, bindParams,
-   * projection and limit.
+   * Returns a new JdbcScanPrel with an ORDER BY clause, preserving all other pushdown state.
    */
   public JdbcScanPrel cloneWithOrderBy(String newOrderBy) {
     return new JdbcScanPrel(
@@ -238,7 +288,46 @@ public class JdbcScanPrel extends ScanPrelBase {
         whereClause,
         bindParams,
         newOrderBy,
-        limit);
+        limit,
+        selectExprs,
+        groupByClause,
+        overrideRowType);
+  }
+
+  /**
+   * Returns a new JdbcScanPrel with aggregation pushdown state: custom SELECT expressions
+   * (aggregate functions), a GROUP BY clause, and an overridden output rowType reflecting
+   * the aggregated schema.
+   *
+   * <p>When aggregation is active, projectedColumns are set to null because the SELECT list
+   * is driven entirely by {@code newSelectExprs}.
+   *
+   * @param newSelectExprs aggregate SELECT expressions (e.g., {@code "name"}, {@code COUNT(*)})
+   * @param newGroupByClause GROUP BY expression (e.g., {@code "name", "category"})
+   * @param newRowType the aggregated output row type matching the AggregatePrel's output
+   * @return a new scan with aggregation state
+   */
+  public JdbcScanPrel cloneWithAggregation(
+      List<String> newSelectExprs, String newGroupByClause, RelDataType newRowType) {
+    return new JdbcScanPrel(
+        getCluster(),
+        getTraitSet(),
+        getTable(),
+        getPluginId(),
+        getTableMetadata(),
+        null,
+        getCostAdjustmentFactor(),
+        getHintsAsList(),
+        getRuntimeFilters(),
+        schemaName,
+        tableName,
+        whereClause,
+        bindParams,
+        orderByClause,
+        limit,
+        newSelectExprs,
+        newGroupByClause,
+        newRowType);
   }
 
   // -------------------------------------------------------------------------
@@ -280,6 +369,14 @@ public class JdbcScanPrel extends ScanPrelBase {
   }
 
   @Override
+  public RelDataType deriveRowType() {
+    if (overrideRowType != null) {
+      return overrideRowType;
+    }
+    return super.deriveRowType();
+  }
+
+  @Override
   public RelNode copy(RelTraitSet traitSet, List<RelNode> inputs) {
     Preconditions.checkArgument(inputs == null || inputs.isEmpty());
     return new JdbcScanPrel(
@@ -297,7 +394,10 @@ public class JdbcScanPrel extends ScanPrelBase {
         whereClause,
         bindParams,
         orderByClause,
-        limit);
+        limit,
+        selectExprs,
+        groupByClause,
+        overrideRowType);
   }
 
   @Override
@@ -307,6 +407,8 @@ public class JdbcScanPrel extends ScanPrelBase {
     pw.itemIf("table", tableName, tableName != null);
     pw.itemIf("where", whereClause, whereClause != null);
     pw.itemIf("bindParams", bindParams.size(), !bindParams.isEmpty());
+    pw.itemIf("selectExprs", selectExprs, selectExprs != null);
+    pw.itemIf("groupBy", groupByClause, groupByClause != null);
     pw.itemIf("orderBy", orderByClause, orderByClause != null);
     pw.itemIf("limit", limit, limit != null);
     return pw;
@@ -328,18 +430,33 @@ public class JdbcScanPrel extends ScanPrelBase {
         ? ((JdbcStoragePlugin) rawPlugin).createSqlBuilder()
         : new SqlBuilder();
 
-    SqlBuildRequest request = SqlBuildRequest.builder()
+    SqlBuildRequest.Builder requestBuilder = SqlBuildRequest.builder()
         .schema(schemaName)
         .table(tableName)
         .projectedColumns(getProjectedColumns())
         .where(whereClause)
         .bindParams(bindParams)
+        .selectExprs(selectExprs)
+        .groupBy(groupByClause)
         .orderBy(orderByClause)
-        .limit(limit)
-        .build();
-    String sql = sb.buildSql(request);
+        .limit(limit);
+    String sql = sb.buildSql(requestBuilder.build());
 
     List<String> tableSchemaPath = getTableMetadata().getName().getPathComponents();
+
+    // When aggregation is active, the output schema is derived from the overrideRowType
+    // (the aggregated schema) rather than the original table schema.
+    if (hasAggregation() && overrideRowType != null) {
+      BatchSchema aggSchema = CalciteArrowHelper.fromCalciteRowType(overrideRowType);
+      return new JdbcGroupScan(
+          creator.props(this, getTableMetadata().getUser(), aggSchema),
+          sql,
+          null,
+          aggSchema,
+          getPluginId(),
+          tableSchemaPath,
+          bindParams);
+    }
 
     // Schema may be null if the catalog hasn't completed a full metadata refresh yet.
     // Fall back to fetching directly from the plugin's schema fetcher.
@@ -401,5 +518,18 @@ public class JdbcScanPrel extends ScanPrelBase {
 
   public Integer getLimit() {
     return limit;
+  }
+
+  public List<String> getSelectExprs() {
+    return selectExprs;
+  }
+
+  public String getGroupByClause() {
+    return groupByClause;
+  }
+
+  /** Returns true when aggregation has been pushed into this scan. */
+  public boolean hasAggregation() {
+    return selectExprs != null;
   }
 }

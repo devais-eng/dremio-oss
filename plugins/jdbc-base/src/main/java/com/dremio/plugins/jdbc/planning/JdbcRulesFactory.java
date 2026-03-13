@@ -35,6 +35,7 @@ import org.apache.calcite.plan.RelOptRule;
  *   <dd>{@link JdbcScanPrule} — converts {@link JdbcScanDrel} to {@link JdbcScanPrel}.</dd>
  *   <dd>{@link JdbcPushFilterIntoScan} — pushes WHERE predicates into the scan.</dd>
  *   <dd>{@link JdbcPushProjectIntoScan} — narrows the SELECT list to projected columns.</dd>
+ *   <dd>{@link JdbcPushAggIntoScan} — pushes GROUP BY and aggregate functions into the scan.</dd>
  *   <dd>{@link JdbcPushSortIntoScan} — pushes ORDER BY into the scan.</dd>
  *   <dd>{@link JdbcPushLimitIntoScan} — pushes LIMIT into the scan.</dd>
  *   <dt>PHYSICAL_HEP</dt>
@@ -64,6 +65,7 @@ public class JdbcRulesFactory extends StoragePluginTypeRulesFactory {
             JdbcScanPrule.INSTANCE,
             JdbcPushFilterIntoScan.INSTANCE,
             JdbcPushProjectIntoScan.INSTANCE,
+            JdbcPushAggIntoScan.INSTANCE,
             JdbcPushSortIntoScan.INSTANCE,
             JdbcPushLimitIntoScan.INSTANCE);
 
