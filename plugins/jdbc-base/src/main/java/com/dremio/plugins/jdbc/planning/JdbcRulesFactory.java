@@ -35,8 +35,11 @@ import org.apache.calcite.plan.RelOptRule;
  *   <dd>{@link JdbcScanPrule} — converts {@link JdbcScanDrel} to {@link JdbcScanPrel}.</dd>
  *   <dd>{@link JdbcPushFilterIntoScan} — pushes WHERE predicates into the scan.</dd>
  *   <dd>{@link JdbcPushProjectIntoScan} — narrows the SELECT list to projected columns.</dd>
+ *   <dd>{@link JdbcPushSortIntoScan} — pushes ORDER BY into the scan.</dd>
  *   <dd>{@link JdbcPushLimitIntoScan} — pushes LIMIT into the scan.</dd>
  *   <dt>PHYSICAL_HEP</dt>
+ *   <dd>{@link JdbcPushSortIntoScan} — safety-net registration so the HEP planner can
+ *       absorb any sort that the Volcano phase did not.</dd>
  *   <dd>{@link JdbcPushLimitIntoScan} — safety-net registration so the HEP planner can
  *       absorb any limit that the Volcano phase did not.</dd>
  * </dl>
@@ -61,11 +64,14 @@ public class JdbcRulesFactory extends StoragePluginTypeRulesFactory {
             JdbcScanPrule.INSTANCE,
             JdbcPushFilterIntoScan.INSTANCE,
             JdbcPushProjectIntoScan.INSTANCE,
+            JdbcPushSortIntoScan.INSTANCE,
             JdbcPushLimitIntoScan.INSTANCE);
 
       case PHYSICAL_HEP:
-        // Safety net: absorb any remaining LimitPrel that the Volcano phase did not.
-        return ImmutableSet.<RelOptRule>of(JdbcPushLimitIntoScan.INSTANCE);
+        // Safety net: absorb any remaining SortPrel or LimitPrel that the Volcano phase did not.
+        return ImmutableSet.<RelOptRule>of(
+            JdbcPushSortIntoScan.INSTANCE,
+            JdbcPushLimitIntoScan.INSTANCE);
 
       default:
         return ImmutableSet.of();

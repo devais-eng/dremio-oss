@@ -46,6 +46,7 @@ import org.apache.calcite.rel.metadata.RelMetadataQuery;
  * <ul>
  *   <li>{@link #whereClause} -- SQL WHERE predicate pushed down from a FilterPrel</li>
  *   <li>{@link #bindParams} -- ordered bind parameters for WHERE clause ? placeholders</li>
+ *   <li>{@link #orderByClause} -- ORDER BY expression pushed down from a SortPrel</li>
  *   <li>{@link #limit} -- row limit pushed down from a LimitPrel</li>
  *   <li>projected columns -- columns to project (inherited from ScanPrelBase)</li>
  * </ul>
@@ -59,6 +60,7 @@ public class JdbcScanPrel extends ScanPrelBase {
   private final String tableName;
   private final String whereClause;
   private final List<BindParam> bindParams;
+  private final String orderByClause;
   private final Integer limit;
 
   public JdbcScanPrel(
@@ -77,7 +79,7 @@ public class JdbcScanPrel extends ScanPrelBase {
       Integer limit) {
     this(cluster, traitSet, table, pluginId, dataset, projectedColumns,
         observedRowcountAdjustment, hints, runtimeFilters,
-        schemaName, tableName, whereClause, Collections.emptyList(), limit);
+        schemaName, tableName, whereClause, Collections.emptyList(), null, limit);
   }
 
   public JdbcScanPrel(
@@ -95,6 +97,27 @@ public class JdbcScanPrel extends ScanPrelBase {
       String whereClause,
       List<BindParam> bindParams,
       Integer limit) {
+    this(cluster, traitSet, table, pluginId, dataset, projectedColumns,
+        observedRowcountAdjustment, hints, runtimeFilters,
+        schemaName, tableName, whereClause, bindParams, null, limit);
+  }
+
+  public JdbcScanPrel(
+      RelOptCluster cluster,
+      RelTraitSet traitSet,
+      RelOptTable table,
+      StoragePluginId pluginId,
+      TableMetadata dataset,
+      List<SchemaPath> projectedColumns,
+      double observedRowcountAdjustment,
+      List<RelHint> hints,
+      List<Info> runtimeFilters,
+      String schemaName,
+      String tableName,
+      String whereClause,
+      List<BindParam> bindParams,
+      String orderByClause,
+      Integer limit) {
     super(
         cluster,
         traitSet,
@@ -109,6 +132,7 @@ public class JdbcScanPrel extends ScanPrelBase {
     this.tableName = Preconditions.checkNotNull(tableName, "tableName");
     this.whereClause = whereClause;
     this.bindParams = ImmutableList.copyOf(bindParams != null ? bindParams : Collections.emptyList());
+    this.orderByClause = orderByClause;
     this.limit = limit;
   }
 
@@ -117,7 +141,8 @@ public class JdbcScanPrel extends ScanPrelBase {
   // -------------------------------------------------------------------------
 
   /**
-   * Returns a new JdbcScanPrel with updated projected columns, preserving filter, bindParams and limit.
+   * Returns a new JdbcScanPrel with updated projected columns, preserving filter, bindParams,
+   * orderBy and limit.
    */
   @Override
   public JdbcScanPrel cloneWithProject(List<SchemaPath> projection) {
@@ -135,6 +160,7 @@ public class JdbcScanPrel extends ScanPrelBase {
         tableName,
         whereClause,
         bindParams,
+        orderByClause,
         limit);
   }
 
@@ -148,7 +174,7 @@ public class JdbcScanPrel extends ScanPrelBase {
 
   /**
    * Returns a new JdbcScanPrel with an updated WHERE clause and bind parameters,
-   * preserving projection and limit.
+   * preserving projection, orderBy and limit.
    */
   public JdbcScanPrel cloneWithFilter(String newWhereClause, List<BindParam> newBindParams) {
     return new JdbcScanPrel(
@@ -165,11 +191,13 @@ public class JdbcScanPrel extends ScanPrelBase {
         tableName,
         newWhereClause,
         newBindParams,
+        orderByClause,
         limit);
   }
 
   /**
-   * Returns a new JdbcScanPrel with an updated LIMIT, preserving filter, bindParams and projection.
+   * Returns a new JdbcScanPrel with an updated LIMIT, preserving filter, bindParams, orderBy
+   * and projection.
    */
   public JdbcScanPrel cloneWithLimit(int newLimit) {
     return new JdbcScanPrel(
@@ -186,7 +214,31 @@ public class JdbcScanPrel extends ScanPrelBase {
         tableName,
         whereClause,
         bindParams,
+        orderByClause,
         newLimit);
+  }
+
+  /**
+   * Returns a new JdbcScanPrel with an ORDER BY clause, preserving filter, bindParams,
+   * projection and limit.
+   */
+  public JdbcScanPrel cloneWithOrderBy(String newOrderBy) {
+    return new JdbcScanPrel(
+        getCluster(),
+        getTraitSet(),
+        getTable(),
+        getPluginId(),
+        getTableMetadata(),
+        getProjectedColumns(),
+        getCostAdjustmentFactor(),
+        getHintsAsList(),
+        getRuntimeFilters(),
+        schemaName,
+        tableName,
+        whereClause,
+        bindParams,
+        newOrderBy,
+        limit);
   }
 
   // -------------------------------------------------------------------------
@@ -244,6 +296,7 @@ public class JdbcScanPrel extends ScanPrelBase {
         tableName,
         whereClause,
         bindParams,
+        orderByClause,
         limit);
   }
 
@@ -254,6 +307,7 @@ public class JdbcScanPrel extends ScanPrelBase {
     pw.itemIf("table", tableName, tableName != null);
     pw.itemIf("where", whereClause, whereClause != null);
     pw.itemIf("bindParams", bindParams.size(), !bindParams.isEmpty());
+    pw.itemIf("orderBy", orderByClause, orderByClause != null);
     pw.itemIf("limit", limit, limit != null);
     return pw;
   }
@@ -280,6 +334,7 @@ public class JdbcScanPrel extends ScanPrelBase {
         .projectedColumns(getProjectedColumns())
         .where(whereClause)
         .bindParams(bindParams)
+        .orderBy(orderByClause)
         .limit(limit)
         .build();
     String sql = sb.buildSql(request);
@@ -334,6 +389,14 @@ public class JdbcScanPrel extends ScanPrelBase {
 
   public List<BindParam> getBindParams() {
     return bindParams;
+  }
+
+  public String getOrderByClause() {
+    return orderByClause;
+  }
+
+  public boolean hasOrderBy() {
+    return orderByClause != null;
   }
 
   public Integer getLimit() {
