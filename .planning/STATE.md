@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: in_progress
-stopped_at: Completed 32-01-PLAN.md
-last_updated: "2026-03-13T01:13:23Z"
-last_activity: "2026-03-13 — Completed Phase 32 Plan 01 (Oracle connector source code)"
+stopped_at: Completed 32-02-PLAN.md
+last_updated: "2026-03-13T01:53:44Z"
+last_activity: "2026-03-13 — Completed Phase 32 Plan 02 (Oracle integration tests — 5 test files)"
 progress:
   total_phases: 3
   completed_phases: 1
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 
 ## Current Position
 
-Phase: 32 of 32 (Oracle Connector) — IN PROGRESS
-Plan: 1 of 1 complete (32-01 source code done)
-Status: In Progress
-Last activity: 2026-03-13 — Completed 32-01 (Oracle connector source code — OracleConf, OracleSchemaFetcher, OracleSqlBuilder, SqlBuilder pluggability)
+Phase: 32 of 32 (Oracle Connector) — COMPLETE
+Plan: 2 of 2 complete (32-01 source code + 32-02 integration tests)
+Status: Complete
+Last activity: 2026-03-13 — Completed 32-02 (Oracle integration tests — DremioOracleContainer, OracleTestContainer, TestOracleTypeMapping, TestOracleSchemaDiscovery, TestOraclePushdown)
 
-Progress: [██████████] 100% (all plans complete; awaiting 32-02 integration tests plan)
+Progress: [██████████] 100% (all plans complete — v1.5 RDBMS JDBC milestone complete)
 
 ## Performance Metrics
 
@@ -56,6 +56,7 @@ Progress: [██████████] 100% (all plans complete; awaiting 32
 *Updated after each plan completion*
 
 | Phase 32-oracle-connector P01 | 1 | 10 min | 10 min |
+| Phase 32-oracle-connector P02 | 1 | 4 min | 4 min |
 
 ## Shipped Milestones
 
@@ -87,6 +88,9 @@ Progress: [██████████] 100% (all plans complete; awaiting 32
 - [Phase 32-oracle-connector]: JdbcScanPrel removes sqlBuilder field entirely; resolves plugin-provided SqlBuilder at getPhysicalOperator() time via PhysicalPlanCreator
 - [Phase 32-oracle-connector]: Oracle FLOAT sentinel: NUMERIC with scale=-127 mapped to DOUBLE; bare NUMBER with precision=0 also mapped to DOUBLE
 - [Phase 32-oracle-connector]: OracleConf.validationQuery set to SELECT 1 FROM DUAL in constructor to override BaseJdbcConf default
+- [Phase 32-oracle-connector P02]: Oracle test schema/table names are UPPERCASE (TEST_USER, TYPE_TEST, DISCOVERY_TABLE) — DatabaseMetaData returns uppercase identifiers for Oracle
+- [Phase 32-oracle-connector P02]: testNoLimitKeyword() in TestOraclePushdown is the critical Oracle-specific correctness gate — asserts LIMIT never appears in generated SQL when a row limit is requested
+- [Phase 32-oracle-connector P02]: Oracle multi-row insert uses INSERT ALL...INTO...INTO...SELECT 1 FROM DUAL syntax (not PostgreSQL-style VALUES (r1),(r2))
 
 ### Pending Todos
 
@@ -100,5 +104,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-13
-Stopped at: Completed 32-01-PLAN.md — Oracle connector source code (OracleConf, OracleSchemaFetcher, OracleSqlBuilder, SqlBuilder pluggability in base framework)
+Stopped at: Completed 32-02-PLAN.md — Oracle integration tests (DremioOracleContainer, OracleTestContainer, TestOracleTypeMapping, TestOracleSchemaDiscovery, TestOraclePushdown)
 Resume file: None
