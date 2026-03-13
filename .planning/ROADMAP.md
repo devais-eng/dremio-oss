@@ -85,7 +85,7 @@ See `milestones/v1.4-ROADMAP.md` for full phase details.
 **Milestone Goal:** Introduce a fully open-source JDBC storage plugin into Dremio OSS supporting PostgreSQL and Oracle, with HikariCP connection pooling, Arrow type conversion, basic pushdown, Testcontainers integration tests, and UI source creation wizards — eliminating dependency on the closed-source CE JDBC plugin.
 
 - [x] **Phase 30: Base JDBC Framework** - Module structure, HikariCP pooling, schema discovery, type mapping, Arrow conversion, basic pushdown, health check (completed 2026-03-12)
-- [ ] **Phase 31: PostgreSQL Connector** - POSTGRES_DB source type with full PG type mapping, SSL/TLS, UI form, Testcontainers tests
+- [x] **Phase 31: PostgreSQL Connector** - POSTGRES_DB source type with full PG type mapping, SSL/TLS, UI form, Testcontainers tests (completed 2026-03-13)
 - [ ] **Phase 32: Oracle Connector** - ORACLE_DB source type with full Oracle type mapping, NUMBER handling, SSL/TLS, UI form, Testcontainers tests
 
 ## Phase Details
@@ -116,7 +116,7 @@ Plans:
   3. PostgreSQL-specific types (TEXT, BYTEA, UUID, JSONB, SERIAL, arrays, INTERVAL) are mapped to appropriate Dremio/Arrow types without data loss or errors
   4. User can create a POSTGRES_DB source through the Dremio UI source creation wizard using the JSON layout form
   5. Testcontainers integration tests against postgres:16-alpine pass, covering type roundtrips, schema discovery, filter pushdown, and projection pushdown
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 31-01-PLAN.md — Base class amendments + PostgreSQL module (PostgresConf, type mapping, record reader, UI layout, icon, wiring)
 - [ ] 31-02-PLAN.md — TestContainers integration tests (type roundtrips, schema discovery, pushdown verification)
@@ -131,7 +131,10 @@ Plans:
   3. Oracle-specific types (NUMBER, VARCHAR2, NVARCHAR2, CLOB, BLOB, RAW, DATE, BINARY_FLOAT, BINARY_DOUBLE, TIMESTAMP WITH TIME ZONE) are mapped to appropriate Dremio/Arrow types without data loss or errors
   4. User can create an ORACLE_DB source through the Dremio UI source creation wizard using the JSON layout form
   5. Testcontainers integration tests against gvenzl/oracle-xe:21-slim pass, covering type roundtrips, schema discovery, filter pushdown, and projection pushdown
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 32-01-PLAN.md — Oracle connector source code: base SqlBuilder pluggability, OracleConf, OracleSchemaFetcher, OracleSqlBuilder, UI layout, icons, Maven wiring
+- [ ] 32-02-PLAN.md — Testcontainers integration tests: type roundtrips, schema discovery, pushdown verification against gvenzl/oracle-xe:21-slim
 
 ## Quick Tasks
 
@@ -181,5 +184,5 @@ Phases execute in numeric order: 30 → 31 → 32
 | 28. DACSecurityContext Role Enforcement | v1.4 | 1/1 | Complete | 2026-03-11 |
 | 29. Backend Logic Gaps v2 | v1.4 | 2/2 | Complete | 2026-03-11 |
 | 30. Base JDBC Framework | v1.5 | Complete    | 2026-03-12 | - |
-| 31. PostgreSQL Connector | v1.5 | 0/? | Not started | - |
+| 31. PostgreSQL Connector | v1.5 | Complete    | 2026-03-13 | - |
 | 32. Oracle Connector | v1.5 | 0/? | Not started | - |
