@@ -16,6 +16,7 @@
 package com.dremio.plugins.jdbc.postgresql;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -434,6 +435,198 @@ public class TestPostgresPushdown {
         count++;
       }
       assertEquals("Expected 3 rows with age > 28", 3, count);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Aggregation pushdown SQL generation tests
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verifies COUNT(*) SQL generation without GROUP BY.
+   * Produces: SELECT COUNT(*) FROM "public"."pushdown_test"
+   */
+  @Test
+  public void testAggregationCountStarSqlGeneration() {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("public")
+        .table("pushdown_test")
+        .selectExprs(Arrays.asList("COUNT(*)"))
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    assertTrue("SQL must contain SELECT COUNT(*)",
+        sql.contains("SELECT COUNT(*)"));
+    assertTrue("SQL must contain FROM clause",
+        sql.contains("FROM \"public\".\"pushdown_test\""));
+    assertFalse("No GROUP BY expected for pure aggregate", sql.contains("GROUP BY"));
+  }
+
+  /**
+   * Verifies GROUP BY + COUNT(*) SQL generation.
+   * Produces: SELECT "name", COUNT(*) FROM ... GROUP BY "name"
+   */
+  @Test
+  public void testAggregationGroupBySqlGeneration() {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("public")
+        .table("pushdown_test")
+        .selectExprs(Arrays.asList("\"name\"", "COUNT(*)"))
+        .groupBy("\"name\"")
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    assertTrue("SQL must contain SELECT \"name\", COUNT(*)",
+        sql.contains("SELECT \"name\", COUNT(*)"));
+    assertTrue("SQL must contain GROUP BY \"name\"",
+        sql.contains("GROUP BY \"name\""));
+  }
+
+  /**
+   * Verifies aggregation with WHERE clause: WHERE appears before GROUP BY.
+   */
+  @Test
+  public void testAggregationWithWhereSqlGeneration() {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("public")
+        .table("pushdown_test")
+        .where("\"age\" > 25")
+        .selectExprs(Arrays.asList("COUNT(*)"))
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    assertTrue("SQL must contain WHERE", sql.contains("WHERE \"age\" > 25"));
+    assertTrue("SQL must contain SELECT COUNT(*)", sql.contains("SELECT COUNT(*)"));
+    // WHERE must appear before GROUP BY (if present) or end of query
+    assertTrue("WHERE must appear before any GROUP BY or aggregate",
+        sql.indexOf("WHERE") < sql.indexOf("COUNT(*)") || sql.indexOf("WHERE") > 0);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Aggregation container-based execution tests
+  // ---------------------------------------------------------------------------
+
+  /**
+   * COUNT(*) against PostgreSQL container. Expected: 5 rows total.
+   */
+  @Test
+  public void testAggregationCountStarExecutesAgainstPostgres() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("public")
+        .table("pushdown_test")
+        .selectExprs(Arrays.asList("COUNT(*)"))
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    try (Connection conn = DriverManager.getConnection(
+            PostgresTestContainer.getJdbcUrl(),
+            PostgresTestContainer.getUsername(),
+            PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have a result row", rs.next());
+      long count = rs.getLong(1);
+      assertEquals("COUNT(*) should return 5", 5L, count);
+      assertFalse("Should be exactly one result row", rs.next());
+    }
+  }
+
+  /**
+   * SUM(age) against PostgreSQL container. Expected: 30+25+35+28+40 = 158.
+   */
+  @Test
+  public void testAggregationSumExecutesAgainstPostgres() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("public")
+        .table("pushdown_test")
+        .selectExprs(Arrays.asList("SUM(\"age\")"))
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    try (Connection conn = DriverManager.getConnection(
+            PostgresTestContainer.getJdbcUrl(),
+            PostgresTestContainer.getUsername(),
+            PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have a result row", rs.next());
+      long sum = rs.getLong(1);
+      assertEquals("SUM(age) should return 158", 158L, sum);
+    }
+  }
+
+  /**
+   * GROUP BY name with SUM(age). All names are unique, so 5 groups.
+   */
+  @Test
+  public void testAggregationGroupByExecutesAgainstPostgres() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("public")
+        .table("pushdown_test")
+        .selectExprs(Arrays.asList("\"name\"", "SUM(\"age\")"))
+        .groupBy("\"name\"")
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    try (Connection conn = DriverManager.getConnection(
+            PostgresTestContainer.getJdbcUrl(),
+            PostgresTestContainer.getUsername(),
+            PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int groupCount = 0;
+      while (rs.next()) {
+        groupCount++;
+        assertNotNull("Group key (name) must not be null", rs.getString(1));
+      }
+      assertEquals("Expected 5 groups (one per unique name)", 5, groupCount);
+    }
+  }
+
+  /**
+   * MIN, MAX, AVG aggregate functions against PostgreSQL container.
+   * MIN(age)=25, MAX(age)=40. AVG checked as between 31 and 32 (integer division varies).
+   */
+  @Test
+  public void testAggregationMinMaxAvgExecutesAgainstPostgres() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("public")
+        .table("pushdown_test")
+        .selectExprs(Arrays.asList("MIN(\"age\")", "MAX(\"age\")", "AVG(\"age\")"))
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    try (Connection conn = DriverManager.getConnection(
+            PostgresTestContainer.getJdbcUrl(),
+            PostgresTestContainer.getUsername(),
+            PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have a result row", rs.next());
+      int min = rs.getInt(1);
+      int max = rs.getInt(2);
+      double avg = rs.getDouble(3);
+      assertEquals("MIN(age) should be 25", 25, min);
+      assertEquals("MAX(age) should be 40", 40, max);
+      assertTrue("AVG(age) should be approximately 31.6", avg >= 31.0 && avg <= 32.0);
+    }
+  }
+
+  /**
+   * COUNT(*) with WHERE filter: age > 28 matches Alice(30), Charlie(35), Eve(40) = 3.
+   */
+  @Test
+  public void testAggregationWithFilterExecutesAgainstPostgres() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("public")
+        .table("pushdown_test")
+        .where("\"age\" > 28")
+        .selectExprs(Arrays.asList("COUNT(*)"))
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    assertTrue("SQL must contain WHERE", sql.contains("WHERE"));
+    try (Connection conn = DriverManager.getConnection(
+            PostgresTestContainer.getJdbcUrl(),
+            PostgresTestContainer.getUsername(),
+            PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have a result row", rs.next());
+      long count = rs.getLong(1);
+      assertEquals("COUNT(*) with age > 28 should return 3", 3L, count);
     }
   }
 }

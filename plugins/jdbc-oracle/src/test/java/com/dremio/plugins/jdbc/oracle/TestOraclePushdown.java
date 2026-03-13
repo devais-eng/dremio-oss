@@ -466,4 +466,180 @@ public class TestOraclePushdown {
       assertFalse("FETCH FIRST 2 should return exactly 2 rows", rs.next());
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Aggregation pushdown SQL generation tests
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verifies COUNT(*) SQL generation for Oracle (no GROUP BY).
+   * Must not contain LIMIT keyword.
+   */
+  @Test
+  public void testAggregationCountStarSqlGeneration() {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("TEST_USER")
+        .table("PUSHDOWN_TEST")
+        .selectExprs(Arrays.asList("COUNT(*)"))
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    assertTrue("SQL must contain SELECT COUNT(*)", sql.contains("SELECT COUNT(*)"));
+    assertFalse("Oracle aggregate SQL must NOT contain LIMIT", sql.contains("LIMIT"));
+    assertFalse("No GROUP BY expected for pure aggregate", sql.contains("GROUP BY"));
+  }
+
+  /**
+   * Verifies GROUP BY SQL generation for Oracle.
+   */
+  @Test
+  public void testAggregationGroupBySqlGeneration() {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("TEST_USER")
+        .table("PUSHDOWN_TEST")
+        .selectExprs(Arrays.asList("\"NAME\"", "COUNT(*)"))
+        .groupBy("\"NAME\"")
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    assertTrue("SQL must contain GROUP BY", sql.contains("GROUP BY \"NAME\""));
+    assertTrue("SQL must contain SELECT with NAME and COUNT",
+        sql.contains("SELECT \"NAME\", COUNT(*)"));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Aggregation container-based execution tests
+  // ---------------------------------------------------------------------------
+
+  /**
+   * COUNT(*) against Oracle container. Expected: 5 rows total.
+   */
+  @Test
+  public void testAggregationCountStarExecutesAgainstOracle() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("TEST_USER")
+        .table("PUSHDOWN_TEST")
+        .selectExprs(Arrays.asList("COUNT(*)"))
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    try (Connection conn = DriverManager.getConnection(
+            OracleTestContainer.getJdbcUrl(),
+            OracleTestContainer.getUsername(),
+            OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have a result row", rs.next());
+      long count = rs.getLong(1);
+      assertEquals("COUNT(*) should return 5", 5L, count);
+      assertFalse("Should be exactly one result row", rs.next());
+    }
+  }
+
+  /**
+   * SUM(AGE) against Oracle container. Expected: 30+25+35+28+40 = 158.
+   */
+  @Test
+  public void testAggregationSumExecutesAgainstOracle() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("TEST_USER")
+        .table("PUSHDOWN_TEST")
+        .selectExprs(Arrays.asList("SUM(\"AGE\")"))
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    try (Connection conn = DriverManager.getConnection(
+            OracleTestContainer.getJdbcUrl(),
+            OracleTestContainer.getUsername(),
+            OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have a result row", rs.next());
+      long sum = rs.getLong(1);
+      assertEquals("SUM(AGE) should return 158", 158L, sum);
+    }
+  }
+
+  /**
+   * GROUP BY NAME with COUNT(*). All names are unique, so 5 groups.
+   */
+  @Test
+  public void testAggregationGroupByExecutesAgainstOracle() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("TEST_USER")
+        .table("PUSHDOWN_TEST")
+        .selectExprs(Arrays.asList("\"NAME\"", "COUNT(*)"))
+        .groupBy("\"NAME\"")
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    try (Connection conn = DriverManager.getConnection(
+            OracleTestContainer.getJdbcUrl(),
+            OracleTestContainer.getUsername(),
+            OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int groupCount = 0;
+      while (rs.next()) {
+        groupCount++;
+        assertNotNull("Group key (NAME) must not be null", rs.getString(1));
+      }
+      assertEquals("Expected 5 groups (one per unique NAME)", 5, groupCount);
+    }
+  }
+
+  /**
+   * MIN, MAX, AVG aggregate functions against Oracle container.
+   * MIN(AGE)=25, MAX(AGE)=40.
+   */
+  @Test
+  public void testAggregationMinMaxAvgExecutesAgainstOracle() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("TEST_USER")
+        .table("PUSHDOWN_TEST")
+        .selectExprs(Arrays.asList("MIN(\"AGE\")", "MAX(\"AGE\")", "AVG(\"AGE\")"))
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    try (Connection conn = DriverManager.getConnection(
+            OracleTestContainer.getJdbcUrl(),
+            OracleTestContainer.getUsername(),
+            OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have a result row", rs.next());
+      int min = rs.getInt(1);
+      int max = rs.getInt(2);
+      double avg = rs.getDouble(3);
+      assertEquals("MIN(AGE) should be 25", 25, min);
+      assertEquals("MAX(AGE) should be 40", 40, max);
+      assertTrue("AVG(AGE) should be approximately 31.6", avg >= 31.0 && avg <= 32.0);
+    }
+  }
+
+  /**
+   * COUNT(*) with WHERE filter and GROUP BY against Oracle.
+   * WHERE AGE >= 30 matches Alice(30), Charlie(35), Eve(40) = 3 groups.
+   */
+  @Test
+  public void testAggregationWithFilterAndGroupByExecutesAgainstOracle() throws Exception {
+    SqlBuildRequest request = SqlBuildRequest.builder()
+        .schema("TEST_USER")
+        .table("PUSHDOWN_TEST")
+        .where("\"AGE\" >= 30")
+        .selectExprs(Arrays.asList("\"NAME\"", "COUNT(*)"))
+        .groupBy("\"NAME\"")
+        .build();
+    String sql = SQL_BUILDER.buildSql(request);
+    assertTrue("SQL must contain WHERE", sql.contains("WHERE"));
+    assertTrue("SQL must contain GROUP BY", sql.contains("GROUP BY"));
+    assertTrue("WHERE must appear before GROUP BY",
+        sql.indexOf("WHERE") < sql.indexOf("GROUP BY"));
+    try (Connection conn = DriverManager.getConnection(
+            OracleTestContainer.getJdbcUrl(),
+            OracleTestContainer.getUsername(),
+            OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int groupCount = 0;
+      while (rs.next()) {
+        groupCount++;
+      }
+      assertEquals("Expected 3 groups with AGE >= 30", 3, groupCount);
+    }
+  }
 }
