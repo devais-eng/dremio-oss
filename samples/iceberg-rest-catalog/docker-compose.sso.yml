@@ -1,7 +1,10 @@
 # SSO overlay — adds Keycloak auth to Nessie and SSO config to Dremio.
 #
 # Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.sso.yml up
+#   docker compose -f docker-compose.yml -f docker-compose.sso.yml --profile sso up
+#
+# For browser access (OIDC redirect flow), add to /etc/hosts:
+#   127.0.0.1 keycloak
 #
 # This overlay:
 #   - Enables OIDC authentication on Nessie (via Keycloak)
@@ -40,6 +43,7 @@ services:
       - nessie.server.authentication.enabled=true
       - quarkus.oidc.auth-server-url=http://keycloak:8080/realms/iceberg
       - quarkus.oidc.client-id=client1
+      - quarkus.oidc.credentials.secret=s3cr3t
       - quarkus.oidc.token.issuer=http://keycloak:8080/realms/iceberg
 
   dremio:
@@ -51,6 +55,30 @@ services:
     volumes:
       - dremio-data:/opt/dremio/data
       - ./dremio-sso.conf:/opt/dremio/conf/dremio.conf:ro
+
+  dremio-init:
+    depends_on:
+      dremio:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      keycloak-init:
+        condition: service_completed_successfully
+    environment:
+      DREMIO_URL: "http://dremio:9047"
+      KC_URL: "http://keycloak:8080"
+      KC_REALM: "iceberg"
+      KC_CLIENT: "dremio-web"
+      KC_SECRET: "dremio-secret"
+      ADMIN_USER: "admin"
+      ADMIN_PASS: "admin123"
+      NESSIE_URI: "http://nessie:19120/iceberg/"
+      OAUTH2_SERVER_URI: "http://keycloak:8080/realms/iceberg/protocol/openid-connect/token"
+      CREDENTIAL: "client1:s3cr3t"
+      WAREHOUSE: "warehouse"
+      S3_ENDPOINT: "http://minio:9000"
+      S3_ACCESS_KEY: "minioadmin"
+      S3_SECRET_KEY: "minioadmin"
 
   seed:
     environment:

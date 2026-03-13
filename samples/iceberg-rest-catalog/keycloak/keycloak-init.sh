@@ -158,7 +158,51 @@ else
   echo "WARNING: dremio-web or roles scope not found, skipping."
 fi
 
+# ── 6. Enable direct access grants on dremio-web ────────────────────────────
+TOKEN=$(get_token)
+
+DREMIO_CLIENT_ID=$(curl -sf -H "Authorization: Bearer ${TOKEN}" \
+  "${API}/clients?clientId=dremio-web" | jq -r '.[0].id')
+
+if [ -n "$DREMIO_CLIENT_ID" ] && [ "$DREMIO_CLIENT_ID" != "null" ]; then
+  echo "Enabling direct access grants on dremio-web..."
+  curl -sf -o /dev/null -X PUT \
+    "${API}/clients/${DREMIO_CLIENT_ID}" \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "{\"id\":\"${DREMIO_CLIENT_ID}\",\"clientId\":\"dremio-web\",\"directAccessGrantsEnabled\":true}" 2>/dev/null || true
+  echo "  Done."
+else
+  echo "WARNING: dremio-web not found, skipping direct access grants."
+fi
+
+# ── 7. Add audience mapper to dremio-web ─────────────────────────────────────
+# By default, Keycloak does NOT include the requesting client's clientId in the
+# JWT "aud" claim. Dremio's OidcTokenValidator requires aud to contain "dremio-web".
+TOKEN=$(get_token)
+
+DREMIO_CLIENT_ID=$(curl -sf -H "Authorization: Bearer ${TOKEN}" \
+  "${API}/clients?clientId=dremio-web" | jq -r '.[0].id')
+
+if [ -n "$DREMIO_CLIENT_ID" ] && [ "$DREMIO_CLIENT_ID" != "null" ]; then
+  echo "Adding audience mapper to dremio-web..."
+  code=$(api_post "${API}/clients/${DREMIO_CLIENT_ID}/protocol-mappers/models" -d '{
+    "name": "dremio-web-audience",
+    "protocol": "openid-connect",
+    "protocolMapper": "oidc-audience-mapper",
+    "config": {
+      "included.client.audience": "dremio-web",
+      "id.token.claim": "true",
+      "access.token.claim": "true"
+    }
+  }')
+  [ "$code" = "201" ] && echo "  Audience mapper created." || echo "  Audience mapper already exists or skipped (HTTP ${code})."
+else
+  echo "WARNING: dremio-web not found, skipping audience mapper."
+fi
+
 echo ""
 echo "=== Keycloak initialization complete ==="
 echo "  Scopes: catalog, sign (→ client1), roles (→ dremio-web)"
+echo "  Audience mapper: dremio-web (→ dremio-web aud claim)"
 echo "  Users defined in realm JSON: admin (ADMIN), testuser, alice"

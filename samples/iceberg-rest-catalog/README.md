@@ -35,28 +35,32 @@ Dremio uses its built-in user/password authentication. Nessie runs without auth.
 ### SSO with Keycloak
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.sso.yml up --profile sso -d
+docker compose -f docker-compose.yml -f docker-compose.sso.yml --profile sso up -d
 ```
 
-This starts everything including Keycloak and the `keycloak-init` service which
-automatically creates the required client scopes and role mappers.
+This starts everything including Keycloak, `keycloak-init`, and `dremio-init`:
 
-### Seed sample data
+- **keycloak-init** creates client scopes, role mappers, audience mapper, and enables direct access grants
+- **dremio-init** bootstraps the admin user, creates a RESTCATALOG source, seeds sample data, creates views, roles, and RBAC grants
 
-After all services are healthy (~90 seconds):
+> **Host access:** For browser-based SSO login (OIDC redirect flow), add to `/etc/hosts`:
+> ```
+> 127.0.0.1 keycloak
+> ```
+> This is needed because Keycloak tokens use `keycloak:8080` as the issuer,
+> and the browser must resolve this hostname for the authorization redirect.
+
+### Seed sample data (internal auth mode only)
+
+In SSO mode, `dremio-init` handles seeding automatically. For internal auth mode:
 
 ```bash
-# Internal auth mode
 docker compose run --rm seed
-
-# SSO mode
-docker compose -f docker-compose.yml -f docker-compose.sso.yml run --rm seed
 ```
 
-The seed script creates:
-1. A `demo` namespace with `demo.customers` (5 rows) and `demo.orders` (6 rows)
+The seed script creates a `demo` namespace with `demo.customers` (5 rows) and `demo.orders` (6 rows).
 
-Open **http://localhost:9047** and create a Dremio admin user via the first-user form.
+In internal auth mode, open **http://localhost:9047** and create a Dremio admin user via the first-user form.
 
 ## Services
 
@@ -79,10 +83,18 @@ The `keycloak-init` service automatically:
 - Creates `catalog` and `sign` scopes (for Nessie OAuth2)
 - Creates a `roles` scope with a realm-role mapper (`realm_access.roles` claim)
 - Assigns scopes to the appropriate clients (`client1`, `dremio-web`)
+- Adds an audience mapper to `dremio-web` (required: Dremio validates `aud` contains `dremio-web`)
+- Enables direct access grants on `dremio-web` (allows password-grant token requests)
 
-> **Note:** The first Dremio user must be created via the bootstrap form at
-> http://localhost:9047 before SSO login works. After that, Keycloak users
-> can log in via the "Sign in with SSO" button.
+The `dremio-init` service (SSO mode) automatically:
+- Creates the RESTCATALOG source with OAuth2 credentials for Nessie
+- Seeds sample Iceberg data via PyIceberg
+- Creates spaces (`analytics`, `engineering`), views, roles, and RBAC grants
+- Uses Keycloak JWT for all Dremio API calls
+
+> **Note:** In SSO mode, the first Dremio user is JIT-provisioned on first Keycloak
+> JWT login. The bootstrap endpoint is disabled when `auth.type: "keycloak"`. Users
+> with the `ADMIN` Keycloak role get Dremio admin privileges via role sync.
 
 ## Manual Source Creation (UI)
 
@@ -131,8 +143,22 @@ curl http://localhost:19120/iceberg/v1/namespaces
 
 ## Troubleshooting
 
+**Bearer JWT returns 401 on Dremio REST API**
+Check that the JWT `aud` claim contains `dremio-web`. The `keycloak-init` service adds
+an audience mapper for this. Verify: decode the JWT payload and check `aud`. Also ensure
+the `iss` claim matches Dremio's configured `issuer-url` (`http://keycloak:8080/realms/iceberg`).
+
 **Nessie returns 401 Unauthorized (SSO mode)**
-Keycloak may still be starting. Check `docker compose logs keycloak` and wait for `Listening on: http://0.0.0.0:8080`.
+Nessie validates tokens via Keycloak introspection. Ensure `quarkus.oidc.credentials.secret`
+is set in the Nessie SSO config (docker-compose.sso.yml). Without it, Nessie can't
+authenticate to Keycloak's introspection endpoint. Also check that Keycloak is healthy:
+`docker compose logs keycloak`.
+
+**SQL queries fail with "Not authorized" on view expansion**
+This typically means Nessie is rejecting Dremio's metadata requests (Iceberg REST catalog
+layer), not a Dremio RBAC issue. Check `docker compose logs nessie` for 401 responses.
+Ensure the RESTCATALOG source has valid OAuth2 credentials (`oauth2-server-uri`,
+`credential`, `scope` in secretPropertyList).
 
 **Source shows BAD state in Dremio**
 Check `docker compose logs dremio` for connection errors. Verify Nessie is healthy:

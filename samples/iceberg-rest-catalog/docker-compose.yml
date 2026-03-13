@@ -116,6 +116,47 @@ services:
     profiles:
       - seed
 
+  # ── Dremio initializer (SSO profile only) ────────────────────────────
+  dremio-init:
+    image: python:3.12-slim
+    depends_on:
+      dremio:
+        condition: service_healthy
+    volumes:
+      - ./scripts/dremio-init.sh:/dremio-init.sh:ro
+      - ./scripts/seed-data.py:/scripts/seed-data.py:ro
+    entrypoint: >
+      /bin/sh -c "
+        apt-get update -qq && apt-get install -y -qq curl jq >/dev/null 2>&1 &&
+        /bin/bash /dremio-init.sh
+      "
+    profiles:
+      - sso
+
+  # ── Flight JWT UAT (on-demand: docker compose run flight-jwt-uat) ────
+  flight-jwt-uat:
+    image: python:3.12-slim
+    depends_on:
+      dremio:
+        condition: service_healthy
+    volumes:
+      - ./scripts/flight-jwt-uat.py:/flight-jwt-uat.py:ro
+    environment:
+      FLIGHT_HOST: "dremio"
+      FLIGHT_PORT: "32010"
+      DREMIO_URL: "http://dremio:9047"
+      KC_URL: "http://keycloak:8080"
+      KC_REALM: "iceberg"
+      KC_CLIENT: "dremio-web"
+      KC_SECRET: "dremio-secret"
+    entrypoint: >
+      /bin/sh -c "
+        pip install --quiet adbc_driver_flightsql pyarrow &&
+        python /flight-jwt-uat.py
+      "
+    profiles:
+      - flight-uat
+
   # ── OIDC provider (SSO profile only) ────────────────────────────────
   keycloak:
     image: quay.io/keycloak/keycloak:26.2
@@ -124,6 +165,15 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Fix the hostname so the JWT "iss" claim is always "http://keycloak:8080/..."
+      # regardless of how the token endpoint is accessed. This ensures Dremio's
+      # OidcTokenValidator (which expects iss == issuer-url from dremio-sso.conf)
+      # accepts tokens obtained from any endpoint (host or Docker network).
+      # NOTE: For browser access (OIDC redirect flow), add to /etc/hosts:
+      #   127.0.0.1 keycloak
+      KC_HOSTNAME: "http://keycloak:8080"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
     volumes:
       - ./keycloak/iceberg-realm.json:/opt/keycloak/data/import/iceberg-realm.json:ro
     command:
