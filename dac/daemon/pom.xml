@@ -57,6 +57,11 @@
     </dependency>
     <dependency>
       <groupId>com.dremio.plugins</groupId>
+      <artifactId>dremio-plugin-jdbc-oracle</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.dremio.plugins</groupId>
       <artifactId>dremio-hdfs-plugin</artifactId>
       <version>${project.version}</version>
     </dependency>

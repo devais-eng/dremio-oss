@@ -47,6 +47,7 @@
     <module>hive3</module>
     <module>icebergcatalog</module>
     <module>jdbc-base</module>
+    <module>jdbc-oracle</module>
     <module>jdbc-postgresql</module>
     <module>mongo</module>
     <module>nas</module>
