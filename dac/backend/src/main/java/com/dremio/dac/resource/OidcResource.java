@@ -206,12 +206,16 @@ public class OidcResource {
 
     oidcSessionStore.put(dremioToken.token, exchangeResult.idToken);
 
+    boolean isAdmin = ktd.getRealmRoles().contains("ADMIN");
+
     URI landingUri =
         URI.create(
             "/login/sso/landing#token="
                 + dremioToken.token
                 + "&userName="
-                + java.net.URLEncoder.encode(ktd.getUsername(), java.nio.charset.StandardCharsets.UTF_8));
+                + java.net.URLEncoder.encode(ktd.getUsername(), java.nio.charset.StandardCharsets.UTF_8)
+                + "&admin="
+                + isAdmin);
     return Response.status(Response.Status.FOUND).location(landingUri).build();
   }
 

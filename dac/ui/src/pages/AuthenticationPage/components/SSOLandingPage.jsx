@@ -37,7 +37,9 @@ export class SSOLandingPage extends Component {
       const userName = userNameMatch
         ? decodeURIComponent(userNameMatch[1])
         : null;
-      localStorageUtils.setUserData({ token, userName });
+      const adminMatch = hash.match(/[#&]admin=([^&]+)/);
+      const admin = adminMatch ? adminMatch[1] === "true" : false;
+      localStorageUtils.setUserData({ token, userName, admin });
       SSOLandingPage._navigate("/");
     } else {
       SSOLandingPage._navigate(LOGIN_PATH);

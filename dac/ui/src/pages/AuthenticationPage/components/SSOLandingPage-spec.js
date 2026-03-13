@@ -35,35 +35,50 @@ describe("SSOLandingPage", () => {
     sinon.restore();
   });
 
-  it("should call setUserData with token and userName and navigate to /", () => {
-    getHashStub.returns("#token=abc123&userName=testuser");
+  it("should call setUserData with token, userName and admin and navigate to /", () => {
+    getHashStub.returns("#token=abc123&userName=testuser&admin=true");
     const wrapper = shallow(<SSOLandingPage />);
     wrapper.instance().componentDidMount();
     expect(setUserDataStub).to.have.been.calledWith({
       token: "abc123",
       userName: "testuser",
+      admin: true,
+    });
+    expect(navigateStub).to.have.been.calledWith("/");
+  });
+
+  it("should set admin to false when admin=false in hash", () => {
+    getHashStub.returns("#token=abc123&userName=testuser&admin=false");
+    const wrapper = shallow(<SSOLandingPage />);
+    wrapper.instance().componentDidMount();
+    expect(setUserDataStub).to.have.been.calledWith({
+      token: "abc123",
+      userName: "testuser",
+      admin: false,
     });
     expect(navigateStub).to.have.been.calledWith("/");
   });
 
   it("should decode URI-encoded tokens and userNames", () => {
-    getHashStub.returns("#token=abc%3D123&userName=test%40user");
+    getHashStub.returns("#token=abc%3D123&userName=test%40user&admin=true");
     const wrapper = shallow(<SSOLandingPage />);
     wrapper.instance().componentDidMount();
     expect(setUserDataStub).to.have.been.calledWith({
       token: "abc=123",
       userName: "test@user",
+      admin: true,
     });
     expect(navigateStub).to.have.been.calledWith("/");
   });
 
-  it("should set userName to null when only token is in hash", () => {
+  it("should set userName to null and admin to false when only token is in hash", () => {
     getHashStub.returns("#token=abc123");
     const wrapper = shallow(<SSOLandingPage />);
     wrapper.instance().componentDidMount();
     expect(setUserDataStub).to.have.been.calledWith({
       token: "abc123",
       userName: null,
+      admin: false,
     });
     expect(navigateStub).to.have.been.calledWith("/");
   });
