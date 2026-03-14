@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
-status: complete
-stopped_at: Completed 33-03-PLAN.md
-last_updated: "2026-03-13T15:49:38Z"
-last_activity: "2026-03-13 — Completed Phase 33 Plan 03 (Aggregation pushdown) — v1.5 milestone complete"
+status: in-progress
+stopped_at: Completed 34-01-PLAN.md
+last_updated: "2026-03-14T02:07:04Z"
+last_activity: "2026-03-14 — Completed Phase 34 Plan 01 (ADBC infrastructure: Maven deps, ProtocolMode, AdbcConnectionFactory, AdbcRecordReader)"
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
-  total_plans: 9
-  completed_plans: 9
-  percent: 100
+  total_plans: 12
+  completed_plans: 10
+  percent: 83
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** v1.5 Complete — All phases delivered
+**Current focus:** Phase 34 — ADBC driver for (at least) PostgreSQL
 
 ## Current Position
 
-Phase: 33 of 33 (Advanced Query Pushdown Hardening)
-Plan: 3 of 3 complete (33-03 Aggregation pushdown)
-Status: Complete
-Last activity: 2026-03-13 — Completed 33-03 (Aggregation pushdown rule, GROUP BY + COUNT/SUM/MIN/MAX/AVG, PG/Oracle integration tests)
+Phase: 34 of 34 (ADBC Driver for at least PostgreSQL)
+Plan: 1 of 3 complete (34-01 ADBC infrastructure)
+Status: In Progress
+Last activity: 2026-03-14 — Completed 34-01 (ADBC Maven deps, ProtocolMode, AdbcConnectionFactory, AdbcRecordReader)
 
-Progress: [██████████] 100% (9 of 9 plans complete)
+Progress: [████████░░] 83% (10 of 12 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9 (v1.5)
-- Average duration: 12.4 min
-- Total execution time: 1.88 hours
+- Total plans completed: 10 (v1.5+)
+- Average duration: 12.3 min
+- Total execution time: 1.98 hours
 
 **By Phase:**
 
@@ -53,9 +53,10 @@ Progress: [██████████] 100% (9 of 9 plans complete)
 | 33-advanced-query-pushdown-hardening P01 | 1 | 14 min | 14 min |
 | 33-advanced-query-pushdown-hardening P02 | 1 | 17 min | 17 min |
 | 33-advanced-query-pushdown-hardening P03 | 1 | 5 min | 5 min |
+| 34-adbc-driver-for-at-least-postgres P01 | 1 | 11 min | 11 min |
 
 **Recent Trend:**
-- Last 5 plans: 10.6 min avg
+- Last 5 plans: 10.8 min avg
 - Trend: stable
 
 *Updated after each plan completion*
@@ -105,14 +106,19 @@ Progress: [██████████] 100% (9 of 9 plans complete)
 - [Phase 33-03]: DISTINCT aggregates rejected in v1 -- graceful decline rather than incorrect SQL
 - [Phase 33-03]: Aggregation registered in PHYSICAL only (not PHYSICAL_HEP) -- structural rowType change benefits from cost-based Volcano decisions
 - [Phase 33-03]: overrideRowType mechanism in JdbcScanPrel: deriveRowType() returns override when set, enabling aggregated schema different from base table
+- [Phase 34-01]: ADBC deps (0.22.0) added with full Arrow exclusions (<artifactId>*</artifactId>) to avoid 18.3.0 vs 18.1.1-dremio version conflict
+- [Phase 34-01]: BoundedAdbcConnection wrapper delegates all AdbcConnection methods and releases Semaphore permit on close()
+- [Phase 34-01]: AdbcRecordReader copies vectors (not zero-copy) because ArrowReader uses its own allocator separate from Dremio's
+- [Phase 34-01]: DECIMAL and TIME bind params converted to string (VarCharVector) for ADBC PG driver compatibility
 
 ### Pending Todos
 
-None — v1.5 milestone complete. All phases delivered.
+None.
 
 ### Roadmap Evolution
 
 - Phase 33 added: Advanced Query Pushdown Hardening
+- Phase 34 added: adbc driver for (at least) postgres
 
 ### Blockers/Concerns
 
@@ -120,6 +126,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-13
-Stopped at: Completed 33-03-PLAN.md — Aggregation pushdown (GROUP BY + COUNT/SUM/MIN/MAX/AVG) — v1.5 milestone complete
+Last session: 2026-03-14
+Stopped at: Completed 34-01-PLAN.md — ADBC infrastructure (Maven deps, ProtocolMode, AdbcConnectionFactory, AdbcRecordReader)
 Resume file: None
