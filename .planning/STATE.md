@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: in-progress
-stopped_at: Completed 34-01-PLAN.md
-last_updated: "2026-03-14T02:07:04Z"
-last_activity: "2026-03-14 — Completed Phase 34 Plan 01 (ADBC infrastructure: Maven deps, ProtocolMode, AdbcConnectionFactory, AdbcRecordReader)"
+stopped_at: Completed 34-02-PLAN.md
+last_updated: "2026-03-14T02:25:15Z"
+last_activity: "2026-03-14 — Completed Phase 34 Plan 02 (ADBC plugin wiring: AdbcSchemaFetcher, JdbcStoragePlugin lifecycle, JdbcScanCreator branching, protocolMode)"
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 12
-  completed_plans: 10
-  percent: 83
+  completed_plans: 11
+  percent: 92
 ---
 
 # Project State
@@ -26,18 +26,18 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 ## Current Position
 
 Phase: 34 of 34 (ADBC Driver for at least PostgreSQL)
-Plan: 1 of 3 complete (34-01 ADBC infrastructure)
+Plan: 2 of 3 complete (34-02 ADBC plugin wiring)
 Status: In Progress
-Last activity: 2026-03-14 — Completed 34-01 (ADBC Maven deps, ProtocolMode, AdbcConnectionFactory, AdbcRecordReader)
+Last activity: 2026-03-14 — Completed 34-02 (AdbcSchemaFetcher, JdbcStoragePlugin ADBC lifecycle, JdbcScanCreator branching, protocolMode config)
 
-Progress: [████████░░] 83% (10 of 12 plans complete)
+Progress: [█████████░] 92% (11 of 12 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10 (v1.5+)
-- Average duration: 12.3 min
-- Total execution time: 1.98 hours
+- Total plans completed: 11 (v1.5+)
+- Average duration: 12.4 min
+- Total execution time: 2.21 hours
 
 **By Phase:**
 
@@ -54,9 +54,10 @@ Progress: [████████░░] 83% (10 of 12 plans complete)
 | 33-advanced-query-pushdown-hardening P02 | 1 | 17 min | 17 min |
 | 33-advanced-query-pushdown-hardening P03 | 1 | 5 min | 5 min |
 | 34-adbc-driver-for-at-least-postgres P01 | 1 | 11 min | 11 min |
+| 34-adbc-driver-for-at-least-postgres P02 | 1 | 14 min | 14 min |
 
 **Recent Trend:**
-- Last 5 plans: 10.8 min avg
+- Last 5 plans: 12.2 min avg
 - Trend: stable
 
 *Updated after each plan completion*
@@ -110,6 +111,9 @@ Progress: [████████░░] 83% (10 of 12 plans complete)
 - [Phase 34-01]: BoundedAdbcConnection wrapper delegates all AdbcConnection methods and releases Semaphore permit on close()
 - [Phase 34-01]: AdbcRecordReader copies vectors (not zero-copy) because ArrowReader uses its own allocator separate from Dremio's
 - [Phase 34-01]: DECIMAL and TIME bind params converted to string (VarCharVector) for ADBC PG driver compatibility
+- [Phase 34-02]: BaseJdbcConf protocolMode at Tag(4) -- subclasses inherit, no redeclaration to avoid Protostuff serialization conflicts
+- [Phase 34-02]: AdbcSchemaFetcher parses nested Arrow getObjects() structure using ListVector offset buffers and StructVector child accessors
+- [Phase 34-02]: AdbcException has no simple (String, Throwable) constructor in 0.22.0 -- fallback catch blocks use RuntimeException wrapper
 
 ### Pending Todos
 
@@ -127,5 +131,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Completed 34-01-PLAN.md — ADBC infrastructure (Maven deps, ProtocolMode, AdbcConnectionFactory, AdbcRecordReader)
+Stopped at: Completed 34-02-PLAN.md — ADBC plugin wiring (AdbcSchemaFetcher, JdbcStoragePlugin lifecycle, JdbcScanCreator branching, protocolMode config)
 Resume file: None
