@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: in-progress
-stopped_at: Completed 34-02-PLAN.md
-last_updated: "2026-03-14T02:25:15Z"
-last_activity: "2026-03-14 — Completed Phase 34 Plan 02 (ADBC plugin wiring: AdbcSchemaFetcher, JdbcStoragePlugin lifecycle, JdbcScanCreator branching, protocolMode)"
+stopped_at: Completed 35-01-PLAN.md
+last_updated: "2026-03-14T19:53:00Z"
+last_activity: "2026-03-14 — Completed Phase 35 Plan 01 (JOIN pushdown planner infrastructure: JdbcJoinScanDrel, JdbcJoinScanPrel, RexToJoinSqlString, JdbcPushJoinIntoScan, SqlBuilder.buildJoinSql)"
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 12
-  completed_plans: 11
-  percent: 92
+  total_plans: 15
+  completed_plans: 12
+  percent: 80
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** Phase 34 — ADBC driver for (at least) PostgreSQL
+**Current focus:** Phase 35 — JOIN/INTERSECT/EXCEPT single-engine pushdown
 
 ## Current Position
 
-Phase: 34 of 34 (ADBC Driver for at least PostgreSQL)
-Plan: 2 of 3 complete (34-02 ADBC plugin wiring)
+Phase: 35 of 35 (JOIN/INTERSECT/EXCEPT single-engine pushdown)
+Plan: 1 of 3 complete (35-01 JOIN pushdown planner infrastructure)
 Status: In Progress
-Last activity: 2026-03-14 — Completed 34-02 (AdbcSchemaFetcher, JdbcStoragePlugin ADBC lifecycle, JdbcScanCreator branching, protocolMode config)
+Last activity: 2026-03-14 — Completed 35-01 (JdbcJoinScanDrel/Prel, RexToJoinSqlString, JdbcPushJoinIntoScan rule, SqlBuilder.buildJoinSql)
 
-Progress: [█████████░] 92% (11 of 12 plans complete)
+Progress: [████████░░] 80% (12 of 15 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11 (v1.5+)
-- Average duration: 12.4 min
-- Total execution time: 2.21 hours
+- Total plans completed: 12 (v1.5+)
+- Average duration: 12.3 min
+- Total execution time: 2.46 hours
 
 **By Phase:**
 
@@ -59,6 +59,8 @@ Progress: [█████████░] 92% (11 of 12 plans complete)
 **Recent Trend:**
 - Last 5 plans: 12.2 min avg
 - Trend: stable
+
+| 35-join-intersect-except-pushdown P01 | 1 | 15 min | 15 min |
 
 *Updated after each plan completion*
 
@@ -114,6 +116,9 @@ Progress: [█████████░] 92% (11 of 12 plans complete)
 - [Phase 34-02]: BaseJdbcConf protocolMode at Tag(4) -- subclasses inherit, no redeclaration to avoid Protostuff serialization conflicts
 - [Phase 34-02]: AdbcSchemaFetcher parses nested Arrow getObjects() structure using ListVector offset buffers and StructVector child accessors
 - [Phase 34-02]: AdbcException has no simple (String, Throwable) constructor in 0.22.0 -- fallback catch blocks use RuntimeException wrapper
+- [Phase 35]: JdbcJoinScanPrel extends AbstractRelNode+LeafPrel (not ScanPrelBase) -- ScanPrelBase requires single-table TableMetadata which a join scan does not have
+- [Phase 35]: JdbcPushJoinIntoScan fires in LOGICAL phase -- JdbcScanDrel children at logical level have no WHERE/LIMIT/ORDER BY state (those are added by PHYSICAL-phase rules)
+- [Phase 35]: SqlBuilder.buildJoinSql() is non-final (overridable) so OracleSqlBuilder can override AS alias syntax if needed
 
 ### Pending Todos
 
@@ -123,6 +128,7 @@ None.
 
 - Phase 33 added: Advanced Query Pushdown Hardening
 - Phase 34 added: adbc driver for (at least) postgres
+- Phase 35 added: JOIN/UNION/INTERSECT/EXCEPT single-engine pushdown
 
 ### Blockers/Concerns
 
@@ -131,5 +137,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Completed 34-02-PLAN.md — ADBC plugin wiring (AdbcSchemaFetcher, JdbcStoragePlugin lifecycle, JdbcScanCreator branching, protocolMode config)
+Stopped at: Completed 35-01-PLAN.md — JOIN pushdown planner infrastructure (JdbcJoinScanDrel, JdbcJoinScanPrel, RexToJoinSqlString, JdbcPushJoinIntoScan, SqlBuilder.buildJoinSql)
 Resume file: None
