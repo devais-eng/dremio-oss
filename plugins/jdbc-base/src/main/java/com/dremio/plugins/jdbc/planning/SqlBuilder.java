@@ -17,6 +17,7 @@ package com.dremio.plugins.jdbc.planning;
 
 import com.dremio.common.expression.SchemaPath;
 import java.util.List;
+import org.apache.calcite.rel.core.JoinRelType;
 
 /**
  * Constructs SQL SELECT statements for JDBC pushdown queries.
@@ -167,6 +168,132 @@ public class SqlBuilder {
       sb.append(" LIMIT ");
       sb.append(limit);
     }
+  }
+
+  /**
+   * Maps a Calcite {@link JoinRelType} to the corresponding SQL keyword fragment.
+   *
+   * @param joinType the Calcite join type
+   * @return the SQL JOIN keyword, e.g. {@code "INNER JOIN"}
+   * @throws IllegalArgumentException if the join type is unsupported
+   */
+  public static String joinTypeToSql(JoinRelType joinType) {
+    switch (joinType) {
+      case INNER:
+        return "INNER JOIN";
+      case LEFT:
+        return "LEFT OUTER JOIN";
+      case RIGHT:
+        return "RIGHT OUTER JOIN";
+      case FULL:
+        return "FULL OUTER JOIN";
+      default:
+        throw new IllegalArgumentException("Unsupported join type: " + joinType);
+    }
+  }
+
+  /**
+   * Builds a SQL SELECT statement for a two-table JOIN query.
+   *
+   * <p>Assembles SQL of the form:
+   *
+   * <pre>{@code
+   * SELECT "t1"."col1", "t1"."col2", "t2"."col3"
+   * FROM "leftSchema"."leftTable" AS "t1"
+   * INNER JOIN "rightSchema"."rightTable" AS "t2"
+   * ON t1."join_col" = t2."join_col"
+   * }</pre>
+   *
+   * <p>Table aliases prevent ambiguous column references when both tables share column names (a
+   * common situation with join keys). Subclasses may override this method to adjust the alias
+   * syntax for specific dialects (e.g. Oracle omits the {@code AS} keyword for table aliases in
+   * some versions).
+   *
+   * @param leftSchema schema name for the left table
+   * @param leftTable table name for the left table
+   * @param leftAlias alias for the left table (e.g. "t1")
+   * @param rightSchema schema name for the right table
+   * @param rightTable table name for the right table
+   * @param rightAlias alias for the right table (e.g. "t2")
+   * @param joinTypeSql the SQL JOIN keyword fragment, e.g. {@code "INNER JOIN"} (from
+   *     {@link #joinTypeToSql})
+   * @param onClause the ON condition SQL with {@code ?} placeholders (from
+   *     {@link RexToJoinSqlString})
+   * @param leftColumns columns to project from the left table; if null/empty all left columns are
+   *     omitted from the explicit SELECT list
+   * @param rightColumns columns to project from the right table; if null/empty all right columns
+   *     are omitted
+   * @return syntactically complete JOIN SQL SELECT string
+   */
+  public String buildJoinSql(
+      String leftSchema,
+      String leftTable,
+      String leftAlias,
+      String rightSchema,
+      String rightTable,
+      String rightAlias,
+      String joinTypeSql,
+      String onClause,
+      List<SchemaPath> leftColumns,
+      List<SchemaPath> rightColumns) {
+
+    StringBuilder sb = new StringBuilder();
+
+    // SELECT list: "t1"."col1", "t1"."col2", ..., "t2"."col3", ...
+    boolean hasColumns =
+        (leftColumns != null && !leftColumns.isEmpty())
+            || (rightColumns != null && !rightColumns.isEmpty());
+    if (!hasColumns) {
+      sb.append("SELECT *");
+    } else {
+      sb.append("SELECT ");
+      boolean first = true;
+      if (leftColumns != null) {
+        for (SchemaPath col : leftColumns) {
+          if (!first) {
+            sb.append(", ");
+          }
+          sb.append(quoteIdentifier(leftAlias))
+              .append(".")
+              .append(quoteIdentifier(col.getRootSegment().getPath()));
+          first = false;
+        }
+      }
+      if (rightColumns != null) {
+        for (SchemaPath col : rightColumns) {
+          if (!first) {
+            sb.append(", ");
+          }
+          sb.append(quoteIdentifier(rightAlias))
+              .append(".")
+              .append(quoteIdentifier(col.getRootSegment().getPath()));
+          first = false;
+        }
+      }
+    }
+
+    // FROM "leftSchema"."leftTable" AS "leftAlias"
+    sb.append(" FROM ")
+        .append(quoteIdentifier(leftSchema))
+        .append(".")
+        .append(quoteIdentifier(leftTable))
+        .append(" AS ")
+        .append(quoteIdentifier(leftAlias));
+
+    // {JOIN_TYPE} "rightSchema"."rightTable" AS "rightAlias"
+    sb.append(" ")
+        .append(joinTypeSql)
+        .append(" ")
+        .append(quoteIdentifier(rightSchema))
+        .append(".")
+        .append(quoteIdentifier(rightTable))
+        .append(" AS ")
+        .append(quoteIdentifier(rightAlias));
+
+    // ON {onClause}
+    sb.append(" ON ").append(onClause);
+
+    return sb.toString();
   }
 
   /**
