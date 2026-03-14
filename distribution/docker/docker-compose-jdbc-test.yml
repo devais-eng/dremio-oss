@@ -1,0 +1,66 @@
+# Dremio + PostgreSQL + Oracle stack for JDBC connector smoke test.
+#
+# Usage:
+#   docker compose -f docker-compose-jdbc-test.yml up -d
+#   ./test-jdbc-sources.sh
+#   docker compose -f docker-compose-jdbc-test.yml down -v
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "log_statement=all", "-c", "log_destination=stderr"]
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: pguser
+      POSTGRES_PASSWORD: pgpass
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pguser -d testdb"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      jdbc-net:
+        aliases:
+          - postgres
+
+  oracle:
+    image: gvenzl/oracle-xe:21-slim
+    environment:
+      ORACLE_PASSWORD: orapass
+      APP_USER: testuser
+      APP_USER_PASSWORD: testpass
+    ports:
+      - "1522:1521"
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks:
+      jdbc-net:
+        aliases:
+          - oracle
+
+  dremio:
+    image: dremio-oss:jdbc-test
+    ports:
+      - "9047:9047"
+      - "31010:31010"
+      - "32010:32010"
+      - "45678:45678"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      oracle:
+        condition: service_healthy
+    networks:
+      jdbc-net:
+        aliases:
+          - dremio
+
+networks:
+  jdbc-net:
+    driver: bridge
