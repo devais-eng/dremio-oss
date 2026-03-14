@@ -158,8 +158,7 @@ public class AdbcRecordReader extends AbstractRecordReader {
 
       // Translate JDBC ? placeholders to PostgreSQL $N notation.
       String adbcSql =
-          SqlBuilder.jdbcToPostgresPlaceholders(
-              config.getSql(), config.getBindParams().size());
+          SqlBuilder.jdbcToPostgresPlaceholders(config.getSql(), config.getBindParams().size());
       stmt.setSqlQuery(adbcSql);
 
       // Bind parameters if present.
@@ -206,8 +205,7 @@ public class AdbcRecordReader extends AbstractRecordReader {
         // Find source vector by name (case-insensitive match).
         ValueVector src = findSourceVector(batch, colName);
         if (src == null) {
-          logger.warn(
-              "Column '{}' not found in ADBC batch schema; leaving output null", colName);
+          logger.warn("Column '{}' not found in ADBC batch schema; leaving output null", colName);
           dst.setValueCount(rowCount);
           continue;
         }
@@ -562,9 +560,7 @@ public class AdbcRecordReader extends AbstractRecordReader {
     return root;
   }
 
-  /**
-   * Maps a Calcite SQL type name to an Arrow type for bind parameter construction.
-   */
+  /** Maps a Calcite SQL type name to an Arrow type for bind parameter construction. */
   private ArrowType sqlTypeToArrowType(SqlTypeName typeName) {
     switch (typeName) {
       case TINYINT:
@@ -598,9 +594,7 @@ public class AdbcRecordReader extends AbstractRecordReader {
     }
   }
 
-  /**
-   * Sets a single bind parameter value in the given vector at the specified row index.
-   */
+  /** Sets a single bind parameter value in the given vector at the specified row index. */
   private void setBindValue(ValueVector vector, BindParam param, int index) {
     Object value = param.getValue();
     if (value == null) {

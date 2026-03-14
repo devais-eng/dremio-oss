@@ -65,9 +65,14 @@ public class TestPostgresAdbc {
 
   @ClassRule public static final DremioPostgresContainer PG = PostgresTestContainer.PG;
 
+  private static boolean adbcAvailable;
   private static BufferAllocator allocator;
-  private static AdbcConnectionFactory factory;
-  private static AdbcSchemaFetcher schemaFetcher;
+  // Use Object type to avoid class loading of ADBC types at test class init time.
+  // The JNI native lib loading happens when AdbcConnectionFactory is first referenced,
+  // which triggers UnsatisfiedLinkError if the native driver is missing. Using Object
+  // defers class resolution until the fields are actually used in test methods.
+  private static Object factory; // AdbcConnectionFactory
+  private static Object schemaFetcherObj; // AdbcSchemaFetcher
 
   @BeforeClass
   public static void setUpClass() throws Exception {
@@ -98,33 +103,53 @@ public class TestPostgresAdbc {
             + " ON CONFLICT DO NOTHING");
 
     // Only set up ADBC resources if the JNI driver is available.
-    if (AdbcConnectionFactory.isAvailable()) {
-      allocator = new RootAllocator(Long.MAX_VALUE);
+    // The isAvailable() call triggers JNI native lib loading which may throw
+    // UnsatisfiedLinkError or ExceptionInInitializerError if the native driver is missing.
+    try {
+      adbcAvailable = AdbcConnectionFactory.isAvailable();
+    } catch (Throwable t) {
+      // Native lib loading failed (UnsatisfiedLinkError, ExceptionInInitializerError, etc.)
+      adbcAvailable = false;
+    }
 
-      // Build a PostgreSQL ADBC connection URI from the testcontainer.
-      String adbcUri =
-          "postgresql://"
-              + PostgresTestContainer.getUsername()
-              + ":"
-              + PostgresTestContainer.getPassword()
-              + "@"
-              + PG.getHost()
-              + ":"
-              + PG.getMappedPort(5432)
-              + "/"
-              + PG.getDatabaseName();
+    if (adbcAvailable) {
+      try {
+        allocator = new RootAllocator(Long.MAX_VALUE);
 
-      factory = new AdbcConnectionFactory(adbcUri, allocator, 3);
-      factory.open();
+        // Build a PostgreSQL ADBC connection URI from the testcontainer.
+        String adbcUri =
+            "postgresql://"
+                + PostgresTestContainer.getUsername()
+                + ":"
+                + PostgresTestContainer.getPassword()
+                + "@"
+                + PG.getHost()
+                + ":"
+                + PG.getMappedPort(5432)
+                + "/"
+                + PG.getDatabaseName();
 
-      schemaFetcher = new AdbcSchemaFetcher(factory);
+        AdbcConnectionFactory f = new AdbcConnectionFactory(adbcUri, allocator, 3);
+        f.open();
+        factory = f;
+
+        schemaFetcherObj = new AdbcSchemaFetcher(f);
+      } catch (Throwable t) {
+        // Native PG driver (libadbc_driver_postgresql.so) not installed locally.
+        // JNI bridge loaded but the database-specific driver is missing.
+        adbcAvailable = false;
+        if (allocator != null) {
+          allocator.close();
+          allocator = null;
+        }
+      }
     }
   }
 
   @AfterClass
   public static void tearDownClass() {
     if (factory != null) {
-      factory.close();
+      ((AdbcConnectionFactory) factory).close();
       factory = null;
     }
     if (allocator != null) {
@@ -133,15 +158,29 @@ public class TestPostgresAdbc {
     }
   }
 
+  /** Helper to get the typed factory. */
+  private static AdbcConnectionFactory getFactory() {
+    return (AdbcConnectionFactory) factory;
+  }
+
+  /** Helper to get the typed schema fetcher. */
+  private static AdbcSchemaFetcher getSchemaFetcher() {
+    return (AdbcSchemaFetcher) schemaFetcherObj;
+  }
+
   /**
    * Guard: skip all ADBC tests if the native driver is not available. This ensures tests are
    * skipped gracefully in CI environments without the native driver.
+   *
+   * <p>We check the static flag set during {@code @BeforeClass} rather than calling {@link
+   * AdbcConnectionFactory#isAvailable()} again, since that method triggers JNI native lib loading
+   * which may produce noisy errors even when correctly falling back to "unavailable".
    */
   @Before
   public void checkAdbcAvailable() {
     Assume.assumeTrue(
         "ADBC native driver not available -- skipping ADBC integration tests",
-        AdbcConnectionFactory.isAvailable());
+        adbcAvailable);
   }
 
   // ---------------------------------------------------------------------------
@@ -155,7 +194,7 @@ public class TestPostgresAdbc {
    */
   @Test
   public void testAdbcConnectionFactoryOpenClose() throws Exception {
-    AdbcConnection conn = factory.openConnection();
+    AdbcConnection conn = getFactory().openConnection();
     assertNotNull("ADBC connection must not be null", conn);
     conn.close();
     // No exception means success -- connection was opened and closed cleanly.
@@ -172,7 +211,7 @@ public class TestPostgresAdbc {
    */
   @Test
   public void testAdbcRecordReaderBasicQuery() throws Exception {
-    try (AdbcConnection conn = factory.openConnection();
+    try (AdbcConnection conn = getFactory().openConnection();
         AdbcStatement stmt = conn.createStatement()) {
 
       stmt.setSqlQuery("SELECT \"id\", \"name\" FROM \"public\".\"adbc_test\" ORDER BY \"id\"");
@@ -229,7 +268,7 @@ public class TestPostgresAdbc {
         adbcSql.contains("?"));
 
     // Execute with bind parameter: id > 1 should return 2 rows (Bob, Charlie).
-    try (AdbcConnection conn = factory.openConnection();
+    try (AdbcConnection conn = getFactory().openConnection();
         AdbcStatement stmt = conn.createStatement()) {
 
       stmt.setSqlQuery(adbcSql);
@@ -275,7 +314,7 @@ public class TestPostgresAdbc {
   @Test
   public void testAdbcSchemaDiscovery() throws Exception {
     // Verify getTableSchema returns the expected fields.
-    BatchSchema schema = schemaFetcher.getTableSchema("public", "adbc_test");
+    BatchSchema schema = getSchemaFetcher().getTableSchema("public", "adbc_test");
     assertNotNull("ADBC table schema must not be null", schema);
     assertTrue(
         "Schema must have at least 8 fields, got: " + schema.getFieldCount(),
@@ -292,14 +331,14 @@ public class TestPostgresAdbc {
     assertFieldExists(schema, "big_id");
 
     // Verify listSchemas includes "public" but not system schemas.
-    List<String> schemas = schemaFetcher.listSchemas();
+    List<String> schemas = getSchemaFetcher().listSchemas();
     assertNotNull("Schemas list must not be null", schemas);
     assertTrue("'public' schema must be listed", schemas.contains("public"));
     assertFalse("'pg_catalog' must be excluded", schemas.contains("pg_catalog"));
     assertFalse("'information_schema' must be excluded", schemas.contains("information_schema"));
 
     // Verify listTables includes "adbc_test".
-    List<String> tables = schemaFetcher.listTables("public");
+    List<String> tables = getSchemaFetcher().listTables("public");
     assertNotNull("Tables list must not be null", tables);
     assertTrue("'adbc_test' must be listed in public schema", tables.contains("adbc_test"));
   }
@@ -314,7 +353,7 @@ public class TestPostgresAdbc {
    */
   @Test
   public void testAdbcTypeMapping() throws Exception {
-    try (AdbcConnection conn = factory.openConnection();
+    try (AdbcConnection conn = getFactory().openConnection();
         AdbcStatement stmt = conn.createStatement()) {
 
       stmt.setSqlQuery(

@@ -440,7 +440,8 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
     String schema = components.get(components.size() - 2);
     String table = components.get(components.size() - 1);
 
-    // Schema discovery always uses JDBC (ADBC JNI 0.22.0 does not implement getObjects/getTableSchema).
+    // Schema discovery always uses JDBC (ADBC JNI 0.22.0 does not implement
+    // getObjects/getTableSchema).
     try {
       BatchSchema batchSchema = schemaFetcher.getTableSchema(schema, table);
       DatasetStats stats = DatasetStats.of(UNKNOWN_ROW_COUNT, false, DEFAULT_SCAN_FACTOR);

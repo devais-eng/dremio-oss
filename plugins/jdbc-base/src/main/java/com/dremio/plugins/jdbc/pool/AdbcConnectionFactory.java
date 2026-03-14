@@ -47,7 +47,7 @@ import org.slf4j.LoggerFactory;
  *       open(), the factory is ready to create connections.
  * </ol>
  *
- * <p>Concurrency is bounded by a {@link Semaphore} with {@code maxConnections} permits, reusing the
+ * <p>Concurrency is bounded by a {@link Semaphore} with {@code maxConnections} connectionPermits, reusing the
  * same user-facing config that controls HikariCP pool size. Each call to {@link #openConnection()}
  * acquires a permit; the permit is released when the returned connection is closed.
  *
@@ -60,7 +60,7 @@ public class AdbcConnectionFactory implements AutoCloseable {
 
   private final String connectionUri;
   private final BufferAllocator allocator;
-  private final Semaphore permits;
+  private final Semaphore connectionPermits;
 
   private JniDriver driver;
   private AdbcDatabase database;
@@ -68,8 +68,8 @@ public class AdbcConnectionFactory implements AutoCloseable {
   /**
    * Creates a new factory. Does NOT create the JniDriver or AdbcDatabase yet.
    *
-   * @param connectionUri PostgreSQL connection URI (e.g.
-   *     {@code postgresql://user:pass@host:5432/dbname})
+   * @param connectionUri PostgreSQL connection URI (e.g. {@code
+   *     postgresql://user:pass@host:5432/dbname})
    * @param allocator Arrow buffer allocator from the Dremio operator context
    * @param maxConnections maximum concurrent ADBC connections (same as HikariCP pool size)
    */
@@ -77,7 +77,7 @@ public class AdbcConnectionFactory implements AutoCloseable {
       String connectionUri, BufferAllocator allocator, int maxConnections) {
     this.connectionUri = connectionUri;
     this.allocator = allocator;
-    this.permits = new Semaphore(maxConnections);
+    this.connectionPermits = new Semaphore(maxConnections);
   }
 
   /**
@@ -98,9 +98,9 @@ public class AdbcConnectionFactory implements AutoCloseable {
   }
 
   /**
-   * Returns the Arrow allocator used by this factory's JNI driver. Bind parameter
-   * VectorSchemaRoots must be created with this allocator (not the OperatorContext's)
-   * because the C Data Interface requires buffers to share the same allocator root.
+   * Returns the Arrow allocator used by this factory's JNI driver. Bind parameter VectorSchemaRoots
+   * must be created with this allocator (not the OperatorContext's) because the C Data Interface
+   * requires buffers to share the same allocator root.
    */
   public BufferAllocator getAllocator() {
     return allocator;
@@ -118,12 +118,12 @@ public class AdbcConnectionFactory implements AutoCloseable {
    * @throws InterruptedException if the thread is interrupted while waiting for a permit
    */
   public AdbcConnection openConnection() throws AdbcException, InterruptedException {
-    permits.acquire();
+    connectionPermits.acquire();
     try {
       AdbcConnection conn = database.connect();
-      return new BoundedAdbcConnection(conn, permits);
+      return new BoundedAdbcConnection(conn, connectionPermits);
     } catch (Exception e) {
-      permits.release();
+      connectionPermits.release();
       throw e;
     }
   }
@@ -166,11 +166,11 @@ public class AdbcConnectionFactory implements AutoCloseable {
   static class BoundedAdbcConnection implements AdbcConnection {
 
     private final AdbcConnection delegate;
-    private final Semaphore permits;
+    private final Semaphore connectionPermits;
 
-    BoundedAdbcConnection(AdbcConnection delegate, Semaphore permits) {
+    BoundedAdbcConnection(AdbcConnection delegate, Semaphore connectionPermits) {
       this.delegate = delegate;
-      this.permits = permits;
+      this.connectionPermits = connectionPermits;
     }
 
     @Override
@@ -229,13 +229,9 @@ public class AdbcConnectionFactory implements AutoCloseable {
 
     @Override
     public ArrowReader getStatistics(
-        String catalogPattern,
-        String dbSchemaPattern,
-        String tableNamePattern,
-        boolean approximate)
+        String catalogPattern, String dbSchemaPattern, String tableNamePattern, boolean approximate)
         throws AdbcException {
-      return delegate.getStatistics(
-          catalogPattern, dbSchemaPattern, tableNamePattern, approximate);
+      return delegate.getStatistics(catalogPattern, dbSchemaPattern, tableNamePattern, approximate);
     }
 
     @Override
@@ -324,7 +320,7 @@ public class AdbcConnectionFactory implements AutoCloseable {
       try {
         delegate.close();
       } finally {
-        permits.release();
+        connectionPermits.release();
       }
     }
   }
