@@ -21,7 +21,7 @@ import com.dremio.exec.record.BatchSchema;
 import com.dremio.exec.store.AbstractRecordReader;
 import com.dremio.plugins.jdbc.exec.JdbcSubScan;
 import com.dremio.plugins.jdbc.planning.BindParam;
-import com.dremio.plugins.jdbc.planning.SqlBuilder;
+import com.dremio.plugins.jdbc.planning.LiteralInliner;
 import com.dremio.plugins.jdbc.pool.AdbcConnectionFactory;
 import com.dremio.sabot.exec.context.OperatorContext;
 import com.dremio.sabot.op.scan.OutputMutator;
@@ -156,21 +156,27 @@ public class AdbcRecordReader extends AbstractRecordReader {
       conn = factory.openConnection();
       stmt = conn.createStatement();
 
-      // Translate JDBC ? placeholders to PostgreSQL $N notation.
-      String adbcSql =
-          SqlBuilder.jdbcToPostgresPlaceholders(config.getSql(), config.getBindParams().size());
-      stmt.setSqlQuery(adbcSql);
-
-      // Bind parameters if present.
-      // IMPORTANT: Use the factory's allocator (same root as JniDriver) — NOT the
-      // OperatorContext's allocator. The C Data Interface requires buffers to share
-      // the same allocator root when exporting VectorSchemaRoot to native code.
+      // ADBC-02: Inline bind parameters as SQL literals to enable COPY binary protocol.
+      // When stmt.bind() is used, the ADBC PG driver uses the Extended Query Protocol
+      // (parse/bind/execute), which cannot use the faster COPY binary path. By inlining
+      // literals directly into the SQL string, the driver uses the simple query protocol,
+      // routing through the fast COPY binary path.
       List<BindParam> bindParams = config.getBindParams();
-      if (bindParams != null && !bindParams.isEmpty()) {
-        BufferAllocator allocator = factory.getAllocator();
-        bindRoot = buildBindRoot(allocator, bindParams);
-        stmt.bind(bindRoot);
+      boolean hasParams = bindParams != null && !bindParams.isEmpty();
+
+      String adbcSql;
+      if (hasParams) {
+        // ADBC-02: Inline literals directly into SQL for COPY binary protocol.
+        adbcSql = LiteralInliner.inlineBindParams(config.getSql(), bindParams);
+        logger.debug(
+            "ADBC-02: Inlined {} bind params into SQL for COPY binary protocol", bindParams.size());
+        // Do NOT call stmt.bind() -- this is intentional for COPY binary.
+      } else {
+        adbcSql = config.getSql(); // No params to inline.
       }
+      stmt.setSqlQuery(adbcSql);
+      // Note: stmt.bind() is NOT called when params are inlined (ADBC-02).
+      // The bindRoot field remains null (no VectorSchemaRoot allocation needed).
 
       // Execute query and obtain ArrowReader.
       AdbcStatement.QueryResult result = stmt.executeQuery();
