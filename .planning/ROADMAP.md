@@ -80,7 +80,7 @@ See `milestones/v1.4-ROADMAP.md` for full phase details.
 
 </details>
 
-### 🚧 v1.5 Open-Source RDBMS JDBC Plugin (In Progress)
+### v1.5 Open-Source RDBMS JDBC Plugin (In Progress)
 
 **Milestone Goal:** Introduce a fully open-source JDBC storage plugin into Dremio OSS supporting PostgreSQL and Oracle, with HikariCP connection pooling, Arrow type conversion, basic pushdown, Testcontainers integration tests, and UI source creation wizards — eliminating dependency on the closed-source CE JDBC plugin.
 
@@ -155,6 +155,24 @@ Plans:
 - [ ] 33-02-PLAN.md — ORDER BY pushdown (JdbcPushSortIntoScan) and TopN (ORDER BY + LIMIT combined), integration tests
 - [ ] 33-03-PLAN.md — Aggregation pushdown (JdbcPushAggIntoScan: GROUP BY + COUNT/SUM/MIN/MAX/AVG), integration tests
 
+### Phase 34: ADBC Driver for (at least) PostgreSQL
+**Goal**: Add an optional ADBC (Arrow Database Connectivity) execution backend that replaces the manual JDBC ResultSet-to-Arrow conversion with native Arrow buffers via JNI for PostgreSQL sources, with per-source protocol mode configuration (AUTO/JDBC/ADBC)
+**Depends on**: Phase 33
+**Requirements**: ADBC-01
+**Success Criteria** (what must be TRUE):
+  1. User can configure protocolMode (AUTO/JDBC/ADBC) per JDBC source
+  2. AUTO mode probes ADBC availability at source start and falls back to JDBC gracefully
+  3. ADBC mode executes queries via JniStatement + ArrowReader with native Arrow buffers
+  4. Bind parameters are translated from JDBC ? to PostgreSQL $1,$2,$3 at the ADBC execution boundary
+  5. Schema discovery works via ADBC getTableSchema/getObjects when in ADBC mode
+  6. Docker image includes native libadbc_driver_postgresql.so on LD_LIBRARY_PATH
+  7. Integration tests verify ADBC query execution, bind parameters, and schema discovery
+**Plans:** 3 plans
+Plans:
+- [ ] 34-01-PLAN.md — ADBC core infrastructure: Maven deps, ProtocolMode enum, AdbcConnectionFactory, placeholder translation, AdbcRecordReader
+- [ ] 34-02-PLAN.md — Plugin wiring: AdbcSchemaFetcher, JdbcStoragePlugin ADBC lifecycle, JdbcScanCreator branching, BaseJdbcConf/PostgresConf protocolMode
+- [ ] 34-03-PLAN.md — Docker deployment (native driver install) and PostgreSQL ADBC integration tests
+
 ## Quick Tasks
 
 Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for details.
@@ -169,7 +187,7 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 30 → 31 → 32 → 33
+Phases execute in numeric order: 30 → 31 → 32 → 33 → 34
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -206,3 +224,4 @@ Phases execute in numeric order: 30 → 31 → 32 → 33
 | 31. PostgreSQL Connector | v1.5 | Complete    | 2026-03-13 | - |
 | 32. Oracle Connector | v1.5 | 0/? | Not started | - |
 | 33. Advanced Query Pushdown Hardening | v1.5 | 0/3 | Not started | - |
+| 34. ADBC Driver for PostgreSQL | v1.5 | 0/3 | Not started | - |
