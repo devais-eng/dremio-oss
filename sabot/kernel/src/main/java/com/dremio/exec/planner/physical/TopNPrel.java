@@ -103,6 +103,14 @@ public class TopNPrel extends SinglePrel {
     return costFactory.makeCost(inputRows, cpuCost, diskIOCost, 0);
   }
 
+  public int getLimit() {
+    return limit;
+  }
+
+  public RelCollation getCollation() {
+    return collation;
+  }
+
   @Override
   public RelWriter explainTerms(RelWriter pw) {
     return super.explainTerms(pw).item("limit", limit);
