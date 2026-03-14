@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: in-progress
-stopped_at: Completed 35-01-PLAN.md
-last_updated: "2026-03-14T19:53:00Z"
-last_activity: "2026-03-14 — Completed Phase 35 Plan 01 (JOIN pushdown planner infrastructure: JdbcJoinScanDrel, JdbcJoinScanPrel, RexToJoinSqlString, JdbcPushJoinIntoScan, SqlBuilder.buildJoinSql)"
+stopped_at: Completed 35-02-PLAN.md
+last_updated: "2026-03-14T20:02:10Z"
+last_activity: "2026-03-14 — Completed Phase 35 Plan 02 (LiteralInliner for ADBC COPY binary: literal inlining, SQL injection safety tests, AdbcRecordReader wired to simple query protocol)"
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 15
-  completed_plans: 12
-  percent: 80
+  completed_plans: 13
+  percent: 87
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 ## Current Position
 
 Phase: 35 of 35 (JOIN/INTERSECT/EXCEPT single-engine pushdown)
-Plan: 1 of 3 complete (35-01 JOIN pushdown planner infrastructure)
+Plan: 2 of 3 complete (35-02 LiteralInliner for ADBC COPY binary protocol)
 Status: In Progress
-Last activity: 2026-03-14 — Completed 35-01 (JdbcJoinScanDrel/Prel, RexToJoinSqlString, JdbcPushJoinIntoScan rule, SqlBuilder.buildJoinSql)
+Last activity: 2026-03-14 — Completed 35-02 (LiteralInliner, TestLiteralInliner SQL injection safety, AdbcRecordReader simple query protocol wiring)
 
-Progress: [████████░░] 80% (12 of 15 plans complete)
+Progress: [████████░░] 87% (13 of 15 plans complete)
 
 ## Performance Metrics
 
@@ -61,6 +61,7 @@ Progress: [████████░░] 80% (12 of 15 plans complete)
 - Trend: stable
 
 | 35-join-intersect-except-pushdown P01 | 1 | 15 min | 15 min |
+| 35-join-intersect-except-pushdown P02 | 1 | 5 min | 5 min |
 
 *Updated after each plan completion*
 
@@ -119,6 +120,9 @@ Progress: [████████░░] 80% (12 of 15 plans complete)
 - [Phase 35]: JdbcJoinScanPrel extends AbstractRelNode+LeafPrel (not ScanPrelBase) -- ScanPrelBase requires single-table TableMetadata which a join scan does not have
 - [Phase 35]: JdbcPushJoinIntoScan fires in LOGICAL phase -- JdbcScanDrel children at logical level have no WHERE/LIMIT/ORDER BY state (those are added by PHYSICAL-phase rules)
 - [Phase 35]: SqlBuilder.buildJoinSql() is non-final (overridable) so OracleSqlBuilder can override AS alias syntax if needed
+- [Phase 35-02]: LiteralInliner uses single-quote doubling only (no backslash escaping) — PostgreSQL standard_conforming_strings=on since 9.1
+- [Phase 35-02]: AdbcRecordReader.setup() does NOT call stmt.bind() when params present — COPY binary requires simple query protocol; buildBindRoot/setBindValue retained for future use
+- [Phase 35-02]: Maven 3.9.9 rejects # comment lines in .mvn/maven.config — removed comments, kept only -Drevision= flag
 
 ### Pending Todos
 
@@ -137,5 +141,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Completed 35-01-PLAN.md — JOIN pushdown planner infrastructure (JdbcJoinScanDrel, JdbcJoinScanPrel, RexToJoinSqlString, JdbcPushJoinIntoScan, SqlBuilder.buildJoinSql)
+Stopped at: Completed 35-02-PLAN.md — LiteralInliner for ADBC COPY binary protocol (LiteralInliner, SQL injection safety tests, AdbcRecordReader wired to simple query protocol)
 Resume file: None
