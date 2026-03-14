@@ -20,7 +20,8 @@ ARG TARBALL_PATH
 COPY ${TARBALL_PATH} /tmp/dremio.tar.gz
 RUN mkdir -p /opt/dremio \
     && tar xzf /tmp/dremio.tar.gz -C /opt/dremio --strip-components=1 \
-    && rm /tmp/dremio.tar.gz
+    && rm /tmp/dremio.tar.gz \
+    && rm -f /opt/dremio/jars/dremio-ce-jdbc-plugin-*.jar
 
 FROM ${JAVA_IMAGE} AS runtime
 
@@ -41,6 +42,32 @@ RUN \
   && chown -R dremio:dremio /var/lib/dremio
 
 COPY --from=extractor --chown=dremio:dremio /opt/dremio /opt/dremio
+
+# Install native ADBC PostgreSQL driver for high-performance Arrow-native query execution.
+# The JNI bridge is bundled inside adbc-driver-jni.jar (self-extracting),
+# but the database-specific native driver .so must be installed separately.
+# We use the dbc CLI (from columnar.tech) to install the driver, falling back
+# to a direct GitHub release download if the CLI is unavailable.
+RUN mkdir -p /opt/adbc/drivers \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && ( curl -LsSf https://dbc.columnar.tech/install.sh | sh \
+         && export PATH="$HOME/.cargo/bin:$PATH" \
+         && dbc install postgresql \
+         && cp /root/.config/columnar/adbc_drivers/*.so /opt/adbc/drivers/ 2>/dev/null \
+       ) \
+    || ( echo "dbc CLI unavailable, downloading ADBC driver from GitHub releases..." \
+         && curl -L https://github.com/apache/arrow-adbc/releases/download/apache-arrow-adbc-22/adbc_driver_postgresql-1.4.0-linux-amd64.tar.gz \
+            | tar xz -C /opt/adbc/drivers/ 2>/dev/null \
+         || echo "WARN: ADBC native driver download failed; ADBC mode will fall back to JDBC at runtime" \
+       ) \
+    && chmod -R 755 /opt/adbc/drivers \
+    && apt-get remove -y curl \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Make ADBC native drivers discoverable by the JNI driver manager.
+ENV LD_LIBRARY_PATH="/opt/adbc/drivers:${LD_LIBRARY_PATH}"
 
 EXPOSE 9047/tcp
 EXPOSE 31010/tcp
