@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
-status: in-progress
-stopped_at: Completed 35-02-PLAN.md
-last_updated: "2026-03-14T20:02:10Z"
-last_activity: "2026-03-14 — Completed Phase 35 Plan 02 (LiteralInliner for ADBC COPY binary: literal inlining, SQL injection safety tests, AdbcRecordReader wired to simple query protocol)"
+status: complete
+stopped_at: Completed 35-03-PLAN.md
+last_updated: "2026-03-14T21:35:00Z"
+last_activity: "2026-03-14 — Completed Phase 35 Plan 03 (JOIN pushdown integration tests: TestPostgresJoinPushdown 13 tests, TestOracleJoinPushdown 5 tests, Docker UAT test-uat-35.sh 18 tests; OracleSqlBuilder AS alias fix)"
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 15
-  completed_plans: 13
-  percent: 87
+  completed_plans: 15
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 ## Current Position
 
 Phase: 35 of 35 (JOIN/INTERSECT/EXCEPT single-engine pushdown)
-Plan: 2 of 3 complete (35-02 LiteralInliner for ADBC COPY binary protocol)
-Status: In Progress
-Last activity: 2026-03-14 — Completed 35-02 (LiteralInliner, TestLiteralInliner SQL injection safety, AdbcRecordReader simple query protocol wiring)
+Plan: 3 of 3 complete (35-03 JOIN pushdown integration tests + Docker UAT script)
+Status: COMPLETE — All phases and plans done
+Last activity: 2026-03-14 — Completed 35-03 (TestPostgresJoinPushdown 13 tests, TestOracleJoinPushdown 5 tests, test-uat-35.sh Docker UAT 18 tests, OracleSqlBuilder AS alias fix)
 
-Progress: [████████░░] 87% (13 of 15 plans complete)
+Progress: [██████████] 100% (15 of 15 plans complete)
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [████████░░] 87% (13 of 15 plans complete)
 
 | 35-join-intersect-except-pushdown P01 | 1 | 15 min | 15 min |
 | 35-join-intersect-except-pushdown P02 | 1 | 5 min | 5 min |
+| 35-join-intersect-except-pushdown P03 | 1 | 22 min | 22 min |
 
 *Updated after each plan completion*
 
@@ -123,6 +124,8 @@ Progress: [████████░░] 87% (13 of 15 plans complete)
 - [Phase 35-02]: LiteralInliner uses single-quote doubling only (no backslash escaping) — PostgreSQL standard_conforming_strings=on since 9.1
 - [Phase 35-02]: AdbcRecordReader.setup() does NOT call stmt.bind() when params present — COPY binary requires simple query protocol; buildBindRoot/setBindValue retained for future use
 - [Phase 35-02]: Maven 3.9.9 rejects # comment lines in .mvn/maven.config — removed comments, kept only -Drevision= flag
+- [Phase 35-03]: OracleSqlBuilder.buildJoinSql() overrides base to omit AS keyword — Oracle rejects AS for table aliases in FROM/JOIN (ORA-00933); space-separated alias: "schema"."table" "alias"
+- [Phase 35-03]: INTERSECT semantics verified via INNER JOIN DISTINCT; EXCEPT semantics via LEFT JOIN + IS NULL filter
 
 ### Pending Todos
 
@@ -141,5 +144,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Completed 35-02-PLAN.md — LiteralInliner for ADBC COPY binary protocol (LiteralInliner, SQL injection safety tests, AdbcRecordReader wired to simple query protocol)
+Stopped at: Completed 35-03-PLAN.md — JOIN pushdown integration tests (TestPostgresJoinPushdown, TestOracleJoinPushdown, test-uat-35.sh Docker UAT, OracleSqlBuilder AS alias fix)
 Resume file: None
