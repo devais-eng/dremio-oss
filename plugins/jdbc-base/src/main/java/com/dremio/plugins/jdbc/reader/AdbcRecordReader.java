@@ -308,6 +308,10 @@ public class AdbcRecordReader extends AbstractRecordReader {
    */
   @SuppressWarnings("checkstyle:CyclomaticComplexity")
   private void transferVector(ValueVector src, ValueVector dst, int rowCount) {
+    // Clear validity bits from any previous batch — ScanOperator does NOT zero vectors
+    // between next() calls. Without this, a non-null value at index N in batch K would
+    // bleed through as a stale non-null in batch K+1 if index N is null in the new batch.
+    dst.getValidityBuffer().setZero(0, dst.getValidityBuffer().capacity());
     // DateDayVector -> DateMilliVector conversion.
     if (src instanceof DateDayVector && dst instanceof DateMilliVector) {
       DateDayVector srcDate = (DateDayVector) src;
