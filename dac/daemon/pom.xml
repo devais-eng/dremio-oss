@@ -319,11 +319,15 @@
           <artifactId>dremio-ce-mongo-plugin</artifactId>
           <version>${project.version}</version>
         </dependency>
+        <!-- Excluded: CE JDBC plugin conflicts with OSS JDBC framework at query time
+             (CE planner rules cast to com.dremio.exec.store.jdbc.JdbcStoragePlugin).
+             Our OSS sources use POSTGRES_DB / ORACLE_DB; CE uses POSTGRES / ORACLE.
         <dependency>
           <groupId>com.dremio.community.plugins</groupId>
           <artifactId>dremio-ce-jdbc-plugin</artifactId>
           <version>${project.version}</version>
         </dependency>
+        -->
         <dependency>
           <groupId>com.dremio.community.services</groupId>
           <artifactId>dremio-ce-services-cachemanager</artifactId>
