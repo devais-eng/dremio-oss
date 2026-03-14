@@ -90,15 +90,26 @@ public abstract class BaseJdbcConf<T extends BaseJdbcConf<T, P>, P extends Stora
   }
 
   /**
+   * Selects the wire-protocol backend: AUTO (try ADBC, fall back to JDBC), JDBC (force JDBC), or
+   * ADBC (force native Arrow; fail if unavailable).
+   *
+   * <p>This field lives ONLY in BaseJdbcConf at Tag(4). Subclasses (PostgresConf, OracleConf) must
+   * NOT declare their own protocolMode field to avoid Protostuff serialization conflicts.
+   */
+  @Tag(4)
+  @NotMetadataImpacting
+  public ProtocolMode protocolMode = ProtocolMode.AUTO;
+
+  /**
    * Returns the protocol mode for this source (AUTO, JDBC, or ADBC).
    *
-   * <p>Defaults to {@link ProtocolMode#AUTO}. Subclasses inherit this field from BaseJdbcConf and
-   * should not redeclare it.
+   * <p>Null-safe: returns {@link ProtocolMode#AUTO} if the field was not set (e.g., during
+   * deserialization of old configs).
    *
    * @return the configured protocol mode, never null
    */
   public ProtocolMode getProtocolMode() {
-    return ProtocolMode.AUTO;
+    return protocolMode != null ? protocolMode : ProtocolMode.AUTO;
   }
 
   /**

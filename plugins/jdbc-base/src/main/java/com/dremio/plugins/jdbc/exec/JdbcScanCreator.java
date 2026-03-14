@@ -16,9 +16,10 @@
 package com.dremio.plugins.jdbc.exec;
 
 import com.dremio.common.exceptions.ExecutionSetupException;
+import com.dremio.exec.store.RecordReader;
 import com.dremio.exec.store.parquet.RecordReaderIterator;
 import com.dremio.plugins.jdbc.JdbcStoragePlugin;
-import com.dremio.plugins.jdbc.reader.JdbcRecordReader;
+import com.dremio.plugins.jdbc.conf.ProtocolMode;
 import com.dremio.sabot.exec.context.OperatorContext;
 import com.dremio.sabot.exec.fragment.FragmentExecutionContext;
 import com.dremio.sabot.op.scan.ScanOperator;
@@ -26,11 +27,12 @@ import com.dremio.sabot.op.spi.ProducerOperator;
 
 /**
  * Binds {@link JdbcSubScan} to the Dremio execution engine by creating a {@link ScanOperator}
- * backed by a {@link JdbcRecordReader}.
+ * backed by a {@link com.dremio.plugins.jdbc.reader.JdbcRecordReader} or {@link
+ * com.dremio.plugins.jdbc.reader.AdbcRecordReader}, depending on the effective protocol mode.
  *
  * <p>This class is discovered via classpath scanning (see {@code sabot-module.conf}) and wired into
- * the Dremio operator registry as the creator for operators with type
- * {@link com.dremio.exec.proto.UserBitShared.CoreOperatorType#JDBC_SUB_SCAN_VALUE}.
+ * the Dremio operator registry as the creator for operators with type {@link
+ * com.dremio.exec.proto.UserBitShared.CoreOperatorType#JDBC_SUB_SCAN_VALUE}.
  *
  * <p>Pattern: identical to {@code InfoSchemaScanCreator}.
  */
@@ -41,7 +43,13 @@ public class JdbcScanCreator implements ProducerOperator.Creator<JdbcSubScan> {
       FragmentExecutionContext fec, OperatorContext context, JdbcSubScan config)
       throws ExecutionSetupException {
     JdbcStoragePlugin plugin = fec.getStoragePlugin(config.getPluginId());
-    JdbcRecordReader reader = plugin.createRecordReader(context, config, plugin.getPool());
+    RecordReader reader;
+    if (plugin.getEffectiveProtocolMode() == ProtocolMode.ADBC
+        && plugin.getAdbcFactory() != null) {
+      reader = plugin.createAdbcRecordReader(context, config, plugin.getAdbcFactory());
+    } else {
+      reader = plugin.createRecordReader(context, config, plugin.getPool());
+    }
     return new ScanOperator(fec, config, context, RecordReaderIterator.from(reader));
   }
 }

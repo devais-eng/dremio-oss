@@ -41,8 +41,8 @@ import javax.inject.Provider;
  * hostname, port, database name, authentication credentials, SSL/TLS options, and performance
  * tuning parameters.
  *
- * <p>The source type is {@code POSTGRES_DB}. The UI form is defined in
- * {@code postgres-layout.json}.
+ * <p>The source type is {@code POSTGRES_DB}. The UI form is defined in {@code
+ * postgres-layout.json}.
  */
 @SourceType(value = "POSTGRES_DB", label = "PostgreSQL", uiConfig = "postgres-layout.json")
 public class PostgresConf extends BaseJdbcConf<PostgresConf, JdbcStoragePlugin> {
@@ -92,8 +92,8 @@ public class PostgresConf extends BaseJdbcConf<PostgresConf, JdbcStoragePlugin> 
   public boolean useSsl = false;
 
   /**
-   * Controls how the SSL certificate is validated when encryption is enabled.
-   * Defaults to full certificate and hostname validation.
+   * Controls how the SSL certificate is validated when encryption is enabled. Defaults to full
+   * certificate and hostname validation.
    */
   @Tag(31)
   @NotMetadataImpacting
@@ -106,8 +106,8 @@ public class PostgresConf extends BaseJdbcConf<PostgresConf, JdbcStoragePlugin> 
   // -------------------------------------------------------------------------
 
   /**
-   * Number of rows to fetch per network round-trip for cursor-based result set streaming.
-   * Default: 4096.
+   * Number of rows to fetch per network round-trip for cursor-based result set streaming. Default:
+   * 4096.
    */
   @Tag(40)
   @NotMetadataImpacting
@@ -115,8 +115,8 @@ public class PostgresConf extends BaseJdbcConf<PostgresConf, JdbcStoragePlugin> 
   public int fetchSize = 4096;
 
   /**
-   * Maximum time in seconds that a single query may run before it is cancelled by the server.
-   * 0 means no timeout.
+   * Maximum time in seconds that a single query may run before it is cancelled by the server. 0
+   * means no timeout.
    */
   @Tag(41)
   @NotMetadataImpacting
@@ -130,8 +130,8 @@ public class PostgresConf extends BaseJdbcConf<PostgresConf, JdbcStoragePlugin> 
   /**
    * Builds the JDBC URL for the configured PostgreSQL server.
    *
-   * <p>When SSL is enabled, appends query parameters selecting the appropriate
-   * {@code sslmode} for the configured {@link EncryptionValidationMode}.
+   * <p>When SSL is enabled, appends query parameters selecting the appropriate {@code sslmode} for
+   * the configured {@link EncryptionValidationMode}.
    *
    * @return a {@code jdbc:postgresql://} URL string
    */
@@ -176,17 +176,13 @@ public class PostgresConf extends BaseJdbcConf<PostgresConf, JdbcStoragePlugin> 
   // Authentication hooks (override BaseJdbcConf defaults)
   // -------------------------------------------------------------------------
 
-  /**
-   * Returns the configured username, or null if not set.
-   */
+  /** Returns the configured username, or null if not set. */
   @Override
   public String getUsername() {
     return username;
   }
 
-  /**
-   * Returns the plain-text password from the configured {@link SecretRef}, or null if not set.
-   */
+  /** Returns the plain-text password from the configured {@link SecretRef}, or null if not set. */
   @Override
   public String getPassword() {
     if (SecretRef.isNullOrEmpty(password)) {
@@ -203,9 +199,8 @@ public class PostgresConf extends BaseJdbcConf<PostgresConf, JdbcStoragePlugin> 
   /**
    * Returns additional JDBC connection properties for this PostgreSQL source.
    *
-   * <p>When a positive {@link #queryTimeoutSec} is configured, sets the PostgreSQL
-   * {@code options} property to {@code -c statement_timeout=<ms>} so the server enforces
-   * a query time limit.
+   * <p>When a positive {@link #queryTimeoutSec} is configured, sets the PostgreSQL {@code options}
+   * property to {@code -c statement_timeout=<ms>} so the server enforces a query time limit.
    *
    * @return a Properties object with any additional driver-level settings
    */
@@ -219,19 +214,51 @@ public class PostgresConf extends BaseJdbcConf<PostgresConf, JdbcStoragePlugin> 
   }
 
   // -------------------------------------------------------------------------
+  // ADBC support
+  // -------------------------------------------------------------------------
+
+  /**
+   * Returns the ADBC connection URI for PostgreSQL using libpq's connection string format.
+   *
+   * <p>Produces URIs like {@code postgresql://user:pass@host:5432/dbname} which the ADBC PostgreSQL
+   * driver understands (it uses libpq internally). When SSL is enabled, appends
+   * {@code ?sslmode=require}.
+   *
+   * @return a PostgreSQL ADBC connection URI
+   */
+  @Override
+  public String adbcUri() {
+    StringBuilder uri = new StringBuilder("postgresql://");
+    if (username != null) {
+      uri.append(username);
+      String pw = getPassword();
+      if (pw != null) {
+        uri.append(":").append(pw);
+      }
+      uri.append("@");
+    }
+    uri.append(hostname).append(":").append(port).append("/").append(databaseName);
+    if (useSsl) {
+      uri.append("?sslmode=require");
+    }
+    return uri.toString();
+  }
+
+  // -------------------------------------------------------------------------
   // Plugin factory
   // -------------------------------------------------------------------------
 
   /**
-   * Creates a {@link JdbcStoragePlugin} instance wired with PostgreSQL-specific schema fetcher
-   * and record reader factory overrides.
+   * Creates a {@link JdbcStoragePlugin} instance wired with PostgreSQL-specific schema fetcher and
+   * record reader factory overrides.
    *
    * <p>The anonymous subclass overrides:
+   *
    * <ul>
    *   <li>{@code createSchemaFetcher} — returns a {@link PostgresSchemaFetcher} for PG-native type
-   *       mapping (UUID, JSONB, arrays, etc.).</li>
-   *   <li>{@code createRecordReader} — returns a {@link PostgresRecordReader} that sets
-   *       {@code autoCommit=false} on the connection to enable cursor-based result set streaming.</li>
+   *       mapping (UUID, JSONB, arrays, etc.).
+   *   <li>{@code createRecordReader} — returns a {@link PostgresRecordReader} that sets {@code
+   *       autoCommit=false} on the connection to enable cursor-based result set streaming.
    * </ul>
    */
   @Override
