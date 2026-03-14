@@ -22,22 +22,22 @@ import java.util.List;
  * Constructs SQL SELECT statements for JDBC pushdown queries.
  *
  * <p>Assembles a SQL string from individual pushdown components:
+ *
  * <ul>
- *   <li>Column projection (SELECT list)</li>
- *   <li>Table reference (schema.table with double-quoted identifiers)</li>
- *   <li>Optional WHERE clause from a pushed-down filter</li>
- *   <li>Optional LIMIT clause from a pushed-down fetch limit</li>
+ *   <li>Column projection (SELECT list)
+ *   <li>Table reference (schema.table with double-quoted identifiers)
+ *   <li>Optional WHERE clause from a pushed-down filter
+ *   <li>Optional LIMIT clause from a pushed-down fetch limit
  * </ul>
  *
- * <p>Concrete JDBC connectors may subclass and override {@link #buildSql} to
- * adapt the SQL dialect (e.g. Oracle uses {@code FETCH FIRST n ROWS ONLY}
- * instead of {@code LIMIT}).
+ * <p>Concrete JDBC connectors may subclass and override {@link #buildSql} to adapt the SQL dialect
+ * (e.g. Oracle uses {@code FETCH FIRST n ROWS ONLY} instead of {@code LIMIT}).
  */
 public class SqlBuilder {
 
   /**
-   * Wraps an identifier in double quotes and escapes any embedded double quotes
-   * per the SQL standard ({@code "} → {@code ""}).
+   * Wraps an identifier in double quotes and escapes any embedded double quotes per the SQL
+   * standard ({@code "} → {@code ""}).
    *
    * @param id the identifier to quote
    * @return the double-quoted identifier string
@@ -49,14 +49,14 @@ public class SqlBuilder {
   /**
    * Builds a SQL SELECT statement from the provided pushdown components.
    *
-   * <p>This is the backward-compatible signature; it delegates to
-   * {@link #buildSql(SqlBuildRequest)} by constructing a request from the individual parameters.
+   * <p>This is the backward-compatible signature; it delegates to {@link
+   * #buildSql(SqlBuildRequest)} by constructing a request from the individual parameters.
    *
-   * @param schemaName       remote schema name (double-quoted in output)
-   * @param tableName        remote table name (double-quoted in output)
+   * @param schemaName remote schema name (double-quoted in output)
+   * @param tableName remote table name (double-quoted in output)
    * @param projectedColumns columns to project; if null or empty, {@code SELECT *} is used
-   * @param whereClause      SQL WHERE expression; appended as-is when non-null
-   * @param limit            row limit; appended as {@code LIMIT N} when non-null
+   * @param whereClause SQL WHERE expression; appended as-is when non-null
+   * @param limit row limit; appended as {@code LIMIT N} when non-null
    * @return syntactically complete SQL SELECT string
    */
   public String buildSql(
@@ -65,21 +65,22 @@ public class SqlBuilder {
       List<SchemaPath> projectedColumns,
       String whereClause,
       Integer limit) {
-    return buildSql(SqlBuildRequest.builder()
-        .schema(schemaName)
-        .table(tableName)
-        .projectedColumns(projectedColumns)
-        .where(whereClause)
-        .limit(limit)
-        .build());
+    return buildSql(
+        SqlBuildRequest.builder()
+            .schema(schemaName)
+            .table(tableName)
+            .projectedColumns(projectedColumns)
+            .where(whereClause)
+            .limit(limit)
+            .build());
   }
 
   /**
    * Builds a SQL SELECT statement from a {@link SqlBuildRequest} DTO.
    *
-   * <p>Assembles SQL in clause order: SELECT ... FROM ... WHERE ... GROUP BY ...
-   * ORDER BY ... LIMIT N. Subclasses may override to adjust dialect-specific syntax
-   * (e.g. Oracle's FETCH FIRST instead of LIMIT).
+   * <p>Assembles SQL in clause order: SELECT ... FROM ... WHERE ... GROUP BY ... ORDER BY ... LIMIT
+   * N. Subclasses may override to adjust dialect-specific syntax (e.g. Oracle's FETCH FIRST instead
+   * of LIMIT).
    *
    * @param request the pushdown request containing all SQL components
    * @return syntactically complete SQL SELECT string
@@ -124,8 +125,8 @@ public class SqlBuilder {
   }
 
   /**
-   * Appends the SELECT list to the builder. Uses selectExprs (for aggregation) when
-   * present, otherwise uses projectedColumns, falling back to SELECT *.
+   * Appends the SELECT list to the builder. Uses selectExprs (for aggregation) when present,
+   * otherwise uses projectedColumns, falling back to SELECT *.
    */
   protected void appendSelectList(StringBuilder sb, SqlBuildRequest request) {
     List<String> selectExprs = request.getSelectExprs();
@@ -158,13 +159,47 @@ public class SqlBuilder {
   }
 
   /**
-   * Appends the LIMIT clause. Standard SQL uses {@code LIMIT N}. Subclasses override
-   * for dialect-specific row-limiting syntax (e.g. Oracle's FETCH FIRST).
+   * Appends the LIMIT clause. Standard SQL uses {@code LIMIT N}. Subclasses override for
+   * dialect-specific row-limiting syntax (e.g. Oracle's FETCH FIRST).
    */
   protected void appendLimit(StringBuilder sb, Integer limit) {
     if (limit != null) {
       sb.append(" LIMIT ");
       sb.append(limit);
     }
+  }
+
+  /**
+   * Translates JDBC {@code ?} placeholders to PostgreSQL {@code $1, $2, ...} notation.
+   *
+   * <p>This is used at the boundary between SQL generation and ADBC execution. The SqlBuilder and
+   * RexToSqlString always emit {@code ?} (JDBC convention); this utility converts them to the
+   * {@code $N} format required by the ADBC PostgreSQL driver (which uses libpq's native prepared
+   * statement protocol).
+   *
+   * <p>This translation is safe because our SqlBuilder never generates {@code ?} inside string
+   * literals -- all literal values are bind params, and column/table names are double-quoted
+   * identifiers.
+   *
+   * @param sql the SQL string with {@code ?} placeholders
+   * @param paramCount the number of bind parameters (used to bound translation)
+   * @return the SQL string with {@code $1, $2, ...} placeholders
+   */
+  public static String jdbcToPostgresPlaceholders(String sql, int paramCount) {
+    if (paramCount == 0) {
+      return sql;
+    }
+    StringBuilder sb = new StringBuilder(sql.length() + paramCount * 2);
+    int idx = 0;
+    for (int i = 0; i < sql.length(); i++) {
+      char c = sql.charAt(i);
+      if (c == '?' && idx < paramCount) {
+        idx++;
+        sb.append('$').append(idx);
+      } else {
+        sb.append(c);
+      }
+    }
+    return sb.toString();
   }
 }

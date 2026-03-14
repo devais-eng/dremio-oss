@@ -92,8 +92,7 @@ public class TestSqlBuilder {
     List<SchemaPath> cols =
         Arrays.asList(SchemaPath.getSimplePath("id"), SchemaPath.getSimplePath("name"));
     String sql = builder.buildSql("public", "users", cols, "age > 18", 100);
-    assertEquals(
-        "SELECT \"id\", \"name\" FROM \"public\".\"users\" WHERE age > 18 LIMIT 100", sql);
+    assertEquals("SELECT \"id\", \"name\" FROM \"public\".\"users\" WHERE age > 18 LIMIT 100", sql);
   }
 
   @Test
@@ -123,15 +122,13 @@ public class TestSqlBuilder {
     // Attacker tries: schema"; DROP TABLE users; --
     // Should be safely quoted as "schema""; DROP TABLE users; --"
     String sql = builder.buildSql("\"; DROP TABLE users; --", "t", null, null, null);
-    assertEquals(
-        "SELECT * FROM \"\"\"; DROP TABLE users; --\".\"t\"", sql);
+    assertEquals("SELECT * FROM \"\"\"; DROP TABLE users; --\".\"t\"", sql);
   }
 
   @Test
   public void tableNameWithSqlInjectionAttempt() {
     String sql = builder.buildSql("s", "t\"; DROP TABLE users;--", null, null, null);
-    assertEquals(
-        "SELECT * FROM \"s\".\"t\"\"; DROP TABLE users;--\"", sql);
+    assertEquals("SELECT * FROM \"s\".\"t\"\"; DROP TABLE users;--\"", sql);
   }
 
   @Test
@@ -140,8 +137,7 @@ public class TestSqlBuilder {
     List<SchemaPath> cols =
         Collections.singletonList(SchemaPath.getSimplePath("col\"; DROP TABLE x; --"));
     String sql = builder.buildSql("s", "t", cols, null, null);
-    assertEquals(
-        "SELECT \"col\"\"; DROP TABLE x; --\" FROM \"s\".\"t\"", sql);
+    assertEquals("SELECT \"col\"\"; DROP TABLE x; --\" FROM \"s\".\"t\"", sql);
   }
 
   @Test
@@ -172,6 +168,38 @@ public class TestSqlBuilder {
 
   // ---- Dialect override hook ----
 
+  // ---- Placeholder translation (JDBC ? -> PostgreSQL $N) ----
+
+  @Test
+  public void testPlaceholderTranslationNoParams() {
+    String input = "SELECT * FROM t";
+    assertEquals(input, SqlBuilder.jdbcToPostgresPlaceholders(input, 0));
+  }
+
+  @Test
+  public void testPlaceholderTranslationSingleParam() {
+    assertEquals(
+        "SELECT * FROM t WHERE a = $1",
+        SqlBuilder.jdbcToPostgresPlaceholders("SELECT * FROM t WHERE a = ?", 1));
+  }
+
+  @Test
+  public void testPlaceholderTranslationMultipleParams() {
+    assertEquals(
+        "SELECT * FROM t WHERE a = $1 AND b = $2 AND c = $3",
+        SqlBuilder.jdbcToPostgresPlaceholders(
+            "SELECT * FROM t WHERE a = ? AND b = ? AND c = ?", 3));
+  }
+
+  @Test
+  public void testPlaceholderTranslationInClause() {
+    assertEquals(
+        "SELECT * FROM t WHERE a IN ($1, $2, $3)",
+        SqlBuilder.jdbcToPostgresPlaceholders("SELECT * FROM t WHERE a IN (?, ?, ?)", 3));
+  }
+
+  // ---- Dialect override hook ----
+
   @Test
   public void subclassCanOverrideSqlDialect() {
     SqlBuilder oracleBuilder =
@@ -191,7 +219,9 @@ public class TestSqlBuilder {
               sb.append("SELECT ");
               boolean first = true;
               for (SchemaPath col : projectedColumns) {
-                if (!first) sb.append(", ");
+                if (!first) {
+                  sb.append(", ");
+                }
                 sb.append(quoteIdentifier(col.getRootSegment().getPath()));
                 first = false;
               }
