@@ -24,10 +24,9 @@ import java.util.Properties;
 /**
  * Abstract base configuration for JDBC-based storage plugins.
  *
- * <p>Provides common HikariCP connection pool configuration fields that all
- * concrete JDBC connector configurations must inherit. Concrete subclasses
- * must annotate themselves with {@code @SourceType} and implement
- * {@link #jdbcUrl()} and {@link #driverClassName()}.
+ * <p>Provides common HikariCP connection pool configuration fields that all concrete JDBC connector
+ * configurations must inherit. Concrete subclasses must annotate themselves with
+ * {@code @SourceType} and implement {@link #jdbcUrl()} and {@link #driverClassName()}.
  *
  * @param <T> the concrete subclass type (for self-referential generics)
  * @param <P> the StoragePlugin type created by this conf
@@ -50,8 +49,8 @@ public abstract class BaseJdbcConf<T extends BaseJdbcConf<T, P>, P extends Stora
   public String validationQuery = "SELECT 1";
 
   /**
-   * Returns the JDBC username for the connection pool.
-   * Concrete subclasses that require authentication should override this method.
+   * Returns the JDBC username for the connection pool. Concrete subclasses that require
+   * authentication should override this method.
    *
    * @return username string, or null to omit username from the pool configuration
    */
@@ -60,8 +59,8 @@ public abstract class BaseJdbcConf<T extends BaseJdbcConf<T, P>, P extends Stora
   }
 
   /**
-   * Returns the JDBC password for the connection pool.
-   * Concrete subclasses that require authentication should override this method.
+   * Returns the JDBC password for the connection pool. Concrete subclasses that require
+   * authentication should override this method.
    *
    * @return plain-text password string, or null to omit password from the pool configuration
    */
@@ -70,8 +69,8 @@ public abstract class BaseJdbcConf<T extends BaseJdbcConf<T, P>, P extends Stora
   }
 
   /**
-   * Returns additional JDBC connection properties to be passed to the connection pool.
-   * Concrete subclasses can override to supply database-specific properties (e.g., SSL parameters).
+   * Returns additional JDBC connection properties to be passed to the connection pool. Concrete
+   * subclasses can override to supply database-specific properties (e.g., SSL parameters).
    *
    * @return a Properties object (never null); an empty Properties is the default
    */
@@ -80,9 +79,9 @@ public abstract class BaseJdbcConf<T extends BaseJdbcConf<T, P>, P extends Stora
   }
 
   /**
-   * Returns the maximum time in seconds that a query may run before being cancelled.
-   * 0 (the default) means no timeout. Concrete subclasses that expose a
-   * {@code queryTimeoutSec} configuration field should override this method.
+   * Returns the maximum time in seconds that a query may run before being cancelled. 0 (the
+   * default) means no timeout. Concrete subclasses that expose a {@code queryTimeoutSec}
+   * configuration field should override this method.
    *
    * @return query timeout in seconds, or 0 for no timeout
    */
@@ -91,16 +90,41 @@ public abstract class BaseJdbcConf<T extends BaseJdbcConf<T, P>, P extends Stora
   }
 
   /**
-   * Returns the full JDBC URL for the target database.
-   * Concrete implementations supply the driver-specific URL.
+   * Returns the protocol mode for this source (AUTO, JDBC, or ADBC).
+   *
+   * <p>Defaults to {@link ProtocolMode#AUTO}. Subclasses inherit this field from BaseJdbcConf and
+   * should not redeclare it.
+   *
+   * @return the configured protocol mode, never null
+   */
+  public ProtocolMode getProtocolMode() {
+    return ProtocolMode.AUTO;
+  }
+
+  /**
+   * Returns the ADBC connection URI for this database, or null if ADBC is not supported.
+   *
+   * <p>Subclasses that support ADBC (e.g., PostgresConf) override this method to return a
+   * database-specific URI. The default returns null, meaning ADBC is not available for this
+   * database type.
+   *
+   * @return ADBC connection URI string, or null
+   */
+  public String adbcUri() {
+    return null;
+  }
+
+  /**
+   * Returns the full JDBC URL for the target database. Concrete implementations supply the
+   * driver-specific URL.
    *
    * @return JDBC URL string (never null)
    */
   public abstract String jdbcUrl();
 
   /**
-   * Returns the fully-qualified JDBC driver class name.
-   * May return null if the driver is auto-registered via the JDBC 4 service loader.
+   * Returns the fully-qualified JDBC driver class name. May return null if the driver is
+   * auto-registered via the JDBC 4 service loader.
    *
    * @return driver class name, or null to rely on auto-discovery
    */
