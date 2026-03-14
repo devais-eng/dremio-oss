@@ -222,7 +222,8 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
         adbcAllocator = new RootAllocator();
         adbcFactory = new AdbcConnectionFactory(adbcUri, adbcAllocator, conf.poolSize);
         adbcFactory.open();
-        adbcSchemaFetcher = createAdbcSchemaFetcher(adbcFactory);
+        // Schema discovery always uses JDBC (ADBC JNI 0.22.0 does not implement getObjects).
+        // ADBC is used only for the query execution path (AdbcRecordReader).
         effectiveProtocolMode = ProtocolMode.ADBC;
         logger.info("ADBC backend initialized for source '{}'", name);
       } catch (Exception e) {
@@ -348,10 +349,7 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
   @Override
   public DatasetHandleListing listDatasetHandles(GetDatasetOption... options)
       throws ConnectorException {
-    if (effectiveProtocolMode == ProtocolMode.ADBC && adbcSchemaFetcher != null) {
-      return listDatasetHandlesAdbc();
-    }
-
+    // Schema discovery always uses JDBC (ADBC JNI 0.22.0 does not implement getObjects).
     if (schemaFetcher == null) {
       return () -> Collections.emptyIterator();
     }
@@ -410,22 +408,7 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
     String schema = components.get(components.size() - 2);
     String table = components.get(components.size() - 1);
 
-    if (effectiveProtocolMode == ProtocolMode.ADBC && adbcSchemaFetcher != null) {
-      try {
-        if (adbcSchemaFetcher.tableExists(schema, table)) {
-          return Optional.of(new BasicDatasetHandle(datasetPath));
-        }
-        return Optional.empty();
-      } catch (AdbcException | InterruptedException e) {
-        if (e instanceof InterruptedException) {
-          Thread.currentThread().interrupt();
-        }
-        throw new ConnectorException(
-            "Failed to check table existence via ADBC for " + datasetPath + ": " + e.getMessage(),
-            e);
-      }
-    }
-
+    // Schema discovery always uses JDBC (ADBC JNI 0.22.0 does not implement getObjects).
     if (schemaFetcher == null) {
       return Optional.empty();
     }
@@ -457,20 +440,7 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
     String schema = components.get(components.size() - 2);
     String table = components.get(components.size() - 1);
 
-    if (effectiveProtocolMode == ProtocolMode.ADBC && adbcSchemaFetcher != null) {
-      try {
-        BatchSchema batchSchema = adbcSchemaFetcher.getTableSchema(schema, table);
-        DatasetStats stats = DatasetStats.of(UNKNOWN_ROW_COUNT, false, DEFAULT_SCAN_FACTOR);
-        return DatasetMetadata.of(stats, batchSchema);
-      } catch (AdbcException | InterruptedException e) {
-        if (e instanceof InterruptedException) {
-          Thread.currentThread().interrupt();
-        }
-        throw new ConnectorException(
-            "Failed to read schema via ADBC for " + path + ": " + e.getMessage(), e);
-      }
-    }
-
+    // Schema discovery always uses JDBC (ADBC JNI 0.22.0 does not implement getObjects/getTableSchema).
     try {
       BatchSchema batchSchema = schemaFetcher.getTableSchema(schema, table);
       DatasetStats stats = DatasetStats.of(UNKNOWN_ROW_COUNT, false, DEFAULT_SCAN_FACTOR);
@@ -502,21 +472,7 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
     }
     String schema = components.get(components.size() - 1);
 
-    if (effectiveProtocolMode == ProtocolMode.ADBC && adbcSchemaFetcher != null) {
-      try {
-        return adbcSchemaFetcher.listSchemas().contains(schema);
-      } catch (AdbcException | InterruptedException e) {
-        if (e instanceof InterruptedException) {
-          Thread.currentThread().interrupt();
-        }
-        logger.warn(
-            "Failed to check container existence via ADBC for {}: {}",
-            containerPath,
-            e.getMessage());
-        return false;
-      }
-    }
-
+    // Schema discovery always uses JDBC (ADBC JNI 0.22.0 does not implement getObjects).
     if (schemaFetcher == null) {
       return false;
     }

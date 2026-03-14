@@ -163,9 +163,12 @@ public class AdbcRecordReader extends AbstractRecordReader {
       stmt.setSqlQuery(adbcSql);
 
       // Bind parameters if present.
+      // IMPORTANT: Use the factory's allocator (same root as JniDriver) — NOT the
+      // OperatorContext's allocator. The C Data Interface requires buffers to share
+      // the same allocator root when exporting VectorSchemaRoot to native code.
       List<BindParam> bindParams = config.getBindParams();
       if (bindParams != null && !bindParams.isEmpty()) {
-        BufferAllocator allocator = context.getAllocator();
+        BufferAllocator allocator = factory.getAllocator();
         bindRoot = buildBindRoot(allocator, bindParams);
         stmt.bind(bindRoot);
       }
@@ -407,6 +410,51 @@ public class AdbcRecordReader extends AbstractRecordReader {
         }
       }
       d.setValueCount(rowCount);
+    } else if (src instanceof VarCharVector && dst instanceof DecimalVector) {
+      // ADBC PG COPY binary may return numeric as string — convert to BigDecimal.
+      VarCharVector s = (VarCharVector) src;
+      DecimalVector d = (DecimalVector) dst;
+      for (int i = 0; i < rowCount; i++) {
+        if (!s.isNull(i)) {
+          String str = new String(s.get(i), StandardCharsets.UTF_8);
+          java.math.BigDecimal val = new java.math.BigDecimal(str);
+          d.setSafe(i, val.setScale(d.getScale(), java.math.RoundingMode.HALF_UP));
+        }
+      }
+      d.setValueCount(rowCount);
+    } else if (src instanceof BigIntVector && dst instanceof DecimalVector) {
+      // ADBC PG may return numeric as BigInt when scale=0.
+      BigIntVector s = (BigIntVector) src;
+      DecimalVector d = (DecimalVector) dst;
+      for (int i = 0; i < rowCount; i++) {
+        if (!s.isNull(i)) {
+          java.math.BigDecimal val = java.math.BigDecimal.valueOf(s.get(i));
+          d.setSafe(i, val.setScale(d.getScale(), java.math.RoundingMode.HALF_UP));
+        }
+      }
+      d.setValueCount(rowCount);
+    } else if (src instanceof IntVector && dst instanceof DecimalVector) {
+      // ADBC PG may return small numeric as Int.
+      IntVector s = (IntVector) src;
+      DecimalVector d = (DecimalVector) dst;
+      for (int i = 0; i < rowCount; i++) {
+        if (!s.isNull(i)) {
+          java.math.BigDecimal val = java.math.BigDecimal.valueOf(s.get(i));
+          d.setSafe(i, val.setScale(d.getScale(), java.math.RoundingMode.HALF_UP));
+        }
+      }
+      d.setValueCount(rowCount);
+    } else if (src instanceof Float8Vector && dst instanceof DecimalVector) {
+      // ADBC PG may return numeric as Float8.
+      Float8Vector s = (Float8Vector) src;
+      DecimalVector d = (DecimalVector) dst;
+      for (int i = 0; i < rowCount; i++) {
+        if (!s.isNull(i)) {
+          java.math.BigDecimal val = java.math.BigDecimal.valueOf(s.get(i));
+          d.setSafe(i, val.setScale(d.getScale(), java.math.RoundingMode.HALF_UP));
+        }
+      }
+      d.setValueCount(rowCount);
     } else if (src instanceof DateMilliVector && dst instanceof DateMilliVector) {
       DateMilliVector s = (DateMilliVector) src;
       DateMilliVector d = (DateMilliVector) dst;
@@ -431,6 +479,19 @@ public class AdbcRecordReader extends AbstractRecordReader {
       for (int i = 0; i < rowCount; i++) {
         if (!s.isNull(i)) {
           d.setSafe(i, s.get(i));
+        }
+      }
+      d.setValueCount(rowCount);
+    } else if (dst instanceof DecimalVector) {
+      // Generic fallback for any source type -> DecimalVector via getObject().toString().
+      DecimalVector d = (DecimalVector) dst;
+      for (int i = 0; i < rowCount; i++) {
+        if (!src.isNull(i)) {
+          Object obj = src.getObject(i);
+          if (obj != null) {
+            java.math.BigDecimal val = new java.math.BigDecimal(obj.toString());
+            d.setSafe(i, val.setScale(d.getScale(), java.math.RoundingMode.HALF_UP));
+          }
         }
       }
       d.setValueCount(rowCount);

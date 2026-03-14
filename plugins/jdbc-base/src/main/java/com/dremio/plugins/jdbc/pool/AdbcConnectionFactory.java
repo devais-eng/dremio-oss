@@ -98,6 +98,15 @@ public class AdbcConnectionFactory implements AutoCloseable {
   }
 
   /**
+   * Returns the Arrow allocator used by this factory's JNI driver. Bind parameter
+   * VectorSchemaRoots must be created with this allocator (not the OperatorContext's)
+   * because the C Data Interface requires buffers to share the same allocator root.
+   */
+  public BufferAllocator getAllocator() {
+    return allocator;
+  }
+
+  /**
    * Creates a new ADBC connection, bounded by the concurrency semaphore.
    *
    * <p>Blocks if the maximum number of concurrent connections has been reached. The returned
