@@ -29,15 +29,16 @@ import javax.inject.Provider;
 /**
  * Shared TestContainers helper for PostgreSQL integration tests.
  *
- * <p>Provides a static {@link DremioPostgresContainer} instance that can be referenced from
- * JUnit 4 test classes via {@code @ClassRule}. Helper methods expose pool creation and
- * raw-SQL execution for test setup.
+ * <p>Provides a static {@link DremioPostgresContainer} instance that can be referenced from JUnit 4
+ * test classes via {@code @ClassRule}. Helper methods expose pool creation and raw-SQL execution
+ * for test setup.
  *
  * <p>Usage:
- * <pre>{@code
- *   @ClassRule
- *   public static final DremioPostgresContainer PG = PostgresTestContainer.PG;
- * }</pre>
+ *
+ * <pre>
+ * &#64;ClassRule
+ * public static final DremioPostgresContainer PG = PostgresTestContainer.PG;
+ * </pre>
  */
 public final class PostgresTestContainer {
 
@@ -45,15 +46,16 @@ public final class PostgresTestContainer {
    * The shared {@code postgres:16-alpine} container.
    *
    * <p>Referenced by test classes via {@code @ClassRule}. Uses {@link DremioPostgresContainer}
-   * which implements the {@code DremioContainer} marker interface required by the project's
-   * {@code DremioRestrictedTestcontainersUsage} error-prone check.
+   * which implements the {@code DremioContainer} marker interface required by the project's {@code
+   * DremioRestrictedTestcontainersUsage} error-prone check.
    */
   public static final DremioPostgresContainer PG =
-      (DremioPostgresContainer) new DremioPostgresContainer()
-          .withDatabaseName("dremio_test")
-          .withUsername("test")
-          .withPassword("test")
-          .withStartupAttempts(3);
+      (DremioPostgresContainer)
+          new DremioPostgresContainer()
+              .withDatabaseName("dremio_test")
+              .withUsername("test")
+              .withPassword("test")
+              .withStartupAttempts(3);
 
   private PostgresTestContainer() {
     // utility class
@@ -114,9 +116,9 @@ public final class PostgresTestContainer {
   /**
    * Minimal {@link BaseJdbcConf} implementation backed by the test container.
    *
-   * <p>This class exists solely to satisfy the self-referential generic bound on
-   * {@code BaseJdbcConf<T extends BaseJdbcConf<T,P>, P>}. The
-   * {@link #newPlugin} method is not used in tests.
+   * <p>This class exists solely to satisfy the self-referential generic bound on {@code
+   * BaseJdbcConf<T extends BaseJdbcConf<T,P>, P>}. The {@link #newPlugin} method is not used in
+   * tests.
    */
   static final class TestJdbcConf extends BaseJdbcConf<TestJdbcConf, StoragePlugin> {
 
@@ -142,9 +144,7 @@ public final class PostgresTestContainer {
 
     @Override
     public StoragePlugin newPlugin(
-        PluginSabotContext context,
-        String name,
-        Provider<StoragePluginId> idProvider) {
+        PluginSabotContext context, String name, Provider<StoragePluginId> idProvider) {
       throw new UnsupportedOperationException("TestJdbcConf.newPlugin() must not be called");
     }
   }

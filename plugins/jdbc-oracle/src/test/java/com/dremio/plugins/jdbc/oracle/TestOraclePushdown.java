@@ -39,22 +39,22 @@ import org.junit.Test;
  *
  * <p>Tests verify that {@link OracleSqlBuilder} generates correct SQL for filter, projection, and
  * row-limit pushdown when targeting Oracle. Two categories of tests are provided:
+ *
  * <ol>
- *   <li>Pure SQL generation tests that do not require a container — verify the produced SQL
- *       string is syntactically correct and contains the expected clauses.
- *       <strong>Critical:</strong> These tests verify that {@code FETCH FIRST N ROWS ONLY} is
- *       generated (not {@code LIMIT N}, which Oracle does not support).</li>
- *   <li>Container-based tests that execute the generated SQL against a real
- *       {@code gvenzl/oracle-xe:21-slim} container to confirm validity.</li>
+ *   <li>Pure SQL generation tests that do not require a container — verify the produced SQL string
+ *       is syntactically correct and contains the expected clauses. <strong>Critical:</strong>
+ *       These tests verify that {@code FETCH FIRST N ROWS ONLY} is generated (not {@code LIMIT N},
+ *       which Oracle does not support).
+ *   <li>Container-based tests that execute the generated SQL against a real {@code
+ *       gvenzl/oracle-xe:21-slim} container to confirm validity.
  * </ol>
  *
- * <p>Container-based tests use {@link OracleTestContainer} as the shared infrastructure.
- * Oracle identifiers are UPPERCASE — filter columns use {@code "AGE"} not {@code "age"}.
+ * <p>Container-based tests use {@link OracleTestContainer} as the shared infrastructure. Oracle
+ * identifiers are UPPERCASE — filter columns use {@code "AGE"} not {@code "age"}.
  */
 public class TestOraclePushdown {
 
-  @ClassRule
-  public static final DremioOracleContainer ORACLE = OracleTestContainer.ORACLE;
+  @ClassRule public static final DremioOracleContainer ORACLE = OracleTestContainer.ORACLE;
 
   private static final OracleSqlBuilder SQL_BUILDER = new OracleSqlBuilder();
 
@@ -89,30 +89,23 @@ public class TestOraclePushdown {
   // Pure SQL generation tests (no container required)
   // ---------------------------------------------------------------------------
 
-  /**
-   * SELECT * FROM "TEST_USER"."test_table" when no columns, no filter, no limit are provided.
-   */
+  /** SELECT * FROM "TEST_USER"."test_table" when no columns, no filter, no limit are provided. */
   @Test
   public void testSelectAllColumns() {
     String sql = SQL_BUILDER.buildSql("TEST_USER", "test_table", null, null, null);
     assertEquals("SELECT * FROM \"TEST_USER\".\"test_table\"", sql);
   }
 
-  /**
-   * SELECT projected columns when a column list is provided.
-   */
+  /** SELECT projected columns when a column list is provided. */
   @Test
   public void testSelectProjectedColumns() {
-    List<SchemaPath> cols = Arrays.asList(
-        SchemaPath.getSimplePath("id"),
-        SchemaPath.getSimplePath("name"));
+    List<SchemaPath> cols =
+        Arrays.asList(SchemaPath.getSimplePath("id"), SchemaPath.getSimplePath("name"));
     String sql = SQL_BUILDER.buildSql("TEST_USER", "test_table", cols, null, null);
     assertEquals("SELECT \"id\", \"name\" FROM \"TEST_USER\".\"test_table\"", sql);
   }
 
-  /**
-   * SELECT * with a WHERE clause appended.
-   */
+  /** SELECT * with a WHERE clause appended. */
   @Test
   public void testSelectWithWhereClause() {
     String sql = SQL_BUILDER.buildSql("TEST_USER", "test_table", null, "\"id\" = 1", null);
@@ -120,9 +113,7 @@ public class TestOraclePushdown {
     assertTrue("SQL must contain the filter expression", sql.contains("\"id\" = 1"));
   }
 
-  /**
-   * SELECT * with a FETCH FIRST clause — critical: Oracle uses FETCH FIRST, not LIMIT.
-   */
+  /** SELECT * with a FETCH FIRST clause — critical: Oracle uses FETCH FIRST, not LIMIT. */
   @Test
   public void testSelectWithLimit() {
     String sql = SQL_BUILDER.buildSql("TEST_USER", "test_table", null, null, 100);
@@ -130,31 +121,25 @@ public class TestOraclePushdown {
     assertTrue("SQL must contain the limit value 100", sql.contains("100"));
     assertTrue("SQL must contain ROWS ONLY", sql.contains("ROWS ONLY"));
     // Exact Oracle row-limiting syntax check
-    assertTrue("SQL must contain 'FETCH FIRST 100 ROWS ONLY'",
-        sql.contains("FETCH FIRST 100 ROWS ONLY"));
+    assertTrue(
+        "SQL must contain 'FETCH FIRST 100 ROWS ONLY'", sql.contains("FETCH FIRST 100 ROWS ONLY"));
   }
 
-  /**
-   * SELECT * with both WHERE and FETCH FIRST — WHERE must appear before FETCH FIRST.
-   */
+  /** SELECT * with both WHERE and FETCH FIRST — WHERE must appear before FETCH FIRST. */
   @Test
   public void testSelectWithWhereAndLimit() {
     String sql = SQL_BUILDER.buildSql("TEST_USER", "test_table", null, "\"id\" > 5", 100);
     assertTrue("SQL must contain WHERE", sql.contains("WHERE"));
     assertTrue("SQL must contain FETCH FIRST", sql.contains("FETCH FIRST"));
     assertTrue(
-        "WHERE must appear before FETCH FIRST",
-        sql.indexOf("WHERE") < sql.indexOf("FETCH FIRST"));
+        "WHERE must appear before FETCH FIRST", sql.indexOf("WHERE") < sql.indexOf("FETCH FIRST"));
   }
 
-  /**
-   * SELECT projected columns with a WHERE filter.
-   */
+  /** SELECT projected columns with a WHERE filter. */
   @Test
   public void testSelectWithProjectionAndFilter() {
-    List<SchemaPath> cols = Arrays.asList(
-        SchemaPath.getSimplePath("id"),
-        SchemaPath.getSimplePath("name"));
+    List<SchemaPath> cols =
+        Arrays.asList(SchemaPath.getSimplePath("id"), SchemaPath.getSimplePath("name"));
     String sql = SQL_BUILDER.buildSql("TEST_USER", "test_table", cols, "\"name\" = 'foo'", null);
     assertTrue("SQL must project 'id'", sql.contains("\"id\""));
     assertTrue("SQL must project 'name'", sql.contains("\"name\""));
@@ -162,27 +147,22 @@ public class TestOraclePushdown {
     assertTrue("SQL must contain the filter", sql.contains("\"name\" = 'foo'"));
   }
 
-  /**
-   * Empty column list produces SELECT *.
-   */
+  /** Empty column list produces SELECT *. */
   @Test
   public void testEmptyProjectionProducesSelectStar() {
-    String sql = SQL_BUILDER.buildSql("TEST_USER", "test_table", Collections.emptyList(), null, null);
+    String sql =
+        SQL_BUILDER.buildSql("TEST_USER", "test_table", Collections.emptyList(), null, null);
     assertTrue("Empty projection should produce SELECT *", sql.startsWith("SELECT *"));
   }
 
-  /**
-   * Null WHERE clause produces no WHERE keyword.
-   */
+  /** Null WHERE clause produces no WHERE keyword. */
   @Test
   public void testNullWhereClauseOmitted() {
     String sql = SQL_BUILDER.buildSql("TEST_USER", "test_table", null, null, null);
     assertFalse("No WHERE should be present when filter is null", sql.contains("WHERE"));
   }
 
-  /**
-   * Null limit produces no FETCH FIRST keyword.
-   */
+  /** Null limit produces no FETCH FIRST keyword. */
   @Test
   public void testNullLimitOmitted() {
     String sql = SQL_BUILDER.buildSql("TEST_USER", "test_table", null, null, null);
@@ -190,8 +170,8 @@ public class TestOraclePushdown {
   }
 
   /**
-   * Critical: verify the word LIMIT never appears in Oracle SQL when a limit is provided.
-   * Oracle does not support the LIMIT keyword — it uses FETCH FIRST N ROWS ONLY.
+   * Critical: verify the word LIMIT never appears in Oracle SQL when a limit is provided. Oracle
+   * does not support the LIMIT keyword — it uses FETCH FIRST N ROWS ONLY.
    */
   @Test
   public void testNoLimitKeyword() {
@@ -213,16 +193,15 @@ public class TestOraclePushdown {
   // Container-based execution tests
   // ---------------------------------------------------------------------------
 
-  /**
-   * Verifies that the generated SELECT * SQL executes successfully against Oracle.
-   */
+  /** Verifies that the generated SELECT * SQL executes successfully against Oracle. */
   @Test
   public void testPushdownQueryExecutesAgainstOracle() throws Exception {
     String sql = SQL_BUILDER.buildSql("TEST_USER", "PUSHDOWN_TEST", null, null, null);
-    try (Connection conn = DriverManager.getConnection(
-            OracleTestContainer.getJdbcUrl(),
-            OracleTestContainer.getUsername(),
-            OracleTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       int rowCount = 0;
@@ -236,18 +215,19 @@ public class TestOraclePushdown {
   /**
    * Verifies that a WHERE filter pushdown returns only matching rows.
    *
-   * <p>Filter: "AGE" > 28 — should match Alice (30), Charlie (35), Eve (40) = 3 rows.
-   * Oracle identifiers are UPPERCASE — the filter uses {@code "AGE"} not {@code "age"}.
+   * <p>Filter: "AGE" > 28 — should match Alice (30), Charlie (35), Eve (40) = 3 rows. Oracle
+   * identifiers are UPPERCASE — the filter uses {@code "AGE"} not {@code "age"}.
    */
   @Test
   public void testFilterPushdownResultCorrectness() throws Exception {
     // Oracle column names are UPPERCASE
     String sql = SQL_BUILDER.buildSql("TEST_USER", "PUSHDOWN_TEST", null, "\"AGE\" > 28", null);
     assertTrue("SQL must contain WHERE", sql.contains("WHERE"));
-    try (Connection conn = DriverManager.getConnection(
-            OracleTestContainer.getJdbcUrl(),
-            OracleTestContainer.getUsername(),
-            OracleTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       int count = 0;
@@ -260,17 +240,16 @@ public class TestOraclePushdown {
     }
   }
 
-  /**
-   * Verifies that FETCH FIRST row-limit pushdown returns at most the specified number of rows.
-   */
+  /** Verifies that FETCH FIRST row-limit pushdown returns at most the specified number of rows. */
   @Test
   public void testLimitPushdownResultCorrectness() throws Exception {
     String sql = SQL_BUILDER.buildSql("TEST_USER", "PUSHDOWN_TEST", null, null, 2);
     assertTrue("SQL must contain FETCH FIRST 2 ROWS ONLY", sql.contains("FETCH FIRST 2 ROWS ONLY"));
-    try (Connection conn = DriverManager.getConnection(
-            OracleTestContainer.getJdbcUrl(),
-            OracleTestContainer.getUsername(),
-            OracleTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       int count = 0;
@@ -281,19 +260,18 @@ public class TestOraclePushdown {
     }
   }
 
-  /**
-   * Verifies that projected column pushdown returns only the requested columns.
-   */
+  /** Verifies that projected column pushdown returns only the requested columns. */
   @Test
   public void testProjectionPushdownResultCorrectness() throws Exception {
     // Project only the NAME column (Oracle UPPERCASE)
     List<SchemaPath> cols = Collections.singletonList(SchemaPath.getSimplePath("NAME"));
     String sql = SQL_BUILDER.buildSql("TEST_USER", "PUSHDOWN_TEST", cols, null, null);
     assertTrue("SQL must project 'NAME'", sql.contains("\"NAME\""));
-    try (Connection conn = DriverManager.getConnection(
-            OracleTestContainer.getJdbcUrl(),
-            OracleTestContainer.getUsername(),
-            OracleTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       assertTrue("Must have at least one row", rs.next());
@@ -302,23 +280,21 @@ public class TestOraclePushdown {
     }
   }
 
-  /**
-   * Verifies combined projection + filter + FETCH FIRST limit pushdown against Oracle.
-   */
+  /** Verifies combined projection + filter + FETCH FIRST limit pushdown against Oracle. */
   @Test
   public void testCombinedPushdownCorrectness() throws Exception {
-    List<SchemaPath> cols = Arrays.asList(
-        SchemaPath.getSimplePath("NAME"),
-        SchemaPath.getSimplePath("AGE"));
+    List<SchemaPath> cols =
+        Arrays.asList(SchemaPath.getSimplePath("NAME"), SchemaPath.getSimplePath("AGE"));
     String sql = SQL_BUILDER.buildSql("TEST_USER", "PUSHDOWN_TEST", cols, "\"AGE\" >= 30", 2);
     assertTrue("SQL must project 'NAME'", sql.contains("\"NAME\""));
     assertTrue("SQL must contain WHERE", sql.contains("WHERE"));
     assertTrue("SQL must contain FETCH FIRST", sql.contains("FETCH FIRST"));
     assertFalse("Oracle SQL must NOT contain 'LIMIT'", sql.contains("LIMIT"));
-    try (Connection conn = DriverManager.getConnection(
-            OracleTestContainer.getJdbcUrl(),
-            OracleTestContainer.getUsername(),
-            OracleTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       int count = 0;
@@ -336,72 +312,72 @@ public class TestOraclePushdown {
   // ---------------------------------------------------------------------------
 
   /**
-   * Verifies that ORDER BY clause is generated via SqlBuildRequest for Oracle.
-   * ORDER BY is dialect-independent; only the row-limiting syntax differs.
+   * Verifies that ORDER BY clause is generated via SqlBuildRequest for Oracle. ORDER BY is
+   * dialect-independent; only the row-limiting syntax differs.
    */
   @Test
   public void testOrderByPushdownSqlGeneration() {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("TEST_USER")
-        .table("PUSHDOWN_TEST")
-        .orderBy("\"AGE\" ASC NULLS LAST")
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("TEST_USER")
+            .table("PUSHDOWN_TEST")
+            .orderBy("\"AGE\" ASC NULLS LAST")
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
     assertTrue("SQL must contain ORDER BY", sql.contains("ORDER BY"));
-    assertTrue("SQL must contain the sort expression",
-        sql.contains("ORDER BY \"AGE\" ASC NULLS LAST"));
+    assertTrue(
+        "SQL must contain the sort expression", sql.contains("ORDER BY \"AGE\" ASC NULLS LAST"));
     // Oracle ORDER BY should NOT produce LIMIT keyword
-    assertFalse("Oracle SQL with ORDER BY only must NOT contain LIMIT",
-        sql.contains("LIMIT"));
+    assertFalse("Oracle SQL with ORDER BY only must NOT contain LIMIT", sql.contains("LIMIT"));
   }
 
   /**
-   * Verifies TopN (ORDER BY + FETCH FIRST) SQL generation for Oracle.
-   * Must produce ORDER BY ... FETCH FIRST N ROWS ONLY (not LIMIT).
+   * Verifies TopN (ORDER BY + FETCH FIRST) SQL generation for Oracle. Must produce ORDER BY ...
+   * FETCH FIRST N ROWS ONLY (not LIMIT).
    */
   @Test
   public void testTopNPushdownSqlGeneration() {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("TEST_USER")
-        .table("PUSHDOWN_TEST")
-        .orderBy("\"AGE\" DESC NULLS FIRST")
-        .limit(3)
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("TEST_USER")
+            .table("PUSHDOWN_TEST")
+            .orderBy("\"AGE\" DESC NULLS FIRST")
+            .limit(3)
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
     assertTrue("SQL must contain ORDER BY", sql.contains("ORDER BY"));
-    assertTrue("SQL must contain FETCH FIRST 3 ROWS ONLY",
-        sql.contains("FETCH FIRST 3 ROWS ONLY"));
-    assertTrue("ORDER BY must appear before FETCH FIRST",
+    assertTrue("SQL must contain FETCH FIRST 3 ROWS ONLY", sql.contains("FETCH FIRST 3 ROWS ONLY"));
+    assertTrue(
+        "ORDER BY must appear before FETCH FIRST",
         sql.indexOf("ORDER BY") < sql.indexOf("FETCH FIRST"));
-    assertFalse("Oracle TopN SQL must NOT contain LIMIT keyword",
-        sql.contains("LIMIT"));
+    assertFalse("Oracle TopN SQL must NOT contain LIMIT keyword", sql.contains("LIMIT"));
   }
 
-  /**
-   * Critical Oracle-specific test: ORDER BY + limit generates FETCH FIRST, never LIMIT.
-   */
+  /** Critical Oracle-specific test: ORDER BY + limit generates FETCH FIRST, never LIMIT. */
   @Test
   public void testNoLimitKeywordWithOrderBy() {
     // ORDER BY only
-    SqlBuildRequest requestOrderOnly = SqlBuildRequest.builder()
-        .schema("TEST_USER")
-        .table("PUSHDOWN_TEST")
-        .orderBy("\"AGE\" ASC NULLS LAST")
-        .build();
+    SqlBuildRequest requestOrderOnly =
+        SqlBuildRequest.builder()
+            .schema("TEST_USER")
+            .table("PUSHDOWN_TEST")
+            .orderBy("\"AGE\" ASC NULLS LAST")
+            .build();
     String sqlOrderOnly = SQL_BUILDER.buildSql(requestOrderOnly);
-    assertFalse("Oracle SQL (ORDER BY only) must NOT contain LIMIT: " + sqlOrderOnly,
+    assertFalse(
+        "Oracle SQL (ORDER BY only) must NOT contain LIMIT: " + sqlOrderOnly,
         sqlOrderOnly.contains("LIMIT"));
 
     // ORDER BY + limit
-    SqlBuildRequest requestTopN = SqlBuildRequest.builder()
-        .schema("TEST_USER")
-        .table("PUSHDOWN_TEST")
-        .orderBy("\"AGE\" DESC NULLS FIRST")
-        .limit(5)
-        .build();
+    SqlBuildRequest requestTopN =
+        SqlBuildRequest.builder()
+            .schema("TEST_USER")
+            .table("PUSHDOWN_TEST")
+            .orderBy("\"AGE\" DESC NULLS FIRST")
+            .limit(5)
+            .build();
     String sqlTopN = SQL_BUILDER.buildSql(requestTopN);
-    assertFalse("Oracle TopN SQL must NOT contain LIMIT: " + sqlTopN,
-        sqlTopN.contains("LIMIT"));
+    assertFalse("Oracle TopN SQL must NOT contain LIMIT: " + sqlTopN, sqlTopN.contains("LIMIT"));
     assertTrue("Oracle TopN SQL must contain FETCH FIRST", sqlTopN.contains("FETCH FIRST"));
   }
 
@@ -410,21 +386,23 @@ public class TestOraclePushdown {
   // ---------------------------------------------------------------------------
 
   /**
-   * Verifies ORDER BY execution against a real Oracle container.
-   * Sorts by AGE ASC NULLS LAST: Bob(25), Dave(28), Alice(30), Charlie(35), Eve(40).
+   * Verifies ORDER BY execution against a real Oracle container. Sorts by AGE ASC NULLS LAST:
+   * Bob(25), Dave(28), Alice(30), Charlie(35), Eve(40).
    */
   @Test
   public void testOrderByExecutesAgainstOracle() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("TEST_USER")
-        .table("PUSHDOWN_TEST")
-        .orderBy("\"AGE\" ASC NULLS LAST")
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("TEST_USER")
+            .table("PUSHDOWN_TEST")
+            .orderBy("\"AGE\" ASC NULLS LAST")
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    try (Connection conn = DriverManager.getConnection(
-            OracleTestContainer.getJdbcUrl(),
-            OracleTestContainer.getUsername(),
-            OracleTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       assertTrue("Must have at least one row", rs.next());
@@ -440,22 +418,24 @@ public class TestOraclePushdown {
   }
 
   /**
-   * Verifies TopN (ORDER BY + FETCH FIRST) execution: top 2 by AGE DESC.
-   * Should return Eve(40) and Charlie(35).
+   * Verifies TopN (ORDER BY + FETCH FIRST) execution: top 2 by AGE DESC. Should return Eve(40) and
+   * Charlie(35).
    */
   @Test
   public void testTopNExecutesAgainstOracle() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("TEST_USER")
-        .table("PUSHDOWN_TEST")
-        .orderBy("\"AGE\" DESC NULLS FIRST")
-        .limit(2)
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("TEST_USER")
+            .table("PUSHDOWN_TEST")
+            .orderBy("\"AGE\" DESC NULLS FIRST")
+            .limit(2)
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    try (Connection conn = DriverManager.getConnection(
-            OracleTestContainer.getJdbcUrl(),
-            OracleTestContainer.getUsername(),
-            OracleTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       assertTrue("Must have first row", rs.next());
@@ -471,59 +451,56 @@ public class TestOraclePushdown {
   // Aggregation pushdown SQL generation tests
   // ---------------------------------------------------------------------------
 
-  /**
-   * Verifies COUNT(*) SQL generation for Oracle (no GROUP BY).
-   * Must not contain LIMIT keyword.
-   */
+  /** Verifies COUNT(*) SQL generation for Oracle (no GROUP BY). Must not contain LIMIT keyword. */
   @Test
   public void testAggregationCountStarSqlGeneration() {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("TEST_USER")
-        .table("PUSHDOWN_TEST")
-        .selectExprs(Arrays.asList("COUNT(*)"))
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("TEST_USER")
+            .table("PUSHDOWN_TEST")
+            .selectExprs(Arrays.asList("COUNT(*)"))
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
     assertTrue("SQL must contain SELECT COUNT(*)", sql.contains("SELECT COUNT(*)"));
     assertFalse("Oracle aggregate SQL must NOT contain LIMIT", sql.contains("LIMIT"));
     assertFalse("No GROUP BY expected for pure aggregate", sql.contains("GROUP BY"));
   }
 
-  /**
-   * Verifies GROUP BY SQL generation for Oracle.
-   */
+  /** Verifies GROUP BY SQL generation for Oracle. */
   @Test
   public void testAggregationGroupBySqlGeneration() {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("TEST_USER")
-        .table("PUSHDOWN_TEST")
-        .selectExprs(Arrays.asList("\"NAME\"", "COUNT(*)"))
-        .groupBy("\"NAME\"")
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("TEST_USER")
+            .table("PUSHDOWN_TEST")
+            .selectExprs(Arrays.asList("\"NAME\"", "COUNT(*)"))
+            .groupBy("\"NAME\"")
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
     assertTrue("SQL must contain GROUP BY", sql.contains("GROUP BY \"NAME\""));
-    assertTrue("SQL must contain SELECT with NAME and COUNT",
-        sql.contains("SELECT \"NAME\", COUNT(*)"));
+    assertTrue(
+        "SQL must contain SELECT with NAME and COUNT", sql.contains("SELECT \"NAME\", COUNT(*)"));
   }
 
   // ---------------------------------------------------------------------------
   // Aggregation container-based execution tests
   // ---------------------------------------------------------------------------
 
-  /**
-   * COUNT(*) against Oracle container. Expected: 5 rows total.
-   */
+  /** COUNT(*) against Oracle container. Expected: 5 rows total. */
   @Test
   public void testAggregationCountStarExecutesAgainstOracle() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("TEST_USER")
-        .table("PUSHDOWN_TEST")
-        .selectExprs(Arrays.asList("COUNT(*)"))
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("TEST_USER")
+            .table("PUSHDOWN_TEST")
+            .selectExprs(Arrays.asList("COUNT(*)"))
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    try (Connection conn = DriverManager.getConnection(
-            OracleTestContainer.getJdbcUrl(),
-            OracleTestContainer.getUsername(),
-            OracleTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       assertTrue("Must have a result row", rs.next());
@@ -533,21 +510,21 @@ public class TestOraclePushdown {
     }
   }
 
-  /**
-   * SUM(AGE) against Oracle container. Expected: 30+25+35+28+40 = 158.
-   */
+  /** SUM(AGE) against Oracle container. Expected: 30+25+35+28+40 = 158. */
   @Test
   public void testAggregationSumExecutesAgainstOracle() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("TEST_USER")
-        .table("PUSHDOWN_TEST")
-        .selectExprs(Arrays.asList("SUM(\"AGE\")"))
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("TEST_USER")
+            .table("PUSHDOWN_TEST")
+            .selectExprs(Arrays.asList("SUM(\"AGE\")"))
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    try (Connection conn = DriverManager.getConnection(
-            OracleTestContainer.getJdbcUrl(),
-            OracleTestContainer.getUsername(),
-            OracleTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       assertTrue("Must have a result row", rs.next());
@@ -556,22 +533,22 @@ public class TestOraclePushdown {
     }
   }
 
-  /**
-   * GROUP BY NAME with COUNT(*). All names are unique, so 5 groups.
-   */
+  /** GROUP BY NAME with COUNT(*). All names are unique, so 5 groups. */
   @Test
   public void testAggregationGroupByExecutesAgainstOracle() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("TEST_USER")
-        .table("PUSHDOWN_TEST")
-        .selectExprs(Arrays.asList("\"NAME\"", "COUNT(*)"))
-        .groupBy("\"NAME\"")
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("TEST_USER")
+            .table("PUSHDOWN_TEST")
+            .selectExprs(Arrays.asList("\"NAME\"", "COUNT(*)"))
+            .groupBy("\"NAME\"")
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    try (Connection conn = DriverManager.getConnection(
-            OracleTestContainer.getJdbcUrl(),
-            OracleTestContainer.getUsername(),
-            OracleTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       int groupCount = 0;
@@ -583,22 +560,21 @@ public class TestOraclePushdown {
     }
   }
 
-  /**
-   * MIN, MAX, AVG aggregate functions against Oracle container.
-   * MIN(AGE)=25, MAX(AGE)=40.
-   */
+  /** MIN, MAX, AVG aggregate functions against Oracle container. MIN(AGE)=25, MAX(AGE)=40. */
   @Test
   public void testAggregationMinMaxAvgExecutesAgainstOracle() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("TEST_USER")
-        .table("PUSHDOWN_TEST")
-        .selectExprs(Arrays.asList("MIN(\"AGE\")", "MAX(\"AGE\")", "AVG(\"AGE\")"))
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("TEST_USER")
+            .table("PUSHDOWN_TEST")
+            .selectExprs(Arrays.asList("MIN(\"AGE\")", "MAX(\"AGE\")", "AVG(\"AGE\")"))
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    try (Connection conn = DriverManager.getConnection(
-            OracleTestContainer.getJdbcUrl(),
-            OracleTestContainer.getUsername(),
-            OracleTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       assertTrue("Must have a result row", rs.next());
@@ -612,27 +588,28 @@ public class TestOraclePushdown {
   }
 
   /**
-   * COUNT(*) with WHERE filter and GROUP BY against Oracle.
-   * WHERE AGE >= 30 matches Alice(30), Charlie(35), Eve(40) = 3 groups.
+   * COUNT(*) with WHERE filter and GROUP BY against Oracle. WHERE AGE >= 30 matches Alice(30),
+   * Charlie(35), Eve(40) = 3 groups.
    */
   @Test
   public void testAggregationWithFilterAndGroupByExecutesAgainstOracle() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("TEST_USER")
-        .table("PUSHDOWN_TEST")
-        .where("\"AGE\" >= 30")
-        .selectExprs(Arrays.asList("\"NAME\"", "COUNT(*)"))
-        .groupBy("\"NAME\"")
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("TEST_USER")
+            .table("PUSHDOWN_TEST")
+            .where("\"AGE\" >= 30")
+            .selectExprs(Arrays.asList("\"NAME\"", "COUNT(*)"))
+            .groupBy("\"NAME\"")
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
     assertTrue("SQL must contain WHERE", sql.contains("WHERE"));
     assertTrue("SQL must contain GROUP BY", sql.contains("GROUP BY"));
-    assertTrue("WHERE must appear before GROUP BY",
-        sql.indexOf("WHERE") < sql.indexOf("GROUP BY"));
-    try (Connection conn = DriverManager.getConnection(
-            OracleTestContainer.getJdbcUrl(),
-            OracleTestContainer.getUsername(),
-            OracleTestContainer.getPassword());
+    assertTrue("WHERE must appear before GROUP BY", sql.indexOf("WHERE") < sql.indexOf("GROUP BY"));
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       int groupCount = 0;

@@ -28,28 +28,24 @@ import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.util.ImmutableBitSet;
 
 /**
- * Pushdown rule that absorbs a single-phase {@link AggregatePrel} (either
- * {@code HashAggPrel} or {@code StreamAggPrel}) into the {@link JdbcScanPrel}
- * below it, so the generated SQL includes a GROUP BY clause and aggregate
- * functions in the SELECT list.
+ * Pushdown rule that absorbs a single-phase {@link AggregatePrel} (either {@code HashAggPrel} or
+ * {@code StreamAggPrel}) into the {@link JdbcScanPrel} below it, so the generated SQL includes a
+ * GROUP BY clause and aggregate functions in the SELECT list.
  *
- * <p>Only {@link AggregatePrel.OperatorPhase#PHASE_1of1 PHASE_1of1} aggregates
- * are pushed down. Two-phase distributed aggregates ({@code PHASE_1of2} and
- * {@code PHASE_2of2}) are rejected because pushing a partial aggregate to a
- * single JDBC source would produce incorrect results.
+ * <p>Only {@link AggregatePrel.OperatorPhase#PHASE_1of1 PHASE_1of1} aggregates are pushed down.
+ * Two-phase distributed aggregates ({@code PHASE_1of2} and {@code PHASE_2of2}) are rejected because
+ * pushing a partial aggregate to a single JDBC source would produce incorrect results.
  *
- * <p>Supported aggregate functions: COUNT, SUM, SUM0, MIN, MAX, AVG.
- * DISTINCT aggregates are not supported in v1 and cause the rule to decline.
+ * <p>Supported aggregate functions: COUNT, SUM, SUM0, MIN, MAX, AVG. DISTINCT aggregates are not
+ * supported in v1 and cause the rule to decline.
  *
- * <p>The rule replaces the AggregatePrel with a JdbcScanPrel that carries
- * aggregation-specific state: {@code selectExprs} (the aggregate SELECT list)
- * and {@code groupByClause}. The scan's output rowType is updated to match the
- * aggregated schema expected by the optimizer.
+ * <p>The rule replaces the AggregatePrel with a JdbcScanPrel that carries aggregation-specific
+ * state: {@code selectExprs} (the aggregate SELECT list) and {@code groupByClause}. The scan's
+ * output rowType is updated to match the aggregated schema expected by the optimizer.
  *
- * <p>Registered in the {@code PHYSICAL} planner phase via {@link JdbcRulesFactory}.
- * Not registered in {@code PHYSICAL_HEP} because aggregation is a structural
- * transformation that changes the rowType and benefits from cost-based decisions
- * in the Volcano planner.
+ * <p>Registered in the {@code PHYSICAL} planner phase via {@link JdbcRulesFactory}. Not registered
+ * in {@code PHYSICAL_HEP} because aggregation is a structural transformation that changes the
+ * rowType and benefits from cost-based decisions in the Volcano planner.
  */
 public final class JdbcPushAggIntoScan extends RelOptRule {
 
@@ -123,18 +119,27 @@ public final class JdbcPushAggIntoScan extends RelOptRule {
     }
     String groupByClause = groupByCols.isEmpty() ? null : String.join(", ", groupByCols);
 
+    // The output rowType must match the AggregatePrel's expected output.
+    RelDataType newRowType = agg.getRowType();
+    List<RelDataTypeField> outFields = newRowType.getFieldList();
+
     // Build SELECT expressions: group-by columns first, then aggregate expressions.
-    List<String> selectExprs = new ArrayList<>(groupByCols);
+    // Each expression is aliased to match the Calcite output field name so that the
+    // JDBC ResultSet column labels align with the schema expected by JdbcRecordReader.
+    List<String> selectExprs = new ArrayList<>();
+    int outIdx = 0;
+    for (String groupCol : groupByCols) {
+      String alias = quoteIdentifier(outFields.get(outIdx++).getName());
+      selectExprs.add(groupCol + " AS " + alias);
+    }
     for (AggregateCall aggCall : aggCalls) {
       String expr = aggCallToSql(aggCall, scanFields);
       if (expr == null) {
         return; // Unsupported aggregate -- decline.
       }
-      selectExprs.add(expr);
+      String alias = quoteIdentifier(outFields.get(outIdx++).getName());
+      selectExprs.add(expr + " AS " + alias);
     }
-
-    // The output rowType must match the AggregatePrel's expected output.
-    RelDataType newRowType = agg.getRowType();
 
     JdbcScanPrel newScan = scan.cloneWithAggregation(selectExprs, groupByClause, newRowType);
     call.transformTo(newScan);
@@ -144,7 +149,7 @@ public final class JdbcPushAggIntoScan extends RelOptRule {
    * Translates an {@link AggregateCall} into a SQL aggregate expression string.
    *
    * @param aggCall the aggregate call to translate
-   * @param fields  the field list from the scan's row type
+   * @param fields the field list from the scan's row type
    * @return the SQL expression, or null if the aggregate is unsupported
    */
   private static String aggCallToSql(AggregateCall aggCall, List<RelDataTypeField> fields) {
@@ -174,9 +179,7 @@ public final class JdbcPushAggIntoScan extends RelOptRule {
     }
   }
 
-  /**
-   * Builds a single-argument aggregate function expression: {@code FUNC("column")}.
-   */
+  /** Builds a single-argument aggregate function expression: {@code FUNC("column")}. */
   private static String singleArgAgg(
       String funcName, AggregateCall aggCall, List<RelDataTypeField> fields) {
     if (aggCall.getArgList().isEmpty()) {
@@ -189,10 +192,13 @@ public final class JdbcPushAggIntoScan extends RelOptRule {
     return funcName + "(" + quoteField(fields.get(argIdx)) + ")";
   }
 
-  /**
-   * Quotes a field name with double-quote escaping per the SQL standard.
-   */
+  /** Quotes a field name with double-quote escaping per the SQL standard. */
   private static String quoteField(RelDataTypeField field) {
-    return "\"" + field.getName().replace("\"", "\"\"") + "\"";
+    return quoteIdentifier(field.getName());
+  }
+
+  /** Quotes an identifier with double-quote escaping per the SQL standard. */
+  private static String quoteIdentifier(String name) {
+    return "\"" + name.replace("\"", "\"\"") + "\"";
   }
 }

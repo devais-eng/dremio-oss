@@ -26,7 +26,6 @@ import java.util.List;
 import org.apache.arrow.adapter.jdbc.JdbcFieldInfo;
 import org.apache.arrow.adapter.jdbc.JdbcToArrowUtils;
 import org.apache.arrow.vector.types.DateUnit;
-import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
@@ -88,8 +87,7 @@ public class JdbcSchemaFetcher {
     List<String> tables = new ArrayList<>();
     try (Connection conn = pool.getConnection()) {
       DatabaseMetaData meta = conn.getMetaData();
-      try (ResultSet rs =
-          meta.getTables(null, schemaName, "%", new String[] {"TABLE", "VIEW"})) {
+      try (ResultSet rs = meta.getTables(null, schemaName, "%", new String[] {"TABLE", "VIEW"})) {
         while (rs.next()) {
           tables.add(rs.getString("TABLE_NAME"));
         }
@@ -201,8 +199,8 @@ public class JdbcSchemaFetcher {
       return false;
     }
     String lower = schemaName.toLowerCase();
-    return lower.equals("information_schema")
-        || lower.equals("pg_catalog")
+    return "information_schema".equals(lower)
+        || "pg_catalog".equals(lower)
         || lower.startsWith("pg_toast")
         || lower.startsWith("pg_temp_");
   }

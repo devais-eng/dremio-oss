@@ -44,8 +44,7 @@ public class JdbcScanCreator implements ProducerOperator.Creator<JdbcSubScan> {
       throws ExecutionSetupException {
     JdbcStoragePlugin plugin = fec.getStoragePlugin(config.getPluginId());
     RecordReader reader;
-    if (plugin.getEffectiveProtocolMode() == ProtocolMode.ADBC
-        && plugin.getAdbcFactory() != null) {
+    if (plugin.getEffectiveProtocolMode() == ProtocolMode.ADBC && plugin.getAdbcFactory() != null) {
       reader = plugin.createAdbcRecordReader(context, config, plugin.getAdbcFactory());
     } else {
       reader = plugin.createRecordReader(context, config, plugin.getPool());

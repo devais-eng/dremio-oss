@@ -22,21 +22,17 @@ import org.testcontainers.containers.OracleContainer;
  * Oracle XE TestContainers container approved for use in Dremio integration tests.
  *
  * <p>Implements {@link DremioContainer} to satisfy the {@code DremioRestrictedTestcontainersUsage}
- * error-prone check, which requires that all {@code GenericContainer} subclasses also implement
- * the {@code DremioContainer} marker interface.
+ * error-prone check, which requires that all {@code GenericContainer} subclasses also implement the
+ * {@code DremioContainer} marker interface.
  *
- * <p>Wraps {@link OracleContainer} with a fixed {@code gvenzl/oracle-xe:21-slim} image used
- * by the Oracle JDBC connector integration tests.
+ * <p>Wraps {@link OracleContainer} with a fixed {@code gvenzl/oracle-xe:21-slim} image used by the
+ * Oracle JDBC connector integration tests.
  */
-public final class DremioOracleContainer
-    extends OracleContainer
-    implements DremioContainer {
+public final class DremioOracleContainer extends OracleContainer implements DremioContainer {
 
   private static final String IMAGE = "gvenzl/oracle-xe:21-slim";
 
-  /**
-   * Creates a new container using {@code gvenzl/oracle-xe:21-slim}.
-   */
+  /** Creates a new container using {@code gvenzl/oracle-xe:21-slim}. */
   public DremioOracleContainer() {
     super(IMAGE);
   }

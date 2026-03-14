@@ -24,25 +24,23 @@ import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
 
 /**
- * Planner rule that converts a {@link JdbcScanDrel} logical scan node to a
- * {@link JdbcScanPrel} physical scan node during the <em>PHYSICAL</em> planning phase.
+ * Planner rule that converts a {@link JdbcScanDrel} logical scan node to a {@link JdbcScanPrel}
+ * physical scan node during the <em>PHYSICAL</em> planning phase.
  *
- * <p>The schema name and table name are extracted from the last two components of
- * the dataset's namespace key path so the {@link JdbcScanPrel} can use them to
- * construct the {@code FROM "schema"."table"} clause via {@link SqlBuilder}.
+ * <p>The schema name and table name are extracted from the last two components of the dataset's
+ * namespace key path so the {@link JdbcScanPrel} can use them to construct the {@code FROM
+ * "schema"."table"} clause via {@link SqlBuilder}.
  *
- * <p>The physical scan is created with {@link DistributionTrait#SINGLETON} because
- * JDBC sources are always single-node ({@code getMaxParallelizationWidth() == 1}).
- * This is critical for limit pushdown: {@code LimitPrule} enforces SINGLETON
- * distribution on its input, so without SINGLETON on the scan the Volcano planner
- * would insert a distribution-enforcing exchange between {@code LimitPrel} and
- * {@code JdbcScanPrel}, preventing {@link JdbcPushLimitIntoScan} from matching
- * the direct parent-child pattern.
+ * <p>The physical scan is created with {@link DistributionTrait#SINGLETON} because JDBC sources are
+ * always single-node ({@code getMaxParallelizationWidth() == 1}). This is critical for limit
+ * pushdown: {@code LimitPrule} enforces SINGLETON distribution on its input, so without SINGLETON
+ * on the scan the Volcano planner would insert a distribution-enforcing exchange between {@code
+ * LimitPrel} and {@code JdbcScanPrel}, preventing {@link JdbcPushLimitIntoScan} from matching the
+ * direct parent-child pattern.
  *
- * <p>Registered in {@link JdbcRulesFactory} for the PHYSICAL phase alongside
- * the pushdown rules.
+ * <p>Registered in {@link JdbcRulesFactory} for the PHYSICAL phase alongside the pushdown rules.
  */
-public class JdbcScanPrule extends RelOptRule {
+public final class JdbcScanPrule extends RelOptRule {
 
   public static final RelOptRule INSTANCE = new JdbcScanPrule();
 

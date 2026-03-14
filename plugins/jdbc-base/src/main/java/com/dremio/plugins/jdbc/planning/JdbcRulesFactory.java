@@ -22,37 +22,43 @@ import com.dremio.exec.store.StoragePluginRulesFactory.StoragePluginTypeRulesFac
 import com.google.common.collect.ImmutableSet;
 import java.util.Set;
 import org.apache.calcite.plan.RelOptRule;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * {@link com.dremio.exec.store.StoragePluginRulesFactory} for JDBC-backed storage plugins.
  *
  * <p>Registers planner rules in the correct phases:
+ *
  * <dl>
- *   <dt>LOGICAL</dt>
- *   <dd>{@link JdbcScanDrule} — converts the generic {@code ScanCrel} to a JDBC-specific
- *       {@link JdbcScanDrel}.</dd>
- *   <dt>PHYSICAL</dt>
- *   <dd>{@link JdbcScanPrule} — converts {@link JdbcScanDrel} to {@link JdbcScanPrel}.</dd>
- *   <dd>{@link JdbcPushFilterIntoScan} — pushes WHERE predicates into the scan.</dd>
- *   <dd>{@link JdbcPushProjectIntoScan} — narrows the SELECT list to projected columns.</dd>
- *   <dd>{@link JdbcPushAggIntoScan} — pushes GROUP BY and aggregate functions into the scan.</dd>
- *   <dd>{@link JdbcPushSortIntoScan} — pushes ORDER BY into the scan.</dd>
- *   <dd>{@link JdbcPushLimitIntoScan} — pushes LIMIT into the scan.</dd>
- *   <dt>PHYSICAL_HEP</dt>
- *   <dd>{@link JdbcPushSortIntoScan} — safety-net registration so the HEP planner can
- *       absorb any sort that the Volcano phase did not.</dd>
- *   <dd>{@link JdbcPushLimitIntoScan} — safety-net registration so the HEP planner can
- *       absorb any limit that the Volcano phase did not.</dd>
+ *   <dt>LOGICAL
+ *   <dd>{@link JdbcScanDrule} — converts the generic {@code ScanCrel} to a JDBC-specific {@link
+ *       JdbcScanDrel}.
+ *   <dt>PHYSICAL
+ *   <dd>{@link JdbcScanPrule} — converts {@link JdbcScanDrel} to {@link JdbcScanPrel}.
+ *   <dd>{@link JdbcPushFilterIntoScan} — pushes WHERE predicates into the scan.
+ *   <dd>{@link JdbcPushProjectIntoScan} — narrows the SELECT list to projected columns.
+ *   <dd>{@link JdbcPushAggIntoScan} — pushes GROUP BY and aggregate functions into the scan.
+ *   <dd>{@link JdbcPushSortIntoScan} — pushes ORDER BY into the scan (logical-level, simple case).
+ *   <dd>{@link JdbcPushLimitIntoScan} — pushes LIMIT into the scan.
+ *   <dt>PHYSICAL_HEP
+ *   <dd>{@link JdbcPushSortIntoScanHep} — absorbs concrete {@code SortPrel} into the scan, enabling
+ *       combined WHERE + ORDER BY pushdown after filter pushdown in Volcano.
+ *   <dd>{@link JdbcPushLimitIntoScan} — absorbs any remaining {@code LimitPrel}.
  * </dl>
  *
- * <p>Wired to {@link com.dremio.plugins.jdbc.JdbcStoragePlugin} via
- * {@code JdbcStoragePlugin.getRulesFactoryClass()}.
+ * <p>Wired to {@link com.dremio.plugins.jdbc.JdbcStoragePlugin} via {@code
+ * JdbcStoragePlugin.getRulesFactoryClass()}.
  */
 public class JdbcRulesFactory extends StoragePluginTypeRulesFactory {
+
+  private static final Logger logger = LoggerFactory.getLogger(JdbcRulesFactory.class);
 
   @Override
   public Set<RelOptRule> getRules(
       OptimizerRulesContext optimizerContext, PlannerPhase phase, SourceType pluginType) {
+
+    logger.info("[JDBC-RULES-DEBUG] getRules called for phase: {}", phase);
 
     switch (phase) {
       case LOGICAL:
@@ -70,9 +76,12 @@ public class JdbcRulesFactory extends StoragePluginTypeRulesFactory {
             JdbcPushLimitIntoScan.INSTANCE);
 
       case PHYSICAL_HEP:
-        // Safety net: absorb any remaining SortPrel or LimitPrel that the Volcano phase did not.
+        // After Volcano, SortPrel/TopNPrel exist as concrete nodes (possibly with exchanges
+        // between them and JdbcScanPrel in distributed mode). Absorb them into the scan
+        // to enable combined WHERE + ORDER BY + LIMIT pushdown.
         return ImmutableSet.<RelOptRule>of(
-            JdbcPushSortIntoScan.INSTANCE,
+            JdbcPushSortIntoScanHep.INSTANCE,
+            JdbcPushTopNIntoScanHep.INSTANCE,
             JdbcPushLimitIntoScan.INSTANCE);
 
       default:

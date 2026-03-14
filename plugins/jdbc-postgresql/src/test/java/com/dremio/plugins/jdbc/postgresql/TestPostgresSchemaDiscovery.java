@@ -34,19 +34,19 @@ import org.junit.Test;
  * Integration tests validating {@link PostgresSchemaFetcher} schema discovery behaviour.
  *
  * <p>Tests verify:
+ *
  * <ul>
- *   <li>listSchemas() returns user schemas and excludes PostgreSQL system schemas</li>
- *   <li>listTables() returns TABLE and VIEW entries within a schema</li>
- *   <li>tableExists() returns correct boolean for existing / non-existing tables</li>
- *   <li>getTableSchema() returns the correct Arrow column types</li>
+ *   <li>listSchemas() returns user schemas and excludes PostgreSQL system schemas
+ *   <li>listTables() returns TABLE and VIEW entries within a schema
+ *   <li>tableExists() returns correct boolean for existing / non-existing tables
+ *   <li>getTableSchema() returns the correct Arrow column types
  * </ul>
  *
  * <p>All tests run against a shared {@code postgres:16-alpine} container.
  */
 public class TestPostgresSchemaDiscovery {
 
-  @ClassRule
-  public static final DremioPostgresContainer PG = PostgresTestContainer.PG;
+  @ClassRule public static final DremioPostgresContainer PG = PostgresTestContainer.PG;
 
   private static JdbcConnectionPool pool;
   private static PostgresSchemaFetcher schemaFetcher;
@@ -76,9 +76,7 @@ public class TestPostgresSchemaDiscovery {
   // listSchemas tests
   // ---------------------------------------------------------------------------
 
-  /**
-   * Verifies that user schemas are returned and system schemas are excluded.
-   */
+  /** Verifies that user schemas are returned and system schemas are excluded. */
   @Test
   public void testListSchemas() throws Exception {
     List<String> schemas = schemaFetcher.listSchemas();
@@ -95,7 +93,7 @@ public class TestPostgresSchemaDiscovery {
     for (String s : schemas) {
       assertFalse("No pg_toast* schemas should appear", s.startsWith("pg_toast"));
       assertFalse("No pg_temp_* schemas should appear", s.startsWith("pg_temp_"));
-      assertFalse("pg_internal must be excluded", s.equalsIgnoreCase("pg_internal"));
+      assertFalse("pg_internal must be excluded", "pg_internal".equalsIgnoreCase(s));
     }
   }
 
@@ -103,9 +101,7 @@ public class TestPostgresSchemaDiscovery {
   // listTables tests
   // ---------------------------------------------------------------------------
 
-  /**
-   * Verifies that both TABLE and VIEW entries are returned for test_schema.
-   */
+  /** Verifies that both TABLE and VIEW entries are returned for test_schema. */
   @Test
   public void testListTables() throws Exception {
     List<String> tables = schemaFetcher.listTables("test_schema");
@@ -126,9 +122,7 @@ public class TestPostgresSchemaDiscovery {
     // we just verify the method returns without error.
   }
 
-  /**
-   * Verifies that listTables returns an empty list (not an exception) for an empty schema.
-   */
+  /** Verifies that listTables returns an empty list (not an exception) for an empty schema. */
   @Test
   public void testListTablesEmptySchema() throws Exception {
     PostgresTestContainer.executeSql("CREATE SCHEMA IF NOT EXISTS empty_schema");
@@ -141,9 +135,7 @@ public class TestPostgresSchemaDiscovery {
   // tableExists tests
   // ---------------------------------------------------------------------------
 
-  /**
-   * Verifies that tableExists returns true for an existing table.
-   */
+  /** Verifies that tableExists returns true for an existing table. */
   @Test
   public void testTableExistsForExistingTable() throws Exception {
     assertTrue(
@@ -151,9 +143,7 @@ public class TestPostgresSchemaDiscovery {
         schemaFetcher.tableExists("test_schema", "sample_table"));
   }
 
-  /**
-   * Verifies that tableExists returns true for a view (since getTables includes VIEW type).
-   */
+  /** Verifies that tableExists returns true for a view (since getTables includes VIEW type). */
   @Test
   public void testTableExistsForView() throws Exception {
     assertTrue(
@@ -161,9 +151,7 @@ public class TestPostgresSchemaDiscovery {
         schemaFetcher.tableExists("test_schema", "sample_view"));
   }
 
-  /**
-   * Verifies that tableExists returns false for a non-existent table name.
-   */
+  /** Verifies that tableExists returns false for a non-existent table name. */
   @Test
   public void testTableExistsForNonExistent() throws Exception {
     assertFalse(
@@ -171,9 +159,7 @@ public class TestPostgresSchemaDiscovery {
         schemaFetcher.tableExists("test_schema", "nonexistent_table"));
   }
 
-  /**
-   * Verifies that tableExists returns false for a table in the wrong schema.
-   */
+  /** Verifies that tableExists returns false for a table in the wrong schema. */
   @Test
   public void testTableExistsWrongSchema() throws Exception {
     assertFalse(
@@ -185,9 +171,7 @@ public class TestPostgresSchemaDiscovery {
   // getTableSchema tests
   // ---------------------------------------------------------------------------
 
-  /**
-   * Verifies that getTableSchema returns the correct Arrow types for sample_table columns.
-   */
+  /** Verifies that getTableSchema returns the correct Arrow types for sample_table columns. */
   @Test
   public void testGetTableSchemaColumns() throws Exception {
     BatchSchema schema = schemaFetcher.getTableSchema("test_schema", "sample_table");
@@ -218,9 +202,7 @@ public class TestPostgresSchemaDiscovery {
     assertEquals(ArrowType.Utf8.class, nameField.getType().getClass());
   }
 
-  /**
-   * Verifies that getTableSchema returns the correct type for a single-column table.
-   */
+  /** Verifies that getTableSchema returns the correct type for a single-column table. */
   @Test
   public void testGetTableSchemaForView() throws Exception {
     // sample_view is SELECT * FROM sample_table, so same columns

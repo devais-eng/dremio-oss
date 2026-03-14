@@ -26,11 +26,12 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
  * PostgreSQL-native types not covered by the standard Arrow JDBC adapter.
  *
  * <p>Mapped types include:
+ *
  * <ul>
- *   <li>UUID, JSONB, JSON, MONEY, INTERVAL, CIDR, INET, MACADDR, MACADDR8 → VARCHAR</li>
- *   <li>HSTORE, TSVECTOR, TSQUERY → VARCHAR</li>
- *   <li>Array types (prefix {@code _} or {@link Types#ARRAY}) → VARCHAR</li>
- *   <li>Unconstrained NUMERIC (precision = 0) → DOUBLE</li>
+ *   <li>UUID, JSONB, JSON, MONEY, INTERVAL, CIDR, INET, MACADDR, MACADDR8 → VARCHAR
+ *   <li>HSTORE, TSVECTOR, TSQUERY → VARCHAR
+ *   <li>Array types (prefix {@code _} or {@link Types#ARRAY}) → VARCHAR
+ *   <li>Unconstrained NUMERIC (precision = 0) → DOUBLE
  * </ul>
  *
  * <p>System schemas excluded beyond the base class defaults include {@code pg_internal}.
@@ -49,11 +50,11 @@ public class PostgresSchemaFetcher extends JdbcSchemaFetcher {
   /**
    * Maps a JDBC type to the corresponding Arrow type for PostgreSQL columns.
    *
-   * <p>PostgreSQL-specific types are mapped to {@link ArrowType.Utf8} (VARCHAR) to ensure safe
-   * data transport. Array types — recognised either by the JDBC {@link Types#ARRAY} code or by
-   * type names starting with {@code _} (the PostgreSQL convention) — are also mapped to VARCHAR in
-   * v1.5. Unconstrained NUMERIC columns (precision = 0) are mapped to DOUBLE to avoid
-   * {@code DECIMAL(0, 0)} errors that some drivers report.
+   * <p>PostgreSQL-specific types are mapped to {@link ArrowType.Utf8} (VARCHAR) to ensure safe data
+   * transport. Array types — recognised either by the JDBC {@link Types#ARRAY} code or by type
+   * names starting with {@code _} (the PostgreSQL convention) — are also mapped to VARCHAR in v1.5.
+   * Unconstrained NUMERIC columns (precision = 0) are mapped to DOUBLE to avoid {@code DECIMAL(0,
+   * 0)} errors that some drivers report.
    *
    * @param jdbcType the {@link java.sql.Types} constant
    * @param typeName the PostgreSQL-specific type name (may start with {@code _} for arrays)

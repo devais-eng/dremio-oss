@@ -22,21 +22,18 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * PostgreSQL TestContainers container approved for use in Dremio integration tests.
  *
  * <p>Implements {@link DremioContainer} to satisfy the {@code DremioRestrictedTestcontainersUsage}
- * error-prone check, which requires that all {@code GenericContainer} subclasses also implement
- * the {@code DremioContainer} marker interface.
+ * error-prone check, which requires that all {@code GenericContainer} subclasses also implement the
+ * {@code DremioContainer} marker interface.
  *
  * <p>Wraps {@link PostgreSQLContainer} with a fixed {@code postgres:16-alpine} image and
  * pre-configured test credentials used by the JDBC PostgreSQL connector integration tests.
  */
-public final class DremioPostgresContainer
-    extends PostgreSQLContainer<DremioPostgresContainer>
+public final class DremioPostgresContainer extends PostgreSQLContainer<DremioPostgresContainer>
     implements DremioContainer {
 
   private static final String IMAGE = "postgres:16-alpine";
 
-  /**
-   * Creates a new container using {@code postgres:16-alpine}.
-   */
+  /** Creates a new container using {@code postgres:16-alpine}. */
   public DremioPostgresContainer() {
     super(IMAGE);
   }

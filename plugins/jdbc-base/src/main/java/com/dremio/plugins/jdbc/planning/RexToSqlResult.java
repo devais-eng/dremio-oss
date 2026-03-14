@@ -22,9 +22,9 @@ import java.util.List;
 /**
  * Immutable result of converting a Calcite {@code RexNode} to a SQL WHERE expression.
  *
- * <p>Carries the SQL string with {@code ?} placeholders and an ordered list of
- * {@link BindParam} values (one per placeholder). This replaces the previous plain
- * {@code String} return from the converter, enabling PreparedStatement parameterization.
+ * <p>Carries the SQL string with {@code ?} placeholders and an ordered list of {@link BindParam}
+ * values (one per placeholder). This replaces the previous plain {@code String} return from the
+ * converter, enabling PreparedStatement parameterization.
  */
 public final class RexToSqlResult {
 
@@ -39,7 +39,10 @@ public final class RexToSqlResult {
    */
   public RexToSqlResult(String sql, List<BindParam> params) {
     this.sql = sql;
-    this.params = params != null ? Collections.unmodifiableList(new ArrayList<>(params)) : Collections.emptyList();
+    this.params =
+        params != null
+            ? Collections.unmodifiableList(new ArrayList<>(params))
+            : Collections.emptyList();
   }
 
   /** Returns the SQL expression fragment (may contain ? placeholders). */
@@ -73,8 +76,8 @@ public final class RexToSqlResult {
   }
 
   /**
-   * Merges this result with another, concatenating the SQL strings with the given
-   * separator and appending the params lists.
+   * Merges this result with another, concatenating the SQL strings with the given separator and
+   * appending the params lists.
    *
    * @param other the result to merge with
    * @param separator the string to place between the two SQL fragments

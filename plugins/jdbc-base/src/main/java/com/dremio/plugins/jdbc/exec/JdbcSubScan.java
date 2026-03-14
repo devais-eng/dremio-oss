@@ -32,9 +32,10 @@ import java.util.List;
  * Serializable sub-scan that carries all the information needed by {@link JdbcRecordReader} to
  * execute a single JDBC query fragment.
  *
- * <p>The {@code sql} field holds the fully constructed SELECT statement with {@code ?} placeholders.
- * The {@code bindParams} field carries the ordered bind parameter values that correspond to the
- * placeholders. These are set on the {@link java.sql.PreparedStatement} before execution.
+ * <p>The {@code sql} field holds the fully constructed SELECT statement with {@code ?}
+ * placeholders. The {@code bindParams} field carries the ordered bind parameter values that
+ * correspond to the placeholders. These are set on the {@link java.sql.PreparedStatement} before
+ * execution.
  *
  * <p>JSON serialization follows the same {@code @JsonTypeName} / {@code @JsonCreator} pattern used
  * by {@code InfoSchemaSubScan} and {@code ElasticsearchSubScan}.
@@ -74,9 +75,7 @@ public class JdbcSubScan extends AbstractSubScan {
     this.bindParams = bindParams != null ? bindParams : Collections.emptyList();
   }
 
-  /**
-   * Backward-compatible constructor without bindParams.
-   */
+  /** Backward-compatible constructor without bindParams. */
   public JdbcSubScan(
       OpProps props,
       BatchSchema fullSchema,

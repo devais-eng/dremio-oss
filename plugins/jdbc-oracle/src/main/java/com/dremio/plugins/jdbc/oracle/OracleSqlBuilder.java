@@ -21,23 +21,23 @@ import com.dremio.plugins.jdbc.planning.SqlBuilder;
 import java.util.List;
 
 /**
- * Oracle-specific SQL builder that generates {@code FETCH FIRST N ROWS ONLY} instead of
- * the standard {@code LIMIT N} syntax.
+ * Oracle-specific SQL builder that generates {@code FETCH FIRST N ROWS ONLY} instead of the
+ * standard {@code LIMIT N} syntax.
  *
- * <p>Oracle Database 12c Release 1 (12.1) and later supports the SQL standard row-limiting
- * clause ({@code FETCH FIRST}). The proprietary {@code ROWNUM} approach is not used here
- * because it requires a subquery wrapper and interacts poorly with ORDER BY.
+ * <p>Oracle Database 12c Release 1 (12.1) and later supports the SQL standard row-limiting clause
+ * ({@code FETCH FIRST}). The proprietary {@code ROWNUM} approach is not used here because it
+ * requires a subquery wrapper and interacts poorly with ORDER BY.
  *
- * <p>SELECT, FROM, WHERE, GROUP BY, and ORDER BY clauses are identical to the base
- * {@link SqlBuilder}. Only the row-limiting clause differs.
+ * <p>SELECT, FROM, WHERE, GROUP BY, and ORDER BY clauses are identical to the base {@link
+ * SqlBuilder}. Only the row-limiting clause differs.
  */
 public class OracleSqlBuilder extends SqlBuilder {
 
   /**
    * Builds a SQL SELECT statement using Oracle row-limiting syntax.
    *
-   * <p>This is the backward-compatible 5-parameter signature. Delegates to
-   * {@link #buildSql(SqlBuildRequest)}.
+   * <p>This is the backward-compatible 5-parameter signature. Delegates to {@link
+   * #buildSql(SqlBuildRequest)}.
    */
   @Override
   public String buildSql(
@@ -46,18 +46,19 @@ public class OracleSqlBuilder extends SqlBuilder {
       List<SchemaPath> projectedColumns,
       String whereClause,
       Integer limit) {
-    return buildSql(SqlBuildRequest.builder()
-        .schema(schemaName)
-        .table(tableName)
-        .projectedColumns(projectedColumns)
-        .where(whereClause)
-        .limit(limit)
-        .build());
+    return buildSql(
+        SqlBuildRequest.builder()
+            .schema(schemaName)
+            .table(tableName)
+            .projectedColumns(projectedColumns)
+            .where(whereClause)
+            .limit(limit)
+            .build());
   }
 
   /**
-   * Appends Oracle's row-limiting clause ({@code FETCH FIRST N ROWS ONLY}) instead of
-   * the standard {@code LIMIT N}. ORDER BY is emitted before FETCH FIRST per Oracle syntax.
+   * Appends Oracle's row-limiting clause ({@code FETCH FIRST N ROWS ONLY}) instead of the standard
+   * {@code LIMIT N}. ORDER BY is emitted before FETCH FIRST per Oracle syntax.
    */
   @Override
   protected void appendLimit(StringBuilder sb, Integer limit) {

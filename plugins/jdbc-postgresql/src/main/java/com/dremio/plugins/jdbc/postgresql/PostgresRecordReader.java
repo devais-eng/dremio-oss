@@ -25,10 +25,10 @@ import java.sql.SQLException;
 /**
  * PostgreSQL-specific record reader that enables cursor-based result set streaming.
  *
- * <p>PostgreSQL's JDBC driver only streams result sets in chunks (honouring
- * {@link java.sql.Statement#setFetchSize}) when the connection is in a transaction (i.e.
- * {@code autoCommit = false}). Without this override the driver loads the entire result set into
- * client memory regardless of the requested fetch size, causing OOM errors on large tables.
+ * <p>PostgreSQL's JDBC driver only streams result sets in chunks (honouring {@link
+ * java.sql.Statement#setFetchSize}) when the connection is in a transaction (i.e. {@code autoCommit
+ * = false}). Without this override the driver loads the entire result set into client memory
+ * regardless of the requested fetch size, causing OOM errors on large tables.
  *
  * <p>Setting {@code autoCommit = false} is safe here because the JDBC connection is used only for
  * read queries (SELECT), and is discarded after the scan completes.
@@ -51,8 +51,8 @@ public class PostgresRecordReader extends JdbcRecordReader {
   /**
    * Disables auto-commit on the connection to enable PostgreSQL cursor-based fetching.
    *
-   * <p>This must be called before {@code prepareStatement}, which is guaranteed by the base
-   * class {@link JdbcRecordReader#setup} implementation.
+   * <p>This must be called before {@code prepareStatement}, which is guaranteed by the base class
+   * {@link JdbcRecordReader#setup} implementation.
    *
    * @param conn the newly obtained connection to configure
    * @throws SQLException if a database access error occurs

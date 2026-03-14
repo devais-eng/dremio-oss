@@ -38,21 +38,21 @@ import org.junit.Test;
 /**
  * Pushdown SQL verification tests for the PostgreSQL connector.
  *
- * <p>Tests verify that {@link SqlBuilder} generates correct SQL for filter, projection, and
- * LIMIT pushdown when targeting PostgreSQL. Two categories of tests are provided:
+ * <p>Tests verify that {@link SqlBuilder} generates correct SQL for filter, projection, and LIMIT
+ * pushdown when targeting PostgreSQL. Two categories of tests are provided:
+ *
  * <ol>
- *   <li>Pure SQL generation tests that do not require a container — verify the produced SQL
- *       string is syntactically correct and contains the expected clauses.</li>
- *   <li>Container-based tests that execute the generated SQL against a real
- *       {@code postgres:16-alpine} container to confirm validity.</li>
+ *   <li>Pure SQL generation tests that do not require a container — verify the produced SQL string
+ *       is syntactically correct and contains the expected clauses.
+ *   <li>Container-based tests that execute the generated SQL against a real {@code
+ *       postgres:16-alpine} container to confirm validity.
  * </ol>
  *
  * <p>Container-based tests use {@link PostgresTestContainer} as the shared infrastructure.
  */
 public class TestPostgresPushdown {
 
-  @ClassRule
-  public static final DremioPostgresContainer PG = PostgresTestContainer.PG;
+  @ClassRule public static final DremioPostgresContainer PG = PostgresTestContainer.PG;
 
   private static final SqlBuilder SQL_BUILDER = new SqlBuilder();
 
@@ -81,30 +81,23 @@ public class TestPostgresPushdown {
   // Pure SQL generation tests (no container required)
   // ---------------------------------------------------------------------------
 
-  /**
-   * SELECT * FROM "public"."test_table" when no columns, no filter, no limit are provided.
-   */
+  /** SELECT * FROM "public"."test_table" when no columns, no filter, no limit are provided. */
   @Test
   public void testSelectAllColumns() {
     String sql = SQL_BUILDER.buildSql("public", "test_table", null, null, null);
     assertEquals("SELECT * FROM \"public\".\"test_table\"", sql);
   }
 
-  /**
-   * SELECT projected columns when a column list is provided.
-   */
+  /** SELECT projected columns when a column list is provided. */
   @Test
   public void testSelectProjectedColumns() {
-    List<SchemaPath> cols = Arrays.asList(
-        SchemaPath.getSimplePath("id"),
-        SchemaPath.getSimplePath("name"));
+    List<SchemaPath> cols =
+        Arrays.asList(SchemaPath.getSimplePath("id"), SchemaPath.getSimplePath("name"));
     String sql = SQL_BUILDER.buildSql("public", "test_table", cols, null, null);
     assertEquals("SELECT \"id\", \"name\" FROM \"public\".\"test_table\"", sql);
   }
 
-  /**
-   * SELECT * with a WHERE clause appended.
-   */
+  /** SELECT * with a WHERE clause appended. */
   @Test
   public void testSelectWithWhereClause() {
     String sql = SQL_BUILDER.buildSql("public", "test_table", null, "\"id\" = 1", null);
@@ -112,9 +105,7 @@ public class TestPostgresPushdown {
     assertTrue("SQL must contain the filter expression", sql.contains("\"id\" = 1"));
   }
 
-  /**
-   * SELECT * with a LIMIT clause appended.
-   */
+  /** SELECT * with a LIMIT clause appended. */
   @Test
   public void testSelectWithLimit() {
     String sql = SQL_BUILDER.buildSql("public", "test_table", null, null, 100);
@@ -122,9 +113,7 @@ public class TestPostgresPushdown {
     assertTrue("SQL must contain the limit value", sql.contains("100"));
   }
 
-  /**
-   * SELECT * with both WHERE and LIMIT.
-   */
+  /** SELECT * with both WHERE and LIMIT. */
   @Test
   public void testSelectWithWhereAndLimit() {
     String sql = SQL_BUILDER.buildSql("public", "test_table", null, "\"id\" > 5", 100);
@@ -133,14 +122,11 @@ public class TestPostgresPushdown {
     assertTrue("WHERE must appear before LIMIT", sql.indexOf("WHERE") < sql.indexOf("LIMIT"));
   }
 
-  /**
-   * SELECT projected columns with a WHERE filter.
-   */
+  /** SELECT projected columns with a WHERE filter. */
   @Test
   public void testSelectWithProjectionAndFilter() {
-    List<SchemaPath> cols = Arrays.asList(
-        SchemaPath.getSimplePath("id"),
-        SchemaPath.getSimplePath("name"));
+    List<SchemaPath> cols =
+        Arrays.asList(SchemaPath.getSimplePath("id"), SchemaPath.getSimplePath("name"));
     String sql = SQL_BUILDER.buildSql("public", "test_table", cols, "\"name\" = 'foo'", null);
     assertTrue("SQL must project 'id'", sql.contains("\"id\""));
     assertTrue("SQL must project 'name'", sql.contains("\"name\""));
@@ -148,39 +134,29 @@ public class TestPostgresPushdown {
     assertTrue("SQL must contain the filter", sql.contains("\"name\" = 'foo'"));
   }
 
-  /**
-   * Identifiers with hyphens are double-quoted correctly.
-   */
+  /** Identifiers with hyphens are double-quoted correctly. */
   @Test
   public void testSpecialCharactersInIdentifiers() {
     String sql = SQL_BUILDER.buildSql("public", "my-table", null, null, null);
-    assertTrue(
-        "Hyphenated table name must be double-quoted: " + sql,
-        sql.contains("\"my-table\""));
+    assertTrue("Hyphenated table name must be double-quoted: " + sql, sql.contains("\"my-table\""));
     assertEquals("SELECT * FROM \"public\".\"my-table\"", sql);
   }
 
-  /**
-   * Empty column list produces SELECT *.
-   */
+  /** Empty column list produces SELECT *. */
   @Test
   public void testEmptyProjectionProducesSelectStar() {
     String sql = SQL_BUILDER.buildSql("public", "test_table", Collections.emptyList(), null, null);
     assertTrue("Empty projection should produce SELECT *", sql.startsWith("SELECT *"));
   }
 
-  /**
-   * Null WHERE clause produces no WHERE keyword.
-   */
+  /** Null WHERE clause produces no WHERE keyword. */
   @Test
   public void testNullWhereClauseOmitted() {
     String sql = SQL_BUILDER.buildSql("public", "test_table", null, null, null);
     assertTrue("No WHERE should be present when filter is null", !sql.contains("WHERE"));
   }
 
-  /**
-   * Null LIMIT produces no LIMIT keyword.
-   */
+  /** Null LIMIT produces no LIMIT keyword. */
   @Test
   public void testNullLimitOmitted() {
     String sql = SQL_BUILDER.buildSql("public", "test_table", null, null, null);
@@ -191,16 +167,15 @@ public class TestPostgresPushdown {
   // Container-based execution tests
   // ---------------------------------------------------------------------------
 
-  /**
-   * Verifies that the generated SELECT * SQL executes successfully against PostgreSQL.
-   */
+  /** Verifies that the generated SELECT * SQL executes successfully against PostgreSQL. */
   @Test
   public void testPushdownQueryExecutesAgainstPostgres() throws Exception {
     String sql = SQL_BUILDER.buildSql("public", "pushdown_test", null, null, null);
-    try (Connection conn = DriverManager.getConnection(
-            PostgresTestContainer.getJdbcUrl(),
-            PostgresTestContainer.getUsername(),
-            PostgresTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       int rowCount = 0;
@@ -211,18 +186,17 @@ public class TestPostgresPushdown {
     }
   }
 
-  /**
-   * Verifies that a WHERE filter pushdown returns only matching rows.
-   */
+  /** Verifies that a WHERE filter pushdown returns only matching rows. */
   @Test
   public void testFilterPushdownResultCorrectness() throws Exception {
     // Filter: age > 28 — should match Alice (30), Charlie (35), Eve (40)
     String sql = SQL_BUILDER.buildSql("public", "pushdown_test", null, "\"age\" > 28", null);
     assertTrue("SQL must contain WHERE", sql.contains("WHERE"));
-    try (Connection conn = DriverManager.getConnection(
-            PostgresTestContainer.getJdbcUrl(),
-            PostgresTestContainer.getUsername(),
-            PostgresTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       int count = 0;
@@ -235,17 +209,16 @@ public class TestPostgresPushdown {
     }
   }
 
-  /**
-   * Verifies that a LIMIT pushdown returns at most the specified number of rows.
-   */
+  /** Verifies that a LIMIT pushdown returns at most the specified number of rows. */
   @Test
   public void testLimitPushdownResultCorrectness() throws Exception {
     String sql = SQL_BUILDER.buildSql("public", "pushdown_test", null, null, 2);
     assertTrue("SQL must contain LIMIT", sql.contains("LIMIT 2"));
-    try (Connection conn = DriverManager.getConnection(
-            PostgresTestContainer.getJdbcUrl(),
-            PostgresTestContainer.getUsername(),
-            PostgresTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       int count = 0;
@@ -256,18 +229,17 @@ public class TestPostgresPushdown {
     }
   }
 
-  /**
-   * Verifies that projected column pushdown returns only the requested columns.
-   */
+  /** Verifies that projected column pushdown returns only the requested columns. */
   @Test
   public void testProjectionPushdownResultCorrectness() throws Exception {
     List<SchemaPath> cols = Collections.singletonList(SchemaPath.getSimplePath("name"));
     String sql = SQL_BUILDER.buildSql("public", "pushdown_test", cols, null, null);
     assertTrue("SQL must project 'name'", sql.contains("\"name\""));
-    try (Connection conn = DriverManager.getConnection(
-            PostgresTestContainer.getJdbcUrl(),
-            PostgresTestContainer.getUsername(),
-            PostgresTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       assertTrue("Must have at least one row", rs.next());
@@ -276,22 +248,20 @@ public class TestPostgresPushdown {
     }
   }
 
-  /**
-   * Verifies combined projection + filter + limit pushdown against PostgreSQL.
-   */
+  /** Verifies combined projection + filter + limit pushdown against PostgreSQL. */
   @Test
   public void testCombinedPushdownCorrectness() throws Exception {
-    List<SchemaPath> cols = Arrays.asList(
-        SchemaPath.getSimplePath("name"),
-        SchemaPath.getSimplePath("age"));
+    List<SchemaPath> cols =
+        Arrays.asList(SchemaPath.getSimplePath("name"), SchemaPath.getSimplePath("age"));
     String sql = SQL_BUILDER.buildSql("public", "pushdown_test", cols, "\"age\" >= 30", 2);
     assertTrue("SQL must project 'name'", sql.contains("\"name\""));
     assertTrue("SQL must contain WHERE", sql.contains("WHERE"));
     assertTrue("SQL must contain LIMIT", sql.contains("LIMIT"));
-    try (Connection conn = DriverManager.getConnection(
-            PostgresTestContainer.getJdbcUrl(),
-            PostgresTestContainer.getUsername(),
-            PostgresTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       int count = 0;
@@ -308,40 +278,36 @@ public class TestPostgresPushdown {
   // ORDER BY pushdown SQL generation tests
   // ---------------------------------------------------------------------------
 
-  /**
-   * Verifies that ORDER BY clause is generated via SqlBuildRequest.
-   */
+  /** Verifies that ORDER BY clause is generated via SqlBuildRequest. */
   @Test
   public void testOrderByPushdownSqlGeneration() {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("public")
-        .table("pushdown_test")
-        .orderBy("\"age\" ASC NULLS LAST")
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("public")
+            .table("pushdown_test")
+            .orderBy("\"age\" ASC NULLS LAST")
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
     assertTrue("SQL must contain ORDER BY", sql.contains("ORDER BY"));
-    assertTrue("SQL must contain the sort expression",
-        sql.contains("ORDER BY \"age\" ASC NULLS LAST"));
-    assertTrue("ORDER BY must appear after FROM",
-        sql.indexOf("FROM") < sql.indexOf("ORDER BY"));
+    assertTrue(
+        "SQL must contain the sort expression", sql.contains("ORDER BY \"age\" ASC NULLS LAST"));
+    assertTrue("ORDER BY must appear after FROM", sql.indexOf("FROM") < sql.indexOf("ORDER BY"));
   }
 
-  /**
-   * Verifies TopN (ORDER BY + LIMIT) SQL generation for PostgreSQL.
-   */
+  /** Verifies TopN (ORDER BY + LIMIT) SQL generation for PostgreSQL. */
   @Test
   public void testTopNPushdownSqlGeneration() {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("public")
-        .table("pushdown_test")
-        .orderBy("\"age\" DESC NULLS FIRST")
-        .limit(3)
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("public")
+            .table("pushdown_test")
+            .orderBy("\"age\" DESC NULLS FIRST")
+            .limit(3)
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
     assertTrue("SQL must contain ORDER BY", sql.contains("ORDER BY"));
     assertTrue("SQL must contain LIMIT 3", sql.contains("LIMIT 3"));
-    assertTrue("ORDER BY must appear before LIMIT",
-        sql.indexOf("ORDER BY") < sql.indexOf("LIMIT"));
+    assertTrue("ORDER BY must appear before LIMIT", sql.indexOf("ORDER BY") < sql.indexOf("LIMIT"));
   }
 
   // ---------------------------------------------------------------------------
@@ -349,21 +315,23 @@ public class TestPostgresPushdown {
   // ---------------------------------------------------------------------------
 
   /**
-   * Verifies ORDER BY execution against a real PostgreSQL container.
-   * Sorts by age ASC NULLS LAST: Bob(25), Dave(28), Alice(30), Charlie(35), Eve(40).
+   * Verifies ORDER BY execution against a real PostgreSQL container. Sorts by age ASC NULLS LAST:
+   * Bob(25), Dave(28), Alice(30), Charlie(35), Eve(40).
    */
   @Test
   public void testOrderByExecutesAgainstPostgres() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("public")
-        .table("pushdown_test")
-        .orderBy("\"age\" ASC NULLS LAST")
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("public")
+            .table("pushdown_test")
+            .orderBy("\"age\" ASC NULLS LAST")
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    try (Connection conn = DriverManager.getConnection(
-            PostgresTestContainer.getJdbcUrl(),
-            PostgresTestContainer.getUsername(),
-            PostgresTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       assertTrue("Must have at least one row", rs.next());
@@ -379,22 +347,24 @@ public class TestPostgresPushdown {
   }
 
   /**
-   * Verifies TopN (ORDER BY + LIMIT) execution: top 2 by age DESC.
-   * Should return Eve(40) and Charlie(35).
+   * Verifies TopN (ORDER BY + LIMIT) execution: top 2 by age DESC. Should return Eve(40) and
+   * Charlie(35).
    */
   @Test
   public void testTopNExecutesAgainstPostgres() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("public")
-        .table("pushdown_test")
-        .orderBy("\"age\" DESC NULLS FIRST")
-        .limit(2)
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("public")
+            .table("pushdown_test")
+            .orderBy("\"age\" DESC NULLS FIRST")
+            .limit(2)
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    try (Connection conn = DriverManager.getConnection(
-            PostgresTestContainer.getJdbcUrl(),
-            PostgresTestContainer.getUsername(),
-            PostgresTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       assertTrue("Must have first row", rs.next());
@@ -407,29 +377,32 @@ public class TestPostgresPushdown {
   }
 
   /**
-   * Verifies ORDER BY with WHERE filter: age > 28 ordered by name ASC.
-   * Should return Alice(30), Charlie(35), Eve(40) in alphabetical order.
+   * Verifies ORDER BY with WHERE filter: age > 28 ordered by name ASC. Should return Alice(30),
+   * Charlie(35), Eve(40) in alphabetical order.
    */
   @Test
   public void testOrderByWithFilterExecutesAgainstPostgres() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("public")
-        .table("pushdown_test")
-        .where("\"age\" > 28")
-        .orderBy("\"name\" ASC NULLS LAST")
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("public")
+            .table("pushdown_test")
+            .where("\"age\" > 28")
+            .orderBy("\"name\" ASC NULLS LAST")
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    try (Connection conn = DriverManager.getConnection(
-            PostgresTestContainer.getJdbcUrl(),
-            PostgresTestContainer.getUsername(),
-            PostgresTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       int count = 0;
       String previousName = "";
       while (rs.next()) {
         String name = rs.getString("name");
-        assertTrue("Names should be in ascending order: " + previousName + " < " + name,
+        assertTrue(
+            "Names should be in ascending order: " + previousName + " < " + name,
             name.compareTo(previousName) > 0);
         previousName = name;
         count++;
@@ -443,59 +416,58 @@ public class TestPostgresPushdown {
   // ---------------------------------------------------------------------------
 
   /**
-   * Verifies COUNT(*) SQL generation without GROUP BY.
-   * Produces: SELECT COUNT(*) FROM "public"."pushdown_test"
+   * Verifies COUNT(*) SQL generation without GROUP BY. Produces: SELECT COUNT(*) FROM
+   * "public"."pushdown_test"
    */
   @Test
   public void testAggregationCountStarSqlGeneration() {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("public")
-        .table("pushdown_test")
-        .selectExprs(Arrays.asList("COUNT(*)"))
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("public")
+            .table("pushdown_test")
+            .selectExprs(Arrays.asList("COUNT(*)"))
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    assertTrue("SQL must contain SELECT COUNT(*)",
-        sql.contains("SELECT COUNT(*)"));
-    assertTrue("SQL must contain FROM clause",
-        sql.contains("FROM \"public\".\"pushdown_test\""));
+    assertTrue("SQL must contain SELECT COUNT(*)", sql.contains("SELECT COUNT(*)"));
+    assertTrue("SQL must contain FROM clause", sql.contains("FROM \"public\".\"pushdown_test\""));
     assertFalse("No GROUP BY expected for pure aggregate", sql.contains("GROUP BY"));
   }
 
   /**
-   * Verifies GROUP BY + COUNT(*) SQL generation.
-   * Produces: SELECT "name", COUNT(*) FROM ... GROUP BY "name"
+   * Verifies GROUP BY + COUNT(*) SQL generation. Produces: SELECT "name", COUNT(*) FROM ... GROUP
+   * BY "name"
    */
   @Test
   public void testAggregationGroupBySqlGeneration() {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("public")
-        .table("pushdown_test")
-        .selectExprs(Arrays.asList("\"name\"", "COUNT(*)"))
-        .groupBy("\"name\"")
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("public")
+            .table("pushdown_test")
+            .selectExprs(Arrays.asList("\"name\"", "COUNT(*)"))
+            .groupBy("\"name\"")
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    assertTrue("SQL must contain SELECT \"name\", COUNT(*)",
-        sql.contains("SELECT \"name\", COUNT(*)"));
-    assertTrue("SQL must contain GROUP BY \"name\"",
-        sql.contains("GROUP BY \"name\""));
+    assertTrue(
+        "SQL must contain SELECT \"name\", COUNT(*)", sql.contains("SELECT \"name\", COUNT(*)"));
+    assertTrue("SQL must contain GROUP BY \"name\"", sql.contains("GROUP BY \"name\""));
   }
 
-  /**
-   * Verifies aggregation with WHERE clause: WHERE appears before GROUP BY.
-   */
+  /** Verifies aggregation with WHERE clause: WHERE appears before GROUP BY. */
   @Test
   public void testAggregationWithWhereSqlGeneration() {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("public")
-        .table("pushdown_test")
-        .where("\"age\" > 25")
-        .selectExprs(Arrays.asList("COUNT(*)"))
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("public")
+            .table("pushdown_test")
+            .where("\"age\" > 25")
+            .selectExprs(Arrays.asList("COUNT(*)"))
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
     assertTrue("SQL must contain WHERE", sql.contains("WHERE \"age\" > 25"));
     assertTrue("SQL must contain SELECT COUNT(*)", sql.contains("SELECT COUNT(*)"));
     // WHERE must appear before GROUP BY (if present) or end of query
-    assertTrue("WHERE must appear before any GROUP BY or aggregate",
+    assertTrue(
+        "WHERE must appear before any GROUP BY or aggregate",
         sql.indexOf("WHERE") < sql.indexOf("COUNT(*)") || sql.indexOf("WHERE") > 0);
   }
 
@@ -503,21 +475,21 @@ public class TestPostgresPushdown {
   // Aggregation container-based execution tests
   // ---------------------------------------------------------------------------
 
-  /**
-   * COUNT(*) against PostgreSQL container. Expected: 5 rows total.
-   */
+  /** COUNT(*) against PostgreSQL container. Expected: 5 rows total. */
   @Test
   public void testAggregationCountStarExecutesAgainstPostgres() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("public")
-        .table("pushdown_test")
-        .selectExprs(Arrays.asList("COUNT(*)"))
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("public")
+            .table("pushdown_test")
+            .selectExprs(Arrays.asList("COUNT(*)"))
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    try (Connection conn = DriverManager.getConnection(
-            PostgresTestContainer.getJdbcUrl(),
-            PostgresTestContainer.getUsername(),
-            PostgresTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       assertTrue("Must have a result row", rs.next());
@@ -527,21 +499,21 @@ public class TestPostgresPushdown {
     }
   }
 
-  /**
-   * SUM(age) against PostgreSQL container. Expected: 30+25+35+28+40 = 158.
-   */
+  /** SUM(age) against PostgreSQL container. Expected: 30+25+35+28+40 = 158. */
   @Test
   public void testAggregationSumExecutesAgainstPostgres() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("public")
-        .table("pushdown_test")
-        .selectExprs(Arrays.asList("SUM(\"age\")"))
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("public")
+            .table("pushdown_test")
+            .selectExprs(Arrays.asList("SUM(\"age\")"))
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    try (Connection conn = DriverManager.getConnection(
-            PostgresTestContainer.getJdbcUrl(),
-            PostgresTestContainer.getUsername(),
-            PostgresTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       assertTrue("Must have a result row", rs.next());
@@ -550,22 +522,22 @@ public class TestPostgresPushdown {
     }
   }
 
-  /**
-   * GROUP BY name with SUM(age). All names are unique, so 5 groups.
-   */
+  /** GROUP BY name with SUM(age). All names are unique, so 5 groups. */
   @Test
   public void testAggregationGroupByExecutesAgainstPostgres() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("public")
-        .table("pushdown_test")
-        .selectExprs(Arrays.asList("\"name\"", "SUM(\"age\")"))
-        .groupBy("\"name\"")
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("public")
+            .table("pushdown_test")
+            .selectExprs(Arrays.asList("\"name\"", "SUM(\"age\")"))
+            .groupBy("\"name\"")
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    try (Connection conn = DriverManager.getConnection(
-            PostgresTestContainer.getJdbcUrl(),
-            PostgresTestContainer.getUsername(),
-            PostgresTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       int groupCount = 0;
@@ -578,21 +550,23 @@ public class TestPostgresPushdown {
   }
 
   /**
-   * MIN, MAX, AVG aggregate functions against PostgreSQL container.
-   * MIN(age)=25, MAX(age)=40. AVG checked as between 31 and 32 (integer division varies).
+   * MIN, MAX, AVG aggregate functions against PostgreSQL container. MIN(age)=25, MAX(age)=40. AVG
+   * checked as between 31 and 32 (integer division varies).
    */
   @Test
   public void testAggregationMinMaxAvgExecutesAgainstPostgres() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("public")
-        .table("pushdown_test")
-        .selectExprs(Arrays.asList("MIN(\"age\")", "MAX(\"age\")", "AVG(\"age\")"))
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("public")
+            .table("pushdown_test")
+            .selectExprs(Arrays.asList("MIN(\"age\")", "MAX(\"age\")", "AVG(\"age\")"))
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
-    try (Connection conn = DriverManager.getConnection(
-            PostgresTestContainer.getJdbcUrl(),
-            PostgresTestContainer.getUsername(),
-            PostgresTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       assertTrue("Must have a result row", rs.next());
@@ -605,23 +579,23 @@ public class TestPostgresPushdown {
     }
   }
 
-  /**
-   * COUNT(*) with WHERE filter: age > 28 matches Alice(30), Charlie(35), Eve(40) = 3.
-   */
+  /** COUNT(*) with WHERE filter: age > 28 matches Alice(30), Charlie(35), Eve(40) = 3. */
   @Test
   public void testAggregationWithFilterExecutesAgainstPostgres() throws Exception {
-    SqlBuildRequest request = SqlBuildRequest.builder()
-        .schema("public")
-        .table("pushdown_test")
-        .where("\"age\" > 28")
-        .selectExprs(Arrays.asList("COUNT(*)"))
-        .build();
+    SqlBuildRequest request =
+        SqlBuildRequest.builder()
+            .schema("public")
+            .table("pushdown_test")
+            .where("\"age\" > 28")
+            .selectExprs(Arrays.asList("COUNT(*)"))
+            .build();
     String sql = SQL_BUILDER.buildSql(request);
     assertTrue("SQL must contain WHERE", sql.contains("WHERE"));
-    try (Connection conn = DriverManager.getConnection(
-            PostgresTestContainer.getJdbcUrl(),
-            PostgresTestContainer.getUsername(),
-            PostgresTestContainer.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql)) {
       assertTrue("Must have a result row", rs.next());

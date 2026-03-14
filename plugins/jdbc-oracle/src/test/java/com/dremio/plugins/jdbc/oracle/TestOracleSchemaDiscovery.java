@@ -34,11 +34,12 @@ import org.junit.Test;
  * Integration tests validating {@link OracleSchemaFetcher} schema discovery behaviour.
  *
  * <p>Tests verify:
+ *
  * <ul>
- *   <li>listSchemas() returns the test user schema and excludes Oracle system schemas</li>
- *   <li>listTables() returns TABLE and VIEW entries within a user schema</li>
- *   <li>tableExists() returns correct boolean for existing / non-existing tables and views</li>
- *   <li>getTableSchema() returns the correct Arrow column types for discovered columns</li>
+ *   <li>listSchemas() returns the test user schema and excludes Oracle system schemas
+ *   <li>listTables() returns TABLE and VIEW entries within a user schema
+ *   <li>tableExists() returns correct boolean for existing / non-existing tables and views
+ *   <li>getTableSchema() returns the correct Arrow column types for discovered columns
  * </ul>
  *
  * <p>In Oracle, schemas are tied to users. The test user's schema name equals the username in
@@ -49,8 +50,7 @@ import org.junit.Test;
  */
 public class TestOracleSchemaDiscovery {
 
-  @ClassRule
-  public static final DremioOracleContainer ORACLE = OracleTestContainer.ORACLE;
+  @ClassRule public static final DremioOracleContainer ORACLE = OracleTestContainer.ORACLE;
 
   private static JdbcConnectionPool pool;
   private static OracleSchemaFetcher schemaFetcher;
@@ -63,8 +63,7 @@ public class TestOracleSchemaDiscovery {
     // Create a table and view in the test user's schema for discovery tests
     OracleTestContainer.executeSql(
         "CREATE TABLE discovery_table (id NUMBER(10), name VARCHAR2(100))");
-    OracleTestContainer.executeSql(
-        "CREATE VIEW discovery_view AS SELECT * FROM discovery_table");
+    OracleTestContainer.executeSql("CREATE VIEW discovery_view AS SELECT * FROM discovery_table");
   }
 
   @AfterClass
@@ -81,9 +80,8 @@ public class TestOracleSchemaDiscovery {
   /**
    * Verifies that the test user's schema is listed and Oracle system schemas are excluded.
    *
-   * <p>Oracle system schemas to verify as excluded include:
-   * SYS, SYSTEM, CTXSYS, MDSYS, XDB, OUTLN, ORDSYS, etc.
-   * These are defined in {@link OracleSchemaFetcher#ORACLE_SYSTEM_SCHEMAS}.
+   * <p>Oracle system schemas to verify as excluded include: SYS, SYSTEM, CTXSYS, MDSYS, XDB, OUTLN,
+   * ORDSYS, etc. These are defined in {@link OracleSchemaFetcher#ORACLE_SYSTEM_SCHEMAS}.
    */
   @Test
   public void testListSchemas() throws Exception {
@@ -92,21 +90,20 @@ public class TestOracleSchemaDiscovery {
 
     // The test user's schema must be present (Oracle returns uppercase)
     // Accept case-insensitive match since behaviour may vary
-    boolean testUserFound = schemas.stream()
-        .anyMatch(s -> s.equalsIgnoreCase("TEST_USER"));
+    boolean testUserFound = schemas.stream().anyMatch(s -> s.equalsIgnoreCase("TEST_USER"));
     assertTrue("'TEST_USER' schema must be listed", testUserFound);
 
     // Oracle system schemas must be filtered out (case-insensitive check)
     for (String schema : schemas) {
       String lower = schema.toLowerCase();
-      assertFalse("'SYS' must be excluded from listing", lower.equals("sys"));
-      assertFalse("'SYSTEM' must be excluded from listing", lower.equals("system"));
-      assertFalse("'CTXSYS' must be excluded from listing", lower.equals("ctxsys"));
-      assertFalse("'MDSYS' must be excluded from listing", lower.equals("mdsys"));
-      assertFalse("'XDB' must be excluded from listing", lower.equals("xdb"));
-      assertFalse("'OUTLN' must be excluded from listing", lower.equals("outln"));
-      assertFalse("'ORDSYS' must be excluded from listing", lower.equals("ordsys"));
-      assertFalse("'WMSYS' must be excluded from listing", lower.equals("wmsys"));
+      assertFalse("'SYS' must be excluded from listing", "sys".equals(lower));
+      assertFalse("'SYSTEM' must be excluded from listing", "system".equals(lower));
+      assertFalse("'CTXSYS' must be excluded from listing", "ctxsys".equals(lower));
+      assertFalse("'MDSYS' must be excluded from listing", "mdsys".equals(lower));
+      assertFalse("'XDB' must be excluded from listing", "xdb".equals(lower));
+      assertFalse("'OUTLN' must be excluded from listing", "outln".equals(lower));
+      assertFalse("'ORDSYS' must be excluded from listing", "ordsys".equals(lower));
+      assertFalse("'WMSYS' must be excluded from listing", "wmsys".equals(lower));
     }
   }
 
@@ -114,9 +111,7 @@ public class TestOracleSchemaDiscovery {
   // listTables tests
   // ---------------------------------------------------------------------------
 
-  /**
-   * Verifies that both TABLE and VIEW entries are returned for the test user's schema.
-   */
+  /** Verifies that both TABLE and VIEW entries are returned for the test user's schema. */
   @Test
   public void testListTables() throws Exception {
     // Oracle uses uppercase schema names for the user
@@ -124,10 +119,10 @@ public class TestOracleSchemaDiscovery {
     assertNotNull("tables list must not be null", tables);
 
     // Oracle returns UPPERCASE table/view names
-    boolean discoveryTableFound = tables.stream()
-        .anyMatch(t -> t.equalsIgnoreCase("DISCOVERY_TABLE"));
-    boolean discoveryViewFound = tables.stream()
-        .anyMatch(t -> t.equalsIgnoreCase("DISCOVERY_VIEW"));
+    boolean discoveryTableFound =
+        tables.stream().anyMatch(t -> t.equalsIgnoreCase("DISCOVERY_TABLE"));
+    boolean discoveryViewFound =
+        tables.stream().anyMatch(t -> t.equalsIgnoreCase("DISCOVERY_VIEW"));
 
     assertTrue("'DISCOVERY_TABLE' must be in TEST_USER schema", discoveryTableFound);
     assertTrue("'DISCOVERY_VIEW' must be in TEST_USER schema", discoveryViewFound);
@@ -147,9 +142,7 @@ public class TestOracleSchemaDiscovery {
   // tableExists tests
   // ---------------------------------------------------------------------------
 
-  /**
-   * Verifies that tableExists returns true for an existing table.
-   */
+  /** Verifies that tableExists returns true for an existing table. */
   @Test
   public void testTableExistsForExistingTable() throws Exception {
     assertTrue(
@@ -157,9 +150,7 @@ public class TestOracleSchemaDiscovery {
         schemaFetcher.tableExists("TEST_USER", "DISCOVERY_TABLE"));
   }
 
-  /**
-   * Verifies that tableExists returns true for a view (since getTables includes VIEW type).
-   */
+  /** Verifies that tableExists returns true for a view (since getTables includes VIEW type). */
   @Test
   public void testTableExistsForView() throws Exception {
     assertTrue(
@@ -167,14 +158,11 @@ public class TestOracleSchemaDiscovery {
         schemaFetcher.tableExists("TEST_USER", "DISCOVERY_VIEW"));
   }
 
-  /**
-   * Verifies that tableExists returns false for a non-existent table name.
-   */
+  /** Verifies that tableExists returns false for a non-existent table name. */
   @Test
   public void testTableExistsForNonExistent() throws Exception {
     assertFalse(
-        "NONEXISTENT must not be found",
-        schemaFetcher.tableExists("TEST_USER", "NONEXISTENT"));
+        "NONEXISTENT must not be found", schemaFetcher.tableExists("TEST_USER", "NONEXISTENT"));
   }
 
   // ---------------------------------------------------------------------------

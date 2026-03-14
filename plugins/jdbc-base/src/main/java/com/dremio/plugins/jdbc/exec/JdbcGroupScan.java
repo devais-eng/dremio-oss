@@ -85,9 +85,7 @@ public class JdbcGroupScan extends AbstractBase implements GroupScan<SimpleCompl
     this.bindParams = bindParams != null ? bindParams : Collections.emptyList();
   }
 
-  /**
-   * Backward-compatible constructor without bindParams.
-   */
+  /** Backward-compatible constructor without bindParams. */
   public JdbcGroupScan(
       OpProps props,
       String sql,

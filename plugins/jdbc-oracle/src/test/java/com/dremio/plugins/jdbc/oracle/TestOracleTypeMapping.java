@@ -34,29 +34,29 @@ import org.junit.Test;
 /**
  * Integration tests validating Oracle-to-Arrow type mapping for all Oracle-specific types.
  *
- * <p>Tests run against a real {@code gvenzl/oracle-xe:21-slim} container via TestContainers.
- * Each test validates that {@link OracleSchemaFetcher#getTableSchema} maps columns to the
- * correct Arrow type. Covered types include:
+ * <p>Tests run against a real {@code gvenzl/oracle-xe:21-slim} container via TestContainers. Each
+ * test validates that {@link OracleSchemaFetcher#getTableSchema} maps columns to the correct Arrow
+ * type. Covered types include:
+ *
  * <ul>
- *   <li>NUMBER(p,s) → DECIMAL</li>
- *   <li>Bare NUMBER → DOUBLE</li>
- *   <li>FLOAT → DOUBLE (via scale=-127 sentinel)</li>
- *   <li>BINARY_FLOAT → FLOAT4</li>
- *   <li>BINARY_DOUBLE → FLOAT8</li>
- *   <li>VARCHAR2, NVARCHAR2, CHAR → UTF8</li>
- *   <li>CLOB, NCLOB → UTF8</li>
- *   <li>BLOB, RAW → Binary</li>
- *   <li>DATE → Timestamp</li>
- *   <li>TIMESTAMP, TIMESTAMP WITH TIME ZONE → Timestamp</li>
+ *   <li>NUMBER(p,s) → DECIMAL
+ *   <li>Bare NUMBER → DOUBLE
+ *   <li>FLOAT → DOUBLE (via scale=-127 sentinel)
+ *   <li>BINARY_FLOAT → FLOAT4
+ *   <li>BINARY_DOUBLE → FLOAT8
+ *   <li>VARCHAR2, NVARCHAR2, CHAR → UTF8
+ *   <li>CLOB, NCLOB → UTF8
+ *   <li>BLOB, RAW → Binary
+ *   <li>DATE → Timestamp
+ *   <li>TIMESTAMP, TIMESTAMP WITH TIME ZONE → Timestamp
  * </ul>
  *
- * <p>In Oracle, all identifiers are returned as UPPERCASE by DatabaseMetaData.
- * The test user schema is {@code TEST_USER} and the table is {@code TYPE_TEST}.
+ * <p>In Oracle, all identifiers are returned as UPPERCASE by DatabaseMetaData. The test user schema
+ * is {@code TEST_USER} and the table is {@code TYPE_TEST}.
  */
 public class TestOracleTypeMapping {
 
-  @ClassRule
-  public static final DremioOracleContainer ORACLE = OracleTestContainer.ORACLE;
+  @ClassRule public static final DremioOracleContainer ORACLE = OracleTestContainer.ORACLE;
 
   private static JdbcConnectionPool pool;
   private static OracleSchemaFetcher schemaFetcher;
@@ -116,8 +116,8 @@ public class TestOracleTypeMapping {
   /**
    * Validates that all columns in TYPE_TEST map to the correct Arrow types.
    *
-   * <p>Oracle returns identifiers in UPPERCASE via DatabaseMetaData. The schema name
-   * is the username in uppercase: {@code TEST_USER}. The table is {@code TYPE_TEST}.
+   * <p>Oracle returns identifiers in UPPERCASE via DatabaseMetaData. The schema name is the
+   * username in uppercase: {@code TEST_USER}. The table is {@code TYPE_TEST}.
    */
   @Test
   public void testSchemaMapping() throws Exception {
@@ -183,8 +183,7 @@ public class TestOracleTypeMapping {
    */
   @Test
   public void testNullHandling() throws Exception {
-    OracleTestContainer.executeSql(
-        "INSERT INTO type_test (id) VALUES (2)");
+    OracleTestContainer.executeSql("INSERT INTO type_test (id) VALUES (2)");
 
     // Schema must still be discoverable even when data rows contain NULLs
     BatchSchema schema = schemaFetcher.getTableSchema("TEST_USER", "TYPE_TEST");
@@ -203,8 +202,8 @@ public class TestOracleTypeMapping {
   // ---------------------------------------------------------------------------
 
   /**
-   * Reads the inserted row back via raw JDBC and verifies that the Oracle JDBC driver
-   * returns sensible values for key columns including VARCHAR2, NUMBER, and DATE.
+   * Reads the inserted row back via raw JDBC and verifies that the Oracle JDBC driver returns
+   * sensible values for key columns including VARCHAR2, NUMBER, and DATE.
    */
   @Test
   public void testValueRoundtrip() throws Exception {
@@ -246,13 +245,11 @@ public class TestOracleTypeMapping {
     return null;
   }
 
-  private static void assertFieldType(BatchSchema schema, String name, Class<? extends ArrowType> expected) {
+  private static void assertFieldType(
+      BatchSchema schema, String name, Class<? extends ArrowType> expected) {
     Field f = findField(schema, name);
     assertNotNull("Field '" + name + "' must exist in schema", f);
-    assertEquals(
-        "Field '" + name + "' has wrong Arrow type",
-        expected,
-        f.getType().getClass());
+    assertEquals("Field '" + name + "' has wrong Arrow type", expected, f.getType().getClass());
   }
 
   private static void assertUtf8(BatchSchema schema, String name) {

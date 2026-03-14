@@ -23,11 +23,11 @@ import java.sql.SQLException;
 import java.util.Properties;
 
 /**
- * Thin wrapper around a {@link HikariDataSource} that provides a pooled JDBC connection for
- * JDBC storage plugins.
+ * Thin wrapper around a {@link HikariDataSource} that provides a pooled JDBC connection for JDBC
+ * storage plugins.
  *
- * <p>One instance is held by {@link com.dremio.plugins.jdbc.JdbcStoragePlugin} for the lifetime
- * of the source. Connections are obtained per-query and closed by callers.
+ * <p>One instance is held by {@link com.dremio.plugins.jdbc.JdbcStoragePlugin} for the lifetime of
+ * the source. Connections are obtained per-query and closed by callers.
  */
 public class JdbcConnectionPool implements AutoCloseable {
 
@@ -74,9 +74,7 @@ public class JdbcConnectionPool implements AutoCloseable {
     return dataSource.getConnection();
   }
 
-  /**
-   * Shuts down the underlying {@link HikariDataSource}, releasing all pooled connections.
-   */
+  /** Shuts down the underlying {@link HikariDataSource}, releasing all pooled connections. */
   @Override
   public void close() {
     dataSource.close();

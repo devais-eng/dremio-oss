@@ -23,22 +23,20 @@ import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 
 /**
- * Pushdown rule that absorbs a {@link LimitPrel} into the {@link JdbcScanPrel}
- * below it, so the generated SQL includes a LIMIT (PostgreSQL) or FETCH FIRST
- * (Oracle) clause and fewer rows cross the network.
+ * Pushdown rule that absorbs a {@link LimitPrel} into the {@link JdbcScanPrel} below it, so the
+ * generated SQL includes a LIMIT (PostgreSQL) or FETCH FIRST (Oracle) clause and fewer rows cross
+ * the network.
  *
- * <p>Only pure row limits with no non-zero offset are pushed down. When the
- * scan already carries a limit the minimum of the two values is used, so
- * repeated application of the rule is idempotent.
+ * <p>Only pure row limits with no non-zero offset are pushed down. When the scan already carries a
+ * limit the minimum of the two values is used, so repeated application of the rule is idempotent.
  *
- * <p>Registered in both {@code PHYSICAL} (Volcano) and {@code PHYSICAL_HEP}
- * phases. The Volcano match works because {@link JdbcScanPrule} creates the
- * scan with {@link com.dremio.exec.planner.physical.DistributionTrait#SINGLETON},
- * which is the same distribution {@code LimitPrule} requires on its input —
- * so no exchange is inserted between the two nodes and the direct parent-child
- * pattern matches. The HEP registration acts as a safety net.
+ * <p>Registered in both {@code PHYSICAL} (Volcano) and {@code PHYSICAL_HEP} phases. The Volcano
+ * match works because {@link JdbcScanPrule} creates the scan with {@link
+ * com.dremio.exec.planner.physical.DistributionTrait#SINGLETON}, which is the same distribution
+ * {@code LimitPrule} requires on its input — so no exchange is inserted between the two nodes and
+ * the direct parent-child pattern matches. The HEP registration acts as a safety net.
  */
-public class JdbcPushLimitIntoScan extends RelOptRule {
+public final class JdbcPushLimitIntoScan extends RelOptRule {
 
   public static final RelOptRule INSTANCE = new JdbcPushLimitIntoScan();
 

@@ -21,16 +21,16 @@ import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
 
 /**
- * Pushdown rule that converts a {@link FilterPrel} above a {@link JdbcScanPrel}
- * into a WHERE clause carried by the scan node itself (BASE-05).
+ * Pushdown rule that converts a {@link FilterPrel} above a {@link JdbcScanPrel} into a WHERE clause
+ * carried by the scan node itself (BASE-05).
  *
- * <p>The rule translates the filter's {@code RexNode} condition into a SQL
- * string using the top-level {@link RexToSqlString} converter, which returns a
- * {@link RexToSqlResult} containing {@code ?} placeholders and ordered bind parameters.
- * If any part of the predicate cannot be translated, the rule declines to push down
- * and leaves the FilterPrel in place so Dremio handles it in-engine.
+ * <p>The rule translates the filter's {@code RexNode} condition into a SQL string using the
+ * top-level {@link RexToSqlString} converter, which returns a {@link RexToSqlResult} containing
+ * {@code ?} placeholders and ordered bind parameters. If any part of the predicate cannot be
+ * translated, the rule declines to push down and leaves the FilterPrel in place so Dremio handles
+ * it in-engine.
  */
-public class JdbcPushFilterIntoScan extends RelOptRule {
+public final class JdbcPushFilterIntoScan extends RelOptRule {
 
   public static final RelOptRule INSTANCE = new JdbcPushFilterIntoScan();
 
@@ -52,8 +52,7 @@ public class JdbcPushFilterIntoScan extends RelOptRule {
     FilterPrel filter = call.rel(0);
     JdbcScanPrel scan = call.rel(1);
 
-    RexToSqlResult result =
-        new RexToSqlString(scan.getRowType()).convert(filter.getCondition());
+    RexToSqlResult result = new RexToSqlString(scan.getRowType()).convert(filter.getCondition());
     if (result == null) {
       // Unsupported expression -- do not push down.
       return;

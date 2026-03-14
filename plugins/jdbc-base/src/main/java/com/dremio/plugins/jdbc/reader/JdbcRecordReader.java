@@ -22,7 +22,6 @@ import com.dremio.exec.store.AbstractRecordReader;
 import com.dremio.plugins.jdbc.exec.JdbcSubScan;
 import com.dremio.plugins.jdbc.planning.BindParam;
 import com.dremio.plugins.jdbc.pool.JdbcConnectionPool;
-import org.apache.calcite.sql.type.SqlTypeName;
 import com.dremio.sabot.exec.context.OperatorContext;
 import com.dremio.sabot.op.scan.OutputMutator;
 import java.math.BigDecimal;
@@ -30,7 +29,6 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -50,6 +48,7 @@ import org.apache.arrow.vector.ValueVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.calcite.sql.type.SqlTypeName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,6 +56,7 @@ import org.slf4j.LoggerFactory;
  * Reads rows from a JDBC {@link ResultSet} and writes them into Arrow {@link ValueVector}s.
  *
  * <p>Lifecycle:
+ *
  * <ol>
  *   <li>{@link #setup} — registers output vectors, acquires a pooled connection, prepares and
  *       executes the SQL from {@link JdbcSubScan#getSql()}.
@@ -132,8 +132,7 @@ public class JdbcRecordReader extends AbstractRecordReader {
       Field field = fieldOpt.get();
       try {
         @SuppressWarnings("unchecked")
-        Class<ValueVector> vectorClass =
-            (Class<ValueVector>) TypeHelper.getValueVectorClass(field);
+        Class<ValueVector> vectorClass = (Class<ValueVector>) TypeHelper.getValueVectorClass(field);
         ValueVector vec = output.addField(field, vectorClass);
         vectors.put(field.getName(), vec);
       } catch (Exception e) {
@@ -148,9 +147,7 @@ public class JdbcRecordReader extends AbstractRecordReader {
       configureConnection(conn);
       stmt =
           conn.prepareStatement(
-              config.getSql(),
-              ResultSet.TYPE_FORWARD_ONLY,
-              ResultSet.CONCUR_READ_ONLY);
+              config.getSql(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
       if (queryTimeoutSec > 0) {
         stmt.setQueryTimeout(queryTimeoutSec);
       }
@@ -227,15 +224,16 @@ public class JdbcRecordReader extends AbstractRecordReader {
   /**
    * Sets bind parameters on the PreparedStatement before execution.
    *
-   * <p>Dispatches to the correct {@code stmt.setXxx()} method based on each
-   * {@link BindParam#getTypeName()}. Null values are handled via
-   * {@code stmt.setNull()} with {@link java.sql.Types#NULL}.
+   * <p>Dispatches to the correct {@code stmt.setXxx()} method based on each {@link
+   * BindParam#getTypeName()}. Null values are handled via {@code stmt.setNull()} with {@link
+   * java.sql.Types#NULL}.
    *
    * @param stmt the prepared statement to set parameters on
    * @param params ordered bind parameters (one per ? placeholder)
    * @throws SQLException if a database access error occurs
    */
-  private void setBindParameters(PreparedStatement stmt, List<BindParam> params) throws SQLException {
+  private void setBindParameters(PreparedStatement stmt, List<BindParam> params)
+      throws SQLException {
     if (params == null || params.isEmpty()) {
       return;
     }
@@ -373,7 +371,8 @@ public class JdbcRecordReader extends AbstractRecordReader {
       BigDecimal val = rs.getBigDecimal(colName);
       if (!rs.wasNull() && val != null) {
         DecimalVector dv = (DecimalVector) vec;
-        ((DecimalVector) vec).setSafe(index, val.setScale(dv.getScale(), java.math.RoundingMode.HALF_UP));
+        ((DecimalVector) vec)
+            .setSafe(index, val.setScale(dv.getScale(), java.math.RoundingMode.HALF_UP));
       }
     } else if (vec instanceof DateMilliVector) {
       java.sql.Date val = rs.getDate(colName);

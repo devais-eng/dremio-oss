@@ -21,16 +21,16 @@ import com.dremio.exec.planner.logical.Rel;
 import com.dremio.exec.store.common.SourceLogicalConverter;
 
 /**
- * Planner rule that converts the generic Dremio {@code ScanCrel} to a
- * JDBC-specific {@link JdbcScanDrel} during the <em>LOGICAL</em> planning phase.
+ * Planner rule that converts the generic Dremio {@code ScanCrel} to a JDBC-specific {@link
+ * JdbcScanDrel} during the <em>LOGICAL</em> planning phase.
  *
- * <p>The rule is source-type-aware: it only fires when the scan's plugin type
- * matches the {@link SourceType} annotation provided at construction time.
- * Concrete connectors register an instance of this rule — parameterized with
- * their own {@code @SourceType} value — via their {@code StoragePluginRulesFactory}.
+ * <p>The rule is source-type-aware: it only fires when the scan's plugin type matches the {@link
+ * SourceType} annotation provided at construction time. Concrete connectors register an instance of
+ * this rule — parameterized with their own {@code @SourceType} value — via their {@code
+ * StoragePluginRulesFactory}.
  *
- * <p>The resulting {@link JdbcScanDrel} is later converted to a physical
- * {@link JdbcScanPrel} by {@link JdbcScanPrule} during the PHYSICAL phase.
+ * <p>The resulting {@link JdbcScanDrel} is later converted to a physical {@link JdbcScanPrel} by
+ * {@link JdbcScanPrule} during the PHYSICAL phase.
  */
 public class JdbcScanDrule extends SourceLogicalConverter {
 

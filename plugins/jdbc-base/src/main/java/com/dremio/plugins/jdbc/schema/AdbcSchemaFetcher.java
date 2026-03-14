@@ -40,8 +40,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Uses {@link AdbcConnection#getObjects} and {@link AdbcConnection#getTableSchema} to enumerate
  * schemas, tables, and column types via the native ADBC driver (libpq for PostgreSQL). This is the
- * ADBC counterpart of {@link JdbcSchemaFetcher}, which uses JDBC {@link
- * java.sql.DatabaseMetaData}.
+ * ADBC counterpart of {@link JdbcSchemaFetcher}, which uses JDBC {@link java.sql.DatabaseMetaData}.
  *
  * <p>The ADBC {@code getObjects()} call returns a nested Arrow schema:
  *
@@ -106,8 +105,7 @@ public class AdbcSchemaFetcher {
    * @throws AdbcException if the remote database reports an error
    * @throws InterruptedException if the thread is interrupted while acquiring a connection
    */
-  public List<String> listTables(String schemaName)
-      throws AdbcException, InterruptedException {
+  public List<String> listTables(String schemaName) throws AdbcException, InterruptedException {
     List<String> tables = new ArrayList<>();
     try (AdbcConnection conn = factory.openConnection()) {
       try (ArrowReader reader =
@@ -236,7 +234,8 @@ public class AdbcSchemaFetcher {
       ArrowType.Timestamp ts = (ArrowType.Timestamp) type;
       if (ts.getTimezone() != null) {
         ArrowType normalized = new ArrowType.Timestamp(ts.getUnit(), null);
-        return new Field(field.getName(), new FieldType(field.isNullable(), normalized, null), null);
+        return new Field(
+            field.getName(), new FieldType(field.isNullable(), normalized, null), null);
       }
     }
 
@@ -245,7 +244,8 @@ public class AdbcSchemaFetcher {
       ArrowType.Date d = (ArrowType.Date) type;
       if (d.getUnit() != DateUnit.MILLISECOND) {
         ArrowType normalized = new ArrowType.Date(DateUnit.MILLISECOND);
-        return new Field(field.getName(), new FieldType(field.isNullable(), normalized, null), null);
+        return new Field(
+            field.getName(), new FieldType(field.isNullable(), normalized, null), null);
       }
     }
 
@@ -301,7 +301,8 @@ public class AdbcSchemaFetcher {
       int endOffset = dbSchemasList.getOffsetBuffer().getInt((catalogIdx + 1) * 4L);
       for (int i = startOffset; i < endOffset; i++) {
         if (!nameVector.isNull(i)) {
-          String schemaName = new String(nameVector.get(i), java.nio.charset.StandardCharsets.UTF_8);
+          String schemaName =
+              new String(nameVector.get(i), java.nio.charset.StandardCharsets.UTF_8);
           if (!isSystemSchema(schemaName)) {
             schemas.add(schemaName);
           }

@@ -34,14 +34,13 @@ import org.junit.Test;
  * Integration tests validating PostgreSQL-to-Arrow type mapping for all PG-specific types.
  *
  * <p>Tests run against a real {@code postgres:16-alpine} container via TestContainers. Each test
- * validates that {@link PostgresSchemaFetcher#getTableSchema} maps columns to the correct
- * Arrow type. A value roundtrip test additionally verifies that the PostgreSQL JDBC driver
- * returns sensible string representations for exotic types (UUID, JSONB, etc.).
+ * validates that {@link PostgresSchemaFetcher#getTableSchema} maps columns to the correct Arrow
+ * type. A value roundtrip test additionally verifies that the PostgreSQL JDBC driver returns
+ * sensible string representations for exotic types (UUID, JSONB, etc.).
  */
 public class TestPostgresTypeMapping {
 
-  @ClassRule
-  public static final DremioPostgresContainer PG = PostgresTestContainer.PG;
+  @ClassRule public static final DremioPostgresContainer PG = PostgresTestContainer.PG;
 
   private static JdbcConnectionPool pool;
   private static PostgresSchemaFetcher schemaFetcher;
@@ -111,9 +110,7 @@ public class TestPostgresTypeMapping {
   // Schema mapping test
   // ---------------------------------------------------------------------------
 
-  /**
-   * Validates that all columns in type_test map to the correct Arrow types.
-   */
+  /** Validates that all columns in type_test map to the correct Arrow types. */
   @Test
   public void testSchemaMapping() throws Exception {
     BatchSchema schema = schemaFetcher.getTableSchema("public", "type_test");
@@ -231,8 +228,8 @@ public class TestPostgresTypeMapping {
   // ---------------------------------------------------------------------------
 
   /**
-   * Reads the inserted row back via raw JDBC and verifies that the PostgreSQL driver
-   * returns sensible string representations for UUID, JSONB, arrays, and network types.
+   * Reads the inserted row back via raw JDBC and verifies that the PostgreSQL driver returns
+   * sensible string representations for UUID, JSONB, arrays, and network types.
    */
   @Test
   public void testValueRoundtrip() throws Exception {
@@ -303,13 +300,11 @@ public class TestPostgresTypeMapping {
     return null;
   }
 
-  private static void assertFieldType(BatchSchema schema, String name, Class<? extends ArrowType> expected) {
+  private static void assertFieldType(
+      BatchSchema schema, String name, Class<? extends ArrowType> expected) {
     Field f = findField(schema, name);
     assertNotNull("Field '" + name + "' must exist in schema", f);
-    assertEquals(
-        "Field '" + name + "' has wrong Arrow type",
-        expected,
-        f.getType().getClass());
+    assertEquals("Field '" + name + "' has wrong Arrow type", expected, f.getType().getClass());
   }
 
   private static void assertUtf8(BatchSchema schema, String name) {

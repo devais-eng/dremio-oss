@@ -30,13 +30,12 @@ import org.apache.calcite.rel.hint.RelHint;
 /**
  * Logical scan node for JDBC-backed tables in the Dremio planner.
  *
- * <p>Produced by {@link JdbcScanDrule} when Dremio converts the generic
- * {@code ScanCrel} to the source-specific logical representation.
+ * <p>Produced by {@link JdbcScanDrule} when Dremio converts the generic {@code ScanCrel} to the
+ * source-specific logical representation.
  *
- * <p>This node participates in the <em>LOGICAL</em> planning phase only.
- * The subsequent PHYSICAL phase converts it to a {@link JdbcScanPrel} via
- * {@link JdbcScanPrule}, at which point pushdown rules can further annotate it
- * with WHERE clauses, projected columns, and LIMIT values.
+ * <p>This node participates in the <em>LOGICAL</em> planning phase only. The subsequent PHYSICAL
+ * phase converts it to a {@link JdbcScanPrel} via {@link JdbcScanPrule}, at which point pushdown
+ * rules can further annotate it with WHERE clauses, projected columns, and LIMIT values.
  */
 public class JdbcScanDrel extends ScanRelBase implements Rel {
 

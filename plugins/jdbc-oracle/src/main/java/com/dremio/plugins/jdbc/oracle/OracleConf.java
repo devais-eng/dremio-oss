@@ -38,15 +38,14 @@ import javax.inject.Provider;
 /**
  * Configuration for an Oracle JDBC data source.
  *
- * <p>Extends {@link BaseJdbcConf} to supply Oracle-specific connection details including
- * hostname, port, service name, authentication credentials, SSL/TLS options, and performance
- * tuning parameters.
+ * <p>Extends {@link BaseJdbcConf} to supply Oracle-specific connection details including hostname,
+ * port, service name, authentication credentials, SSL/TLS options, and performance tuning
+ * parameters.
  *
- * <p>The source type is {@code ORACLE_DB}. The UI form is defined in
- * {@code oracle-layout.json}.
+ * <p>The source type is {@code ORACLE_DB}. The UI form is defined in {@code oracle-layout.json}.
  *
- * <p>Connections use the Oracle EZConnect URL format:
- * {@code jdbc:oracle:thin:@//host:port/serviceName}.
+ * <p>Connections use the Oracle EZConnect URL format: {@code
+ * jdbc:oracle:thin:@//host:port/serviceName}.
  */
 @SourceType(value = "ORACLE_DB", label = "Oracle", uiConfig = "oracle-layout.json")
 public class OracleConf extends BaseJdbcConf<OracleConf, JdbcStoragePlugin> {
@@ -96,8 +95,8 @@ public class OracleConf extends BaseJdbcConf<OracleConf, JdbcStoragePlugin> {
   public boolean useSsl = false;
 
   /**
-   * Controls how the SSL certificate is validated when encryption is enabled.
-   * Defaults to full certificate and hostname validation.
+   * Controls how the SSL certificate is validated when encryption is enabled. Defaults to full
+   * certificate and hostname validation.
    */
   @Tag(31)
   @NotMetadataImpacting
@@ -110,8 +109,8 @@ public class OracleConf extends BaseJdbcConf<OracleConf, JdbcStoragePlugin> {
   // -------------------------------------------------------------------------
 
   /**
-   * Number of rows to fetch per network round-trip for cursor-based result set streaming.
-   * Default: 4096.
+   * Number of rows to fetch per network round-trip for cursor-based result set streaming. Default:
+   * 4096.
    */
   @Tag(40)
   @NotMetadataImpacting
@@ -119,8 +118,7 @@ public class OracleConf extends BaseJdbcConf<OracleConf, JdbcStoragePlugin> {
   public int fetchSize = 4096;
 
   /**
-   * Maximum time in seconds that a single query may run before it is cancelled.
-   * 0 means no timeout.
+   * Maximum time in seconds that a single query may run before it is cancelled. 0 means no timeout.
    */
   @Tag(41)
   @NotMetadataImpacting
@@ -131,9 +129,7 @@ public class OracleConf extends BaseJdbcConf<OracleConf, JdbcStoragePlugin> {
   // Constructor
   // -------------------------------------------------------------------------
 
-  /**
-   * Creates a new OracleConf with an Oracle-appropriate validation query.
-   */
+  /** Creates a new OracleConf with an Oracle-appropriate validation query. */
   public OracleConf() {
     this.validationQuery = "SELECT 1 FROM DUAL";
   }
@@ -166,17 +162,13 @@ public class OracleConf extends BaseJdbcConf<OracleConf, JdbcStoragePlugin> {
   // Authentication hooks (override BaseJdbcConf defaults)
   // -------------------------------------------------------------------------
 
-  /**
-   * Returns the configured username, or null if not set.
-   */
+  /** Returns the configured username, or null if not set. */
   @Override
   public String getUsername() {
     return username;
   }
 
-  /**
-   * Returns the plain-text password from the configured {@link SecretRef}, or null if not set.
-   */
+  /** Returns the plain-text password from the configured {@link SecretRef}, or null if not set. */
   @Override
   public String getPassword() {
     if (SecretRef.isNullOrEmpty(password)) {
@@ -193,11 +185,11 @@ public class OracleConf extends BaseJdbcConf<OracleConf, JdbcStoragePlugin> {
   /**
    * Returns additional JDBC connection properties for this Oracle source.
    *
-   * <p>When a positive {@link #queryTimeoutSec} is configured, sets the Oracle
-   * {@code oracle.jdbc.ReadTimeout} property (in milliseconds) to enforce a read timeout.
+   * <p>When a positive {@link #queryTimeoutSec} is configured, sets the Oracle {@code
+   * oracle.jdbc.ReadTimeout} property (in milliseconds) to enforce a read timeout.
    *
-   * <p>When SSL is enabled, sets {@code oracle.net.ssl_server_dn_match} according to the
-   * configured {@link EncryptionValidationMode}.
+   * <p>When SSL is enabled, sets {@code oracle.net.ssl_server_dn_match} according to the configured
+   * {@link EncryptionValidationMode}.
    *
    * @return a Properties object with any additional driver-level settings
    */
@@ -208,8 +200,10 @@ public class OracleConf extends BaseJdbcConf<OracleConf, JdbcStoragePlugin> {
       props.setProperty("oracle.jdbc.ReadTimeout", String.valueOf(queryTimeoutSec * 1000));
     }
     if (useSsl) {
-      boolean dnMatch = encryptionValidationMode == null
-          || encryptionValidationMode == EncryptionValidationMode.CERTIFICATE_AND_HOSTNAME_VALIDATION;
+      boolean dnMatch =
+          encryptionValidationMode == null
+              || encryptionValidationMode
+                  == EncryptionValidationMode.CERTIFICATE_AND_HOSTNAME_VALIDATION;
       props.setProperty("oracle.net.ssl_server_dn_match", dnMatch ? "true" : "false");
     }
     return props;
@@ -220,16 +214,17 @@ public class OracleConf extends BaseJdbcConf<OracleConf, JdbcStoragePlugin> {
   // -------------------------------------------------------------------------
 
   /**
-   * Creates a {@link JdbcStoragePlugin} instance wired with Oracle-specific schema fetcher,
-   * record reader, and SQL builder factory overrides.
+   * Creates a {@link JdbcStoragePlugin} instance wired with Oracle-specific schema fetcher, record
+   * reader, and SQL builder factory overrides.
    *
    * <p>The anonymous subclass overrides:
+   *
    * <ul>
    *   <li>{@code createSchemaFetcher} — returns an {@link OracleSchemaFetcher} for Oracle-native
-   *       type mapping (NUMBER, BINARY_FLOAT/DOUBLE, CLOB/NCLOB, NVARCHAR2/NCHAR, etc.).</li>
-   *   <li>{@code createRecordReader} — returns an {@link OracleRecordReader}.</li>
-   *   <li>{@code createSqlBuilder} — returns an {@link OracleSqlBuilder} using
-   *       {@code FETCH FIRST N ROWS ONLY} instead of {@code LIMIT}.</li>
+   *       type mapping (NUMBER, BINARY_FLOAT/DOUBLE, CLOB/NCLOB, NVARCHAR2/NCHAR, etc.).
+   *   <li>{@code createRecordReader} — returns an {@link OracleRecordReader}.
+   *   <li>{@code createSqlBuilder} — returns an {@link OracleSqlBuilder} using {@code FETCH FIRST N
+   *       ROWS ONLY} instead of {@code LIMIT}.
    * </ul>
    */
   @Override

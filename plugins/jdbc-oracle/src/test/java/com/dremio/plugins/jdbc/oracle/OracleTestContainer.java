@@ -29,38 +29,40 @@ import javax.inject.Provider;
 /**
  * Shared TestContainers helper for Oracle XE integration tests.
  *
- * <p>Provides a static {@link DremioOracleContainer} instance that can be referenced from
- * JUnit 4 test classes via {@code @ClassRule}. Helper methods expose pool creation and
- * raw-SQL execution for test setup.
+ * <p>Provides a static {@link DremioOracleContainer} instance that can be referenced from JUnit 4
+ * test classes via {@code @ClassRule}. Helper methods expose pool creation and raw-SQL execution
+ * for test setup.
  *
  * <p>Usage:
- * <pre>{@code
- *   @ClassRule
- *   public static final DremioOracleContainer ORACLE = OracleTestContainer.ORACLE;
- * }</pre>
  *
- * <p>Oracle XE uses the default PDB service name {@code xepdb1}. The test user is created
- * by TestContainers using the {@code withUsername}/{@code withPassword} configuration;
- * the user's schema name in Oracle matches the username in uppercase: {@code TEST_USER}.
+ * <pre>
+ * &#64;ClassRule
+ * public static final DremioOracleContainer ORACLE = OracleTestContainer.ORACLE;
+ * </pre>
+ *
+ * <p>Oracle XE uses the default PDB service name {@code xepdb1}. The test user is created by
+ * TestContainers using the {@code withUsername}/{@code withPassword} configuration; the user's
+ * schema name in Oracle matches the username in uppercase: {@code TEST_USER}.
  */
 public final class OracleTestContainer {
 
   /**
    * The shared {@code gvenzl/oracle-xe:21-slim} container.
    *
-   * <p>Referenced by test classes via {@code @ClassRule}. Uses {@link DremioOracleContainer}
-   * which implements the {@code DremioContainer} marker interface required by the project's
-   * {@code DremioRestrictedTestcontainersUsage} error-prone check.
+   * <p>Referenced by test classes via {@code @ClassRule}. Uses {@link DremioOracleContainer} which
+   * implements the {@code DremioContainer} marker interface required by the project's {@code
+   * DremioRestrictedTestcontainersUsage} error-prone check.
    *
-   * <p>Note: {@code withDatabaseName} is NOT called — the Oracle XE container uses the default
-   * PDB service name {@code xepdb1} which is already baked into the JDBC URL returned by
-   * {@link DremioOracleContainer#getJdbcUrl()}.
+   * <p>Note: {@code withDatabaseName} is NOT called — the Oracle XE container uses the default PDB
+   * service name {@code xepdb1} which is already baked into the JDBC URL returned by {@link
+   * DremioOracleContainer#getJdbcUrl()}.
    */
   public static final DremioOracleContainer ORACLE =
-      (DremioOracleContainer) new DremioOracleContainer()
-          .withUsername("test_user")
-          .withPassword("test_pass")
-          .withStartupAttempts(3);
+      (DremioOracleContainer)
+          new DremioOracleContainer()
+              .withUsername("test_user")
+              .withPassword("test_pass")
+              .withStartupAttempts(3);
 
   private OracleTestContainer() {
     // utility class
@@ -84,8 +86,8 @@ public final class OracleTestContainer {
   /**
    * Creates a {@link JdbcConnectionPool} configured to connect to the running Oracle container.
    *
-   * <p>Uses a minimal named {@link BaseJdbcConf} subclass ({@link TestJdbcConf}) that delegates
-   * to the container's JDBC URL and credentials. The returned pool must be closed by the caller.
+   * <p>Uses a minimal named {@link BaseJdbcConf} subclass ({@link TestJdbcConf}) that delegates to
+   * the container's JDBC URL and credentials. The returned pool must be closed by the caller.
    *
    * @return a live connection pool pointed at the test Oracle container
    */
@@ -121,9 +123,9 @@ public final class OracleTestContainer {
   /**
    * Minimal {@link BaseJdbcConf} implementation backed by the Oracle test container.
    *
-   * <p>This class exists solely to satisfy the self-referential generic bound on
-   * {@code BaseJdbcConf<T extends BaseJdbcConf<T,P>, P>}. The
-   * {@link #newPlugin} method is not used in tests.
+   * <p>This class exists solely to satisfy the self-referential generic bound on {@code
+   * BaseJdbcConf<T extends BaseJdbcConf<T,P>, P>}. The {@link #newPlugin} method is not used in
+   * tests.
    */
   static final class TestJdbcConf extends BaseJdbcConf<TestJdbcConf, StoragePlugin> {
 
@@ -149,9 +151,7 @@ public final class OracleTestContainer {
 
     @Override
     public StoragePlugin newPlugin(
-        PluginSabotContext context,
-        String name,
-        Provider<StoragePluginId> idProvider) {
+        PluginSabotContext context, String name, Provider<StoragePluginId> idProvider) {
       throw new UnsupportedOperationException("TestJdbcConf.newPlugin() must not be called");
     }
   }

@@ -27,15 +27,14 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
 
 /**
- * Pushdown rule that converts a {@link ProjectPrel} above a {@link JdbcScanPrel}
- * into a narrowed SELECT list carried by the scan node itself (BASE-06).
+ * Pushdown rule that converts a {@link ProjectPrel} above a {@link JdbcScanPrel} into a narrowed
+ * SELECT list carried by the scan node itself (BASE-06).
  *
- * <p>Only simple column references ({@link RexInputRef}) are eligible for pushdown.
- * If any project expression is non-trivial (e.g. a function call or arithmetic
- * expression), the rule declines so Dremio evaluates the expression after fetching
- * the full rows.
+ * <p>Only simple column references ({@link RexInputRef}) are eligible for pushdown. If any project
+ * expression is non-trivial (e.g. a function call or arithmetic expression), the rule declines so
+ * Dremio evaluates the expression after fetching the full rows.
  */
-public class JdbcPushProjectIntoScan extends RelOptRule {
+public final class JdbcPushProjectIntoScan extends RelOptRule {
 
   public static final RelOptRule INSTANCE = new JdbcPushProjectIntoScan();
 
@@ -43,6 +42,14 @@ public class JdbcPushProjectIntoScan extends RelOptRule {
     super(
         RelOptHelper.some(ProjectPrel.class, RelOptHelper.any(JdbcScanPrel.class)),
         "JdbcPushProjectIntoScan");
+  }
+
+  @Override
+  public boolean matches(RelOptRuleCall call) {
+    JdbcScanPrel scan = call.rel(1);
+    // Don't push projection into a scan that already has aggregation pushed down.
+    // The aggregated scan's SELECT list is driven by selectExprs, not projectedColumns.
+    return !scan.hasAggregation();
   }
 
   @Override

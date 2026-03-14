@@ -32,19 +32,19 @@ import org.apache.calcite.sql.type.SqlTypeName;
  * Converts a Calcite {@link RexNode} filter condition to a SQL WHERE expression with
  * PreparedStatement bind parameters.
  *
- * <p>Returns {@link RexToSqlResult} containing the SQL string with {@code ?} placeholders
- * and an ordered list of {@link BindParam} values. Returns {@code null} if any component
- * of the expression is unsupported.
+ * <p>Returns {@link RexToSqlResult} containing the SQL string with {@code ?} placeholders and an
+ * ordered list of {@link BindParam} values. Returns {@code null} if any component of the expression
+ * is unsupported.
  *
- * <p>Supports: comparisons ({@code =, <>, <, <=, >, >=}), {@code AND}, {@code OR},
- * {@code NOT}, {@code IS NULL}, {@code IS NOT NULL}, {@code LIKE}, arithmetic
- * ({@code +, -, *, /}), {@code IN}, {@code BETWEEN}, {@code COALESCE}, and {@code NULLIF}.
+ * <p>Supports: comparisons ({@code =, <>, <, <=, >, >=}), {@code AND}, {@code OR}, {@code NOT},
+ * {@code IS NULL}, {@code IS NOT NULL}, {@code LIKE}, arithmetic ({@code +, -, *, /}), {@code IN},
+ * {@code BETWEEN}, {@code COALESCE}, and {@code NULLIF}.
  *
- * <p>Literal values are emitted as {@code ?} bind parameters except for {@code NULL},
- * {@code TRUE}, and {@code FALSE} which remain inline as SQL keywords.
+ * <p>Literal values are emitted as {@code ?} bind parameters except for {@code NULL}, {@code TRUE},
+ * and {@code FALSE} which remain inline as SQL keywords.
  *
- * <p>OR-of-EQUALS chains on the same column are automatically converted to
- * {@code col IN (?, ?, ...)} for cleaner SQL.
+ * <p>OR-of-EQUALS chains on the same column are automatically converted to {@code col IN (?, ?,
+ * ...)} for cleaner SQL.
  */
 public final class RexToSqlString {
 
@@ -55,8 +55,8 @@ public final class RexToSqlString {
   }
 
   /**
-   * Entry point: converts the given {@link RexNode} to a SQL expression with bind parameters,
-   * or returns {@code null} if the expression cannot be translated.
+   * Entry point: converts the given {@link RexNode} to a SQL expression with bind parameters, or
+   * returns {@code null} if the expression cannot be translated.
    */
   public RexToSqlResult convert(RexNode node) {
     if (node instanceof RexCall) {
@@ -103,7 +103,11 @@ public final class RexToSqlString {
       case NOT:
         if (operands.size() == 1) {
           RexToSqlResult inner = convert(operands.get(0));
-          return inner == null ? null : RexToSqlResult.literal("NOT (").merge(inner, "").merge(RexToSqlResult.literal(")"), "");
+          return inner == null
+              ? null
+              : RexToSqlResult.literal("NOT (")
+                  .merge(inner, "")
+                  .merge(RexToSqlResult.literal(")"), "");
         }
         return null;
       case IS_NULL:
@@ -130,8 +134,8 @@ public final class RexToSqlString {
   }
 
   /**
-   * Handles OR operands. Before falling back to standard OR handling, attempts to
-   * detect OR-of-EQUALS on the same column and convert to IN.
+   * Handles OR operands. Before falling back to standard OR handling, attempts to detect
+   * OR-of-EQUALS on the same column and convert to IN.
    */
   private RexToSqlResult convertOr(List<RexNode> operands) {
     RexToSqlResult inResult = tryConvertToIn(operands);
@@ -142,8 +146,8 @@ public final class RexToSqlString {
   }
 
   /**
-   * Checks if ALL operands are EQUALS calls where one side is a RexInputRef referencing
-   * the SAME column index. If so, reconstructs as "col" IN (?, ?, ...).
+   * Checks if ALL operands are EQUALS calls where one side is a RexInputRef referencing the SAME
+   * column index. If so, reconstructs as "col" IN (?, ?, ...).
    */
   private RexToSqlResult tryConvertToIn(List<RexNode> operands) {
     if (operands.size() < 2) {
@@ -212,8 +216,8 @@ public final class RexToSqlString {
   }
 
   /**
-   * Handles SqlKind.IN if Calcite preserves it (safety net).
-   * First operand is the column, subsequent operands are values.
+   * Handles SqlKind.IN if Calcite preserves it (safety net). First operand is the column,
+   * subsequent operands are values.
    */
   private RexToSqlResult convertIn(List<RexNode> operands) {
     if (operands.size() < 2) {
@@ -246,9 +250,8 @@ public final class RexToSqlString {
   }
 
   /**
-   * Handles BETWEEN: 3 operands -- col BETWEEN low AND high.
-   * Note: some Calcite versions represent BETWEEN as AND(>=, <=), but we handle
-   * the explicit BETWEEN node as a safety net.
+   * Handles BETWEEN: 3 operands -- col BETWEEN low AND high. Note: some Calcite versions represent
+   * BETWEEN as AND(>=, <=), but we handle the explicit BETWEEN node as a safety net.
    */
   private RexToSqlResult convertBetween(List<RexNode> operands) {
     if (operands.size() != 3) {
@@ -271,9 +274,7 @@ public final class RexToSqlString {
     return new RexToSqlResult(sql, allParams);
   }
 
-  /**
-   * Handles OTHER_FUNCTION calls such as COALESCE and NULLIF.
-   */
+  /** Handles OTHER_FUNCTION calls such as COALESCE and NULLIF. */
   private RexToSqlResult convertOtherFunction(RexCall call, List<RexNode> operands) {
     String funcName = call.getOperator().getName().toUpperCase();
 
@@ -290,9 +291,7 @@ public final class RexToSqlString {
     }
   }
 
-  /**
-   * Converts a function call of the form FUNC(arg1, arg2, ...).
-   */
+  /** Converts a function call of the form FUNC(arg1, arg2, ...). */
   private RexToSqlResult convertFunctionCall(String funcName, List<RexNode> operands) {
     if (operands.isEmpty()) {
       return null;
@@ -384,45 +383,50 @@ public final class RexToSqlString {
       case FLOAT:
       case REAL:
       case DOUBLE:
-      case DECIMAL: {
-        BigDecimal numVal = (BigDecimal) literal.getValue();
-        if (numVal == null) {
-          return RexToSqlResult.literal("NULL");
+      case DECIMAL:
+        {
+          BigDecimal numVal = (BigDecimal) literal.getValue();
+          if (numVal == null) {
+            return RexToSqlResult.literal("NULL");
+          }
+          return RexToSqlResult.param(new BindParam(numVal, typeName));
         }
-        return RexToSqlResult.param(new BindParam(numVal, typeName));
-      }
       case CHAR:
-      case VARCHAR: {
-        String strVal = literal.getValueAs(String.class);
-        if (strVal == null) {
-          return RexToSqlResult.literal("NULL");
+      case VARCHAR:
+        {
+          String strVal = literal.getValueAs(String.class);
+          if (strVal == null) {
+            return RexToSqlResult.literal("NULL");
+          }
+          return RexToSqlResult.param(new BindParam(strVal, typeName));
         }
-        return RexToSqlResult.param(new BindParam(strVal, typeName));
-      }
-      case DATE: {
-        Calendar cal = (Calendar) literal.getValue();
-        if (cal == null) {
-          return RexToSqlResult.literal("NULL");
+      case DATE:
+        {
+          Calendar cal = (Calendar) literal.getValue();
+          if (cal == null) {
+            return RexToSqlResult.literal("NULL");
+          }
+          java.sql.Date dateVal = new java.sql.Date(cal.getTimeInMillis());
+          return RexToSqlResult.param(new BindParam(dateVal.getTime(), SqlTypeName.DATE));
         }
-        java.sql.Date dateVal = new java.sql.Date(cal.getTimeInMillis());
-        return RexToSqlResult.param(new BindParam(dateVal.getTime(), SqlTypeName.DATE));
-      }
-      case TIME: {
-        Calendar cal = (Calendar) literal.getValue();
-        if (cal == null) {
-          return RexToSqlResult.literal("NULL");
+      case TIME:
+        {
+          Calendar cal = (Calendar) literal.getValue();
+          if (cal == null) {
+            return RexToSqlResult.literal("NULL");
+          }
+          java.sql.Time timeVal = new java.sql.Time(cal.getTimeInMillis());
+          return RexToSqlResult.param(new BindParam(timeVal.getTime(), SqlTypeName.TIME));
         }
-        java.sql.Time timeVal = new java.sql.Time(cal.getTimeInMillis());
-        return RexToSqlResult.param(new BindParam(timeVal.getTime(), SqlTypeName.TIME));
-      }
-      case TIMESTAMP: {
-        Calendar cal = (Calendar) literal.getValue();
-        if (cal == null) {
-          return RexToSqlResult.literal("NULL");
+      case TIMESTAMP:
+        {
+          Calendar cal = (Calendar) literal.getValue();
+          if (cal == null) {
+            return RexToSqlResult.literal("NULL");
+          }
+          java.sql.Timestamp tsVal = new java.sql.Timestamp(cal.getTimeInMillis());
+          return RexToSqlResult.param(new BindParam(tsVal.getTime(), SqlTypeName.TIMESTAMP));
         }
-        java.sql.Timestamp tsVal = new java.sql.Timestamp(cal.getTimeInMillis());
-        return RexToSqlResult.param(new BindParam(tsVal.getTime(), SqlTypeName.TIMESTAMP));
-      }
       default:
         return null; // unsupported literal type -- decline pushdown
     }

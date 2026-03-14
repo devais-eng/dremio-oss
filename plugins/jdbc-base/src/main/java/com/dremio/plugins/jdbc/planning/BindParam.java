@@ -22,14 +22,14 @@ import org.apache.calcite.sql.type.SqlTypeName;
 /**
  * Immutable bind parameter for PreparedStatement parameterization in JDBC pushdown queries.
  *
- * <p>Each {@code BindParam} represents a single {@code ?} placeholder in the generated SQL.
- * The {@link #value} carries the Java-boxed literal (Integer, Long, Double, String, BigDecimal,
- * Boolean, java.sql.Date/Time/Timestamp, or null), and {@link #typeName} provides the Calcite
- * type tag that {@link com.dremio.plugins.jdbc.reader.JdbcRecordReader} uses to dispatch to the
- * correct {@code PreparedStatement.setXxx()} method.
+ * <p>Each {@code BindParam} represents a single {@code ?} placeholder in the generated SQL. The
+ * {@link #value} carries the Java-boxed literal (Integer, Long, Double, String, BigDecimal,
+ * Boolean, java.sql.Date/Time/Timestamp, or null), and {@link #typeName} provides the Calcite type
+ * tag that {@link com.dremio.plugins.jdbc.reader.JdbcRecordReader} uses to dispatch to the correct
+ * {@code PreparedStatement.setXxx()} method.
  *
- * <p>JSON-serializable via Jackson for transport through the operator chain
- * (JdbcGroupScan -> JdbcSubScan).
+ * <p>JSON-serializable via Jackson for transport through the operator chain (JdbcGroupScan ->
+ * JdbcSubScan).
  */
 public final class BindParam {
 
@@ -44,8 +44,7 @@ public final class BindParam {
    */
   @JsonCreator
   public BindParam(
-      @JsonProperty("value") Object value,
-      @JsonProperty("typeName") SqlTypeName typeName) {
+      @JsonProperty("value") Object value, @JsonProperty("typeName") SqlTypeName typeName) {
     this.value = value;
     this.typeName = typeName;
   }

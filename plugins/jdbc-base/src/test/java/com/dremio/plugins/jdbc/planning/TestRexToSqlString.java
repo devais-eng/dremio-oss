@@ -35,9 +35,9 @@ import org.junit.Test;
 /**
  * Unit tests for {@link RexToSqlString}.
  *
- * <p>Validates that Calcite RexNode expressions are correctly converted to SQL WHERE clause
- * strings with bind parameters (? placeholders), and that unsupported expressions safely
- * return null (declining pushdown).
+ * <p>Validates that Calcite RexNode expressions are correctly converted to SQL WHERE clause strings
+ * with bind parameters (? placeholders), and that unsupported expressions safely return null
+ * (declining pushdown).
  */
 public class TestRexToSqlString {
 
@@ -397,10 +397,7 @@ public class TestRexToSqlString {
   public void columnNameWithDoubleQuotesEscaped() {
     // Column with double quote in name
     RelDataType injectedRowType =
-        typeFactory
-            .builder()
-            .add("col\"inject", SqlTypeName.INTEGER)
-            .build();
+        typeFactory.builder().add("col\"inject", SqlTypeName.INTEGER).build();
 
     RexToSqlString conv = new RexToSqlString(injectedRowType);
 

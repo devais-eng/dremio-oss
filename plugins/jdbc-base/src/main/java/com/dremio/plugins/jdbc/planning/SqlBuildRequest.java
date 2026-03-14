@@ -22,13 +22,12 @@ import java.util.List;
 /**
  * Builder-pattern DTO encapsulating all pushdown components for {@link SqlBuilder}.
  *
- * <p>Centralizes the growing set of pushdown parameters (filter, projection, limit,
- * order by, group by, aggregation select expressions) into a single object so that
- * {@link SqlBuilder#buildSql(SqlBuildRequest)} has a stable signature as new pushdown
- * types are added.
+ * <p>Centralizes the growing set of pushdown parameters (filter, projection, limit, order by, group
+ * by, aggregation select expressions) into a single object so that {@link
+ * SqlBuilder#buildSql(SqlBuildRequest)} has a stable signature as new pushdown types are added.
  *
- * <p>Fields for ORDER BY, GROUP BY, and selectExprs are nullable placeholders used
- * by Plans 02 and 03 of the advanced pushdown phase.
+ * <p>Fields for ORDER BY, GROUP BY, and selectExprs are nullable placeholders used by Plans 02 and
+ * 03 of the advanced pushdown phase.
  */
 public final class SqlBuildRequest {
 
