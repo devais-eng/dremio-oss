@@ -34,8 +34,12 @@ import org.slf4j.LoggerFactory;
  *   <dt>LOGICAL
  *   <dd>{@link JdbcScanDrule} — converts the generic {@code ScanCrel} to a JDBC-specific {@link
  *       JdbcScanDrel}.
+ *   <dd>{@link JdbcPushJoinIntoScan} — pushes {@code JoinRel} above two same-source
+ *       {@link JdbcScanDrel} children into a single {@link JdbcJoinScanDrel}.
  *   <dt>PHYSICAL
  *   <dd>{@link JdbcScanPrule} — converts {@link JdbcScanDrel} to {@link JdbcScanPrel}.
+ *   <dd>{@link JdbcPushJoinIntoScan.JdbcJoinScanPrule} — converts {@link JdbcJoinScanDrel} to
+ *       {@link JdbcJoinScanPrel}.
  *   <dd>{@link JdbcPushFilterIntoScan} — pushes WHERE predicates into the scan.
  *   <dd>{@link JdbcPushProjectIntoScan} — narrows the SELECT list to projected columns.
  *   <dd>{@link JdbcPushAggIntoScan} — pushes GROUP BY and aggregate functions into the scan.
@@ -63,12 +67,19 @@ public class JdbcRulesFactory extends StoragePluginTypeRulesFactory {
     switch (phase) {
       case LOGICAL:
         // Convert the generic ScanCrel into the JDBC-specific logical scan node.
-        return ImmutableSet.<RelOptRule>of(new JdbcScanDrule(pluginType));
+        // Also register the JOIN pushdown rule so JoinRel(JdbcScanDrel, JdbcScanDrel)
+        // same-source can be collapsed into a single JdbcJoinScanDrel.
+        return ImmutableSet.<RelOptRule>of(
+            new JdbcScanDrule(pluginType),
+            JdbcPushJoinIntoScan.INSTANCE);
 
       case PHYSICAL:
         // Convert logical JDBC scan to physical, then apply pushdown optimisations.
+        // JdbcJoinScanPrule converts JdbcJoinScanDrel (produced by the LOGICAL join rule)
+        // to JdbcJoinScanPrel which builds the actual JOIN SQL at getPhysicalOperator() time.
         return ImmutableSet.<RelOptRule>of(
             JdbcScanPrule.INSTANCE,
+            JdbcPushJoinIntoScan.JdbcJoinScanPrule.INSTANCE,
             JdbcPushFilterIntoScan.INSTANCE,
             JdbcPushProjectIntoScan.INSTANCE,
             JdbcPushAggIntoScan.INSTANCE,
