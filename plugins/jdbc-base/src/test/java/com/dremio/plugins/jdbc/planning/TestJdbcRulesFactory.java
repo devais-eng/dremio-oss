@@ -53,7 +53,7 @@ public class TestJdbcRulesFactory {
   @Test
   public void physicalPhaseReturnsSixRules() {
     Set<RelOptRule> rules = factory.getRules(null, PlannerPhase.PHYSICAL, (SourceType) null);
-    assertEquals("PHYSICAL phase should return exactly 6 rules", 6, rules.size());
+    assertEquals("PHYSICAL phase should return exactly 7 rules", 7, rules.size());
 
     boolean hasPrule = false;
     boolean hasFilter = false;

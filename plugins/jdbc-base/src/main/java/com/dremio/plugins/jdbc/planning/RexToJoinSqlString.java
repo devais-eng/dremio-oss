@@ -47,6 +47,8 @@ public final class RexToJoinSqlString {
   private final int leftFieldCount;
   private final String leftAlias;
   private final String rightAlias;
+  private final List<String> leftFieldNames;
+  private final List<String> rightFieldNames;
 
   /**
    * Creates a new alias-aware JOIN condition converter.
@@ -55,13 +57,28 @@ public final class RexToJoinSqlString {
    * @param leftFieldCount number of fields in the left table's row type
    * @param leftAlias table alias for left side references (e.g., "t1")
    * @param rightAlias table alias for right side references (e.g., "t2")
+   * @param leftFieldNames original field names from the left table (before Calcite dedup)
+   * @param rightFieldNames original field names from the right table (before Calcite dedup)
    */
   public RexToJoinSqlString(
-      RelDataType joinRowType, int leftFieldCount, String leftAlias, String rightAlias) {
+      RelDataType joinRowType,
+      int leftFieldCount,
+      String leftAlias,
+      String rightAlias,
+      List<String> leftFieldNames,
+      List<String> rightFieldNames) {
     this.joinRowType = joinRowType;
     this.leftFieldCount = leftFieldCount;
     this.leftAlias = leftAlias;
     this.rightAlias = rightAlias;
+    this.leftFieldNames = leftFieldNames;
+    this.rightFieldNames = rightFieldNames;
+  }
+
+  /** Backward-compatible constructor without original field names (uses Calcite names). */
+  public RexToJoinSqlString(
+      RelDataType joinRowType, int leftFieldCount, String leftAlias, String rightAlias) {
+    this(joinRowType, leftFieldCount, leftAlias, rightAlias, null, null);
   }
 
   /**
@@ -138,9 +155,24 @@ public final class RexToJoinSqlString {
     if (index < 0 || index >= fields.size()) {
       return null;
     }
-    String fieldName = fields.get(index).getName();
-    String alias = (index < leftFieldCount) ? leftAlias : rightAlias;
-    // Double-quote both alias and field name for identifier safety.
+    String alias;
+    String fieldName;
+    if (index < leftFieldCount) {
+      alias = leftAlias;
+      // Use original left table field name if available (avoids Calcite dedup suffixes)
+      fieldName =
+          (leftFieldNames != null && index < leftFieldNames.size())
+              ? leftFieldNames.get(index)
+              : fields.get(index).getName();
+    } else {
+      alias = rightAlias;
+      int rightIdx = index - leftFieldCount;
+      // Use original right table field name if available
+      fieldName =
+          (rightFieldNames != null && rightIdx < rightFieldNames.size())
+              ? rightFieldNames.get(rightIdx)
+              : fields.get(index).getName();
+    }
     String quotedAlias = "\"" + alias.replace("\"", "\"\"") + "\"";
     String quotedField = "\"" + fieldName.replace("\"", "\"\"") + "\"";
     return RexToSqlResult.literal(quotedAlias + "." + quotedField);

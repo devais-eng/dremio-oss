@@ -105,11 +105,12 @@ public class OracleSqlBuilder extends SqlBuilder {
       String joinTypeSql,
       String onClause,
       List<SchemaPath> leftColumns,
-      List<SchemaPath> rightColumns) {
+      List<SchemaPath> rightColumns,
+      List<String> outputFieldNames) {
 
     StringBuilder sb = new StringBuilder();
 
-    // SELECT list: "t1"."col1", ..., "t2"."col3", ...
+    // SELECT list with Calcite-name aliases (Oracle: space-separated, no AS keyword)
     boolean hasColumns =
         (leftColumns != null && !leftColumns.isEmpty())
             || (rightColumns != null && !rightColumns.isEmpty());
@@ -118,14 +119,23 @@ public class OracleSqlBuilder extends SqlBuilder {
     } else {
       sb.append("SELECT ");
       boolean first = true;
+      int fieldIdx = 0;
       if (leftColumns != null) {
         for (SchemaPath col : leftColumns) {
           if (!first) {
             sb.append(", ");
           }
+          String colName = col.getRootSegment().getPath();
           sb.append(quoteIdentifier(leftAlias))
               .append(".")
-              .append(quoteIdentifier(col.getRootSegment().getPath()));
+              .append(quoteIdentifier(colName));
+          if (outputFieldNames != null && fieldIdx < outputFieldNames.size()) {
+            String calciteName = outputFieldNames.get(fieldIdx);
+            if (!calciteName.equals(colName)) {
+              sb.append(" ").append(quoteIdentifier(calciteName));
+            }
+          }
+          fieldIdx++;
           first = false;
         }
       }
@@ -134,9 +144,17 @@ public class OracleSqlBuilder extends SqlBuilder {
           if (!first) {
             sb.append(", ");
           }
+          String colName = col.getRootSegment().getPath();
           sb.append(quoteIdentifier(rightAlias))
               .append(".")
-              .append(quoteIdentifier(col.getRootSegment().getPath()));
+              .append(quoteIdentifier(colName));
+          if (outputFieldNames != null && fieldIdx < outputFieldNames.size()) {
+            String calciteName = outputFieldNames.get(fieldIdx);
+            if (!calciteName.equals(colName)) {
+              sb.append(" ").append(quoteIdentifier(calciteName));
+            }
+          }
+          fieldIdx++;
           first = false;
         }
       }

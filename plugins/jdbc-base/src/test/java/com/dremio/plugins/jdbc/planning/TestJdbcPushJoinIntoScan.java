@@ -92,7 +92,7 @@ public class TestJdbcPushJoinIntoScan {
         sql.contains("INNER JOIN \"public\".\"customers\" AS \"t2\""));
     assertTrue("ON clause present", sql.contains("ON \"t1\".\"customer_id\" = \"t2\".\"customer_id\""));
 
-    // Verify exact structure
+    // Verify exact structure (no aliases when outputFieldNames is null)
     assertEquals(
         "SELECT \"t1\".\"order_id\", \"t1\".\"customer_id\", \"t2\".\"name\""
             + " FROM \"public\".\"orders\" AS \"t1\""

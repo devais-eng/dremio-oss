@@ -121,9 +121,20 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
             : (rightPath.isEmpty() ? "" : rightPath.get(0));
 
     // Convert join condition to alias-aware SQL using RexToJoinSqlString.
+    // Pass original field names from each side to avoid Calcite dedup suffixes
+    // (e.g., "department0") appearing in the generated SQL.
     int leftFieldCount = leftScan.getRowType().getFieldCount();
+    List<String> leftNames = new ArrayList<>();
+    for (org.apache.calcite.rel.type.RelDataTypeField f : leftScan.getRowType().getFieldList()) {
+      leftNames.add(f.getName());
+    }
+    List<String> rightNames = new ArrayList<>();
+    for (org.apache.calcite.rel.type.RelDataTypeField f : rightScan.getRowType().getFieldList()) {
+      rightNames.add(f.getName());
+    }
     RexToJoinSqlString converter =
-        new RexToJoinSqlString(join.getRowType(), leftFieldCount, "t1", "t2");
+        new RexToJoinSqlString(
+            join.getRowType(), leftFieldCount, "t1", "t2", leftNames, rightNames);
     RexToSqlResult condResult = converter.convert(condition);
     if (condResult == null) {
       logger.info("[JOIN-PUSH] Unsupported join condition — declining pushdown");

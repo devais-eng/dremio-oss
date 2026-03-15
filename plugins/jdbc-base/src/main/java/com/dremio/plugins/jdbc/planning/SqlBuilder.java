@@ -235,11 +235,16 @@ public class SqlBuilder {
       String joinTypeSql,
       String onClause,
       List<SchemaPath> leftColumns,
-      List<SchemaPath> rightColumns) {
+      List<SchemaPath> rightColumns,
+      List<String> outputFieldNames) {
 
     StringBuilder sb = new StringBuilder();
 
-    // SELECT list: "t1"."col1", "t1"."col2", ..., "t2"."col3", ...
+    // SELECT list: uses original table column names with table alias prefix,
+    // and renames via AS to match the Calcite row type field names.
+    // Calcite deduplicates field names in joins (e.g., "department" → "department0"
+    // for the right side in a self-join). By aliasing each column to the Calcite
+    // name, the JDBC ResultSet column names match what Dremio's schema expects.
     boolean hasColumns =
         (leftColumns != null && !leftColumns.isEmpty())
             || (rightColumns != null && !rightColumns.isEmpty());
@@ -248,14 +253,24 @@ public class SqlBuilder {
     } else {
       sb.append("SELECT ");
       boolean first = true;
+      int fieldIdx = 0;
       if (leftColumns != null) {
         for (SchemaPath col : leftColumns) {
           if (!first) {
             sb.append(", ");
           }
+          String colName = col.getRootSegment().getPath();
           sb.append(quoteIdentifier(leftAlias))
               .append(".")
-              .append(quoteIdentifier(col.getRootSegment().getPath()));
+              .append(quoteIdentifier(colName));
+          // Add AS alias if the Calcite name differs from the original
+          if (outputFieldNames != null && fieldIdx < outputFieldNames.size()) {
+            String calciteName = outputFieldNames.get(fieldIdx);
+            if (!calciteName.equals(colName)) {
+              sb.append(" AS ").append(quoteIdentifier(calciteName));
+            }
+          }
+          fieldIdx++;
           first = false;
         }
       }
@@ -264,9 +279,18 @@ public class SqlBuilder {
           if (!first) {
             sb.append(", ");
           }
+          String colName = col.getRootSegment().getPath();
           sb.append(quoteIdentifier(rightAlias))
               .append(".")
-              .append(quoteIdentifier(col.getRootSegment().getPath()));
+              .append(quoteIdentifier(colName));
+          // Add AS alias if the Calcite name differs from the original
+          if (outputFieldNames != null && fieldIdx < outputFieldNames.size()) {
+            String calciteName = outputFieldNames.get(fieldIdx);
+            if (!calciteName.equals(colName)) {
+              sb.append(" AS ").append(quoteIdentifier(calciteName));
+            }
+          }
+          fieldIdx++;
           first = false;
         }
       }
@@ -294,6 +318,35 @@ public class SqlBuilder {
     sb.append(" ON ").append(onClause);
 
     return sb.toString();
+  }
+
+  /**
+   * Backward-compatible overload without outputFieldNames. No column aliasing is applied.
+   * Used by tests and callers that don't need self-join dedup.
+   */
+  public String buildJoinSql(
+      String leftSchema,
+      String leftTable,
+      String leftAlias,
+      String rightSchema,
+      String rightTable,
+      String rightAlias,
+      String joinTypeSql,
+      String onClause,
+      List<SchemaPath> leftColumns,
+      List<SchemaPath> rightColumns) {
+    return buildJoinSql(
+        leftSchema,
+        leftTable,
+        leftAlias,
+        rightSchema,
+        rightTable,
+        rightAlias,
+        joinTypeSql,
+        onClause,
+        leftColumns,
+        rightColumns,
+        null);
   }
 
   /**

@@ -242,6 +242,14 @@ public class JdbcJoinScanPrel extends AbstractRelNode implements LeafPrel {
             ? ((JdbcStoragePlugin) rawPlugin).createSqlBuilder()
             : new SqlBuilder();
 
+    // Extract the Calcite row type field names — these may include dedup suffixes
+    // (e.g., "department0") for self-joins. We pass these to buildJoinSql() so the
+    // SQL column aliases match exactly what Dremio's schema expects.
+    List<String> outputFieldNames = new ArrayList<>();
+    for (org.apache.calcite.rel.type.RelDataTypeField f : outputRowType.getFieldList()) {
+      outputFieldNames.add(f.getName());
+    }
+
     // Build the JOIN SQL via the dialect-aware SqlBuilder.
     String sql =
         sb.buildJoinSql(
@@ -254,20 +262,16 @@ public class JdbcJoinScanPrel extends AbstractRelNode implements LeafPrel {
             SqlBuilder.joinTypeToSql(joinType),
             onClauseSql,
             leftColumns,
-            rightColumns);
+            rightColumns,
+            outputFieldNames);
 
-    // Derive the combined output schema from the Calcite row type.
+    // Use Calcite's row type directly for the output schema — the field names
+    // match the SQL column aliases (including dedup suffixes like "department0").
     BatchSchema outputSchema = CalciteArrowHelper.fromCalciteRowType(outputRowType);
 
-    // Build merged projected columns list (left + right).
     List<SchemaPath> mergedColumns = new ArrayList<>();
-    mergedColumns.addAll(leftColumns);
-    mergedColumns.addAll(rightColumns);
-    if (mergedColumns.isEmpty()) {
-      // Fallback: derive from outputSchema fields.
-      for (org.apache.arrow.vector.types.pojo.Field f : outputSchema.getFields()) {
-        mergedColumns.add(SchemaPath.getSimplePath(f.getName()));
-      }
+    for (org.apache.arrow.vector.types.pojo.Field f : outputSchema.getFields()) {
+      mergedColumns.add(SchemaPath.getSimplePath(f.getName()));
     }
 
     // tableSchemaPath for JdbcGroupScan: synthetic path for a join "table".
