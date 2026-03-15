@@ -173,6 +173,27 @@ Plans:
 - [ ] 34-02-PLAN.md — Plugin wiring: AdbcSchemaFetcher, JdbcStoragePlugin ADBC lifecycle, JdbcScanCreator branching, BaseJdbcConf/PostgresConf protocolMode
 - [ ] 34-03-PLAN.md — Docker deployment (native driver install) and PostgreSQL ADBC integration tests
 
+### Phase 35: JOIN/INTERSECT/EXCEPT Single-Engine Pushdown + ADBC COPY Optimization
+**Goal**: Push JOIN, INTERSECT, and EXCEPT operations down to the JDBC/ADBC source when all referenced tables reside on the same single engine (PostgreSQL, Oracle, etc.) — avoiding unnecessary data transfer by letting the source compute the result with its own indexes and statistics. UNION is explicitly excluded (Dremio's parallel distributed execution is equal or better). Additionally, optimize ADBC execution by inlining bind parameter literals into SQL (instead of using Extended Query Protocol bind), enabling the ADBC PG driver to use the faster COPY binary protocol for all pushdown queries including those with WHERE clauses.
+**Depends on**: Phase 34
+**Requirements**: SETOP-01, ADBC-02
+**Success Criteria** (what must be TRUE):
+  1. INNER/LEFT/RIGHT/FULL JOIN between two tables on the same JDBC source is pushed down as a single SQL query to the source engine
+  2. INTERSECT between tables on the same JDBC source is pushed down (source computes set intersection, returns only matching rows)
+  3. EXCEPT between tables on the same JDBC source is pushed down (source computes set difference, returns only rows in A not in B)
+  4. Queries involving tables from different sources (or mixed source/Dremio tables) are NOT pushed down — they execute normally in Dremio's engine
+  5. Cached/reflected queries continue to use Dremio's engine (no interference with Reflections)
+  6. Pushdown works for both JDBC and ADBC protocol modes
+  7. ADBC mode inlines bind parameter literals into SQL (proper quoting/escaping) so the PG driver uses COPY binary protocol instead of Extended Query Protocol
+  8. SQL injection safety: inlined literals are properly escaped; unit and integration tests verify that malicious string values (single quotes, backslashes, semicolons, SQL keywords) cannot break out of quoted context
+  9. Integration tests verify correct results and source-side execution for PG and Oracle
+**Plans:** 3/3 plans complete
+
+Plans:
+- [ ] 35-01-PLAN.md — JOIN pushdown planner infrastructure: JdbcJoinScanPrel, RexToJoinSqlString, JdbcPushJoinIntoScan rule, unit tests
+- [ ] 35-02-PLAN.md — ADBC COPY optimization: LiteralInliner utility, AdbcRecordReader inline-mode wiring, SQL injection safety tests
+- [ ] 35-03-PLAN.md — Integration tests: PostgreSQL JOIN + ADBC COPY + Oracle JOIN against Testcontainers
+
 ## Quick Tasks
 
 Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for details.
@@ -187,7 +208,7 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 30 → 31 → 32 → 33 → 34
+Phases execute in numeric order: 30 → 31 → 32 → 33 → 34 → 35 → 36
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -225,3 +246,25 @@ Phases execute in numeric order: 30 → 31 → 32 → 33 → 34
 | 32. Oracle Connector | v1.5 | 0/? | Not started | - |
 | 33. Advanced Query Pushdown Hardening | v1.5 | 0/3 | Not started | - |
 | 34. ADBC Driver for PostgreSQL | v1.5 | 0/3 | Not started | - |
+| 35. JOIN/INTERSECT/EXCEPT Single-Engine Pushdown | v1.5 | Complete    | 2026-03-14 | - |
+| 36. Calcite JDBC Convention Migration | v1.5 | 0/2 | Not started | - |
+
+### Phase 36: Calcite JDBC Convention Migration for SQL Generation
+**Goal**: Replace the manual `SqlBuilder` SQL string generation with Calcite's JDBC convention (`JdbcConvention`) where the entire pushdown subtree is represented as Calcite JDBC adapter nodes (`JdbcTableScan`, `JdbcJoin`, `JdbcFilter`, `JdbcProject`, etc.) and Calcite renders the final SQL via `SqlDialect`. This eliminates manual SQL construction, column aliasing bugs, and dialect-specific overrides — Calcite handles all of it. Requires ~10 lines in `DrelTransformer` (kernel) for the OSS JDBC pushdown pipeline hook. All existing integration and unit test scenarios must produce identical results; test code may change but test logic and expected outcomes must not.
+**Depends on**: Phase 35
+**Requirements**: CALCITE-01
+**Success Criteria** (what must be TRUE):
+  1. All existing pushdowns (WHERE, projection, LIMIT, ORDER BY, aggregation, JOIN) produce identical query results before and after migration
+  2. SQL generation uses Calcite's `SqlDialect` (PG dialect, Oracle dialect) instead of manual `SqlBuilder`
+  3. Self-joins and shared column names are handled automatically by Calcite (no manual dedup aliasing)
+  4. JOINs, filters, projections, and aggregations compose correctly in any combination via Calcite convention
+  5. ~10 line kernel change in `DrelTransformer` for OSS JDBC pushdown pipeline hook — cleanly maintainable across Dremio version upgrades
+  6. No SQL injection risk — Calcite renders AST, never string-interpolates
+  7. All existing unit tests pass (test code may be refactored, test scenarios unchanged)
+  8. All existing integration tests (Testcontainers + Docker UAT) pass with identical expected results
+  9. Plugin remains self-contained except for the kernel hook
+**Plans:** 2 plans
+
+Plans:
+- [ ] 36-01-PLAN.md — JdbcCalciteLeaf, createDialect(), JdbcScanPrel Calcite migration
+- [ ] 36-02-PLAN.md — JdbcJoinScanPrel Calcite migration, test updates, integration verification
