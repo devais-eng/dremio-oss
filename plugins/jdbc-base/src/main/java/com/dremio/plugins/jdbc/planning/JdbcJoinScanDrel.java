@@ -21,11 +21,14 @@ import com.dremio.exec.planner.logical.Rel;
 import java.util.Collections;
 import java.util.List;
 import org.apache.calcite.plan.RelOptCluster;
+import org.apache.calcite.plan.RelOptCost;
+import org.apache.calcite.plan.RelOptPlanner;
 import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.AbstractRelNode;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.core.JoinRelType;
+import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
 
 /**
@@ -107,6 +110,23 @@ public class JdbcJoinScanDrel extends AbstractRelNode implements Rel {
   @Override
   protected RelDataType deriveRowType() {
     return outputRowType;
+  }
+
+  /**
+   * Returns a very low cost so the Volcano planner prefers the pushed-down JOIN over scanning both
+   * tables separately and joining in-engine. The source engine handles the join with its own indexes
+   * and statistics, transferring only the result set.
+   */
+  @Override
+  public RelOptCost computeSelfCost(RelOptPlanner planner, RelMetadataQuery mq) {
+    // Tiny cost: single remote call returning the joined result.
+    return planner.getCostFactory().makeTinyCost();
+  }
+
+  @Override
+  public double estimateRowCount(RelMetadataQuery mq) {
+    // Conservative estimate: assume the result is smaller than either input.
+    return 1.0;
   }
 
   @Override

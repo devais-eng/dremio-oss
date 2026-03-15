@@ -78,6 +78,12 @@ echo -e "${BOLD}Seeding test data...${NC}"
 
 # PG: employees (12 rows) + departments (4 rows)
 docker exec -i "$PG_CONTAINER" psql -U pguser -d testdb -q <<'EOSQL'
+CREATE TABLE IF NOT EXISTS employees (
+  id INTEGER PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  department VARCHAR(50),
+  salary NUMERIC(10,2)
+);
 TRUNCATE employees RESTART IDENTITY;
 INSERT INTO employees (id, name, department, salary) VALUES
   (1,  'Alice',   'Engineering', 120000),

@@ -32,6 +32,9 @@ import com.dremio.plugins.jdbc.exec.JdbcGroupScan;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import org.apache.calcite.plan.RelOptCost;
+import org.apache.calcite.plan.RelOptPlanner;
+import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import java.util.Iterator;
 import java.util.List;
 import org.apache.calcite.plan.RelOptCluster;
@@ -140,6 +143,21 @@ public class JdbcJoinScanPrel extends AbstractRelNode implements LeafPrel {
   @Override
   public DistributionAffinity getDistributionAffinity() {
     return DistributionAffinity.SOFT;
+  }
+
+  /**
+   * Returns a very low cost so the Volcano planner prefers the pushed-down JOIN over the
+   * HashJoin(JdbcScan, JdbcScan) alternative. The source engine executes the join with its own
+   * indexes and statistics, avoiding network transfer of both full tables.
+   */
+  @Override
+  public RelOptCost computeSelfCost(RelOptPlanner planner, RelMetadataQuery mq) {
+    return planner.getCostFactory().makeTinyCost();
+  }
+
+  @Override
+  public double estimateRowCount(RelMetadataQuery mq) {
+    return 1.0;
   }
 
   /**

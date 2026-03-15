@@ -226,7 +226,10 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
         // ADBC is used only for the query execution path (AdbcRecordReader).
         effectiveProtocolMode = ProtocolMode.ADBC;
         logger.info("ADBC backend initialized for source '{}'", name);
-      } catch (Exception e) {
+      } catch (Throwable e) {
+        // Catch Throwable (not just Exception) because NoClassDefFoundError and
+        // UnsatisfiedLinkError are Errors that occur when the native ADBC JNI
+        // library is missing or incompatible with the system's libstdc++.
         if (configured == ProtocolMode.ADBC) {
           throw new IOException(
               "ADBC mode requested but native driver unavailable: " + e.getMessage(), e);

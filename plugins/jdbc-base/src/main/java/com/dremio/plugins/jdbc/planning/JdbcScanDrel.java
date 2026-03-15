@@ -33,6 +33,11 @@ import org.apache.calcite.rel.hint.RelHint;
  * <p>Produced by {@link JdbcScanDrule} when Dremio converts the generic {@code ScanCrel} to the
  * source-specific logical representation.
  *
+ * <p>Implements {@link JdbcRelImpl} so that the kernel's {@code pushDownJdbcQuery()} pipeline in
+ * {@code DrelTransformer} detects this node as a JDBC-pushable scan. This enables the {@code
+ * RELATIONAL_PLANNING} phase to optimize join conditions and filter placement across JDBC scans
+ * before the PHYSICAL phase applies per-scan pushdown rules.
+ *
  * <p>This node participates in the <em>LOGICAL</em> planning phase only. The subsequent PHYSICAL
  * phase converts it to a {@link JdbcScanPrel} via {@link JdbcScanPrule}, at which point pushdown
  * rules can further annotate it with WHERE clauses, projected columns, and LIMIT values.
@@ -84,4 +89,5 @@ public class JdbcScanDrel extends ScanRelBase implements Rel {
         observedRowcountAdjustment,
         getHintsAsList());
   }
+
 }

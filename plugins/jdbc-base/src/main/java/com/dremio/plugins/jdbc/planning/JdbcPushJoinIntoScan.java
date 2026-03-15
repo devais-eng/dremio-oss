@@ -16,101 +16,109 @@
 package com.dremio.plugins.jdbc.planning;
 
 import com.dremio.common.expression.SchemaPath;
-import com.dremio.exec.planner.logical.JoinRel;
+import com.dremio.exec.calcite.logical.ScanCrel;
+import com.dremio.exec.planner.common.ScanRelBase;
 import com.dremio.exec.planner.logical.RelOptHelper;
+import org.apache.calcite.plan.RelOptUtil;
 import com.dremio.exec.planner.physical.DistributionTrait;
 import com.dremio.exec.planner.physical.Prel;
+import org.apache.calcite.rel.logical.LogicalJoin;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
+import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rex.RexNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
- * LOGICAL-phase rule that pushes a {@link JoinRel} into a single {@link JdbcJoinScanDrel} when
- * both children are {@link JdbcScanDrel} nodes referencing tables on the same JDBC source.
+ * PHYSICAL-phase rule that pushes a {@link JoinPrel} into a single {@link JdbcJoinScanPrel} when
+ * both children are (or contain) {@link JdbcScanPrel} nodes referencing tables on the same JDBC
+ * source.
  *
- * <p>The rule fires at the LOGICAL planning phase. At this phase, the child nodes are clean
- * {@link JdbcScanDrel} instances — no WHERE, LIMIT, ORDER BY, or aggregation state is present
- * (those are PHYSICAL-phase concerns added to {@link JdbcScanPrel}). This means no declination
- * guards for pushdown state are needed; only the same-source check is required.
+ * <p>The rule fires at the PHYSICAL planning phase. It matches any {@link JoinPrel} (which covers
+ * HashJoinPrel, MergeJoinPrel, and NestedLoopJoinPrel) and walks each side to find {@link
+ * JdbcScanPrel} leaves through intermediate nodes like ProjectPrel and SingleMergeExchangePrel.
  *
- * <p>Purpose: Avoid unnecessary data transfer for joins between tables on the same JDBC source.
- * The source engine computes the join using its own indexes and statistics, returning only the
- * combined result set.
+ * <p>Purpose: Avoid unnecessary data transfer for joins between tables on the same JDBC source. The
+ * source engine computes the join using its own indexes and statistics, returning only the combined
+ * result set.
  *
- * <p>The produced {@link JdbcJoinScanDrel} carries the raw join components. The companion
- * {@link JdbcJoinScanPrule} converts it to a {@link JdbcJoinScanPrel} at the PHYSICAL phase, which
- * builds the actual JOIN SQL in {@code getPhysicalOperator()}.
+ * <p>The produced {@link JdbcJoinScanPrel} builds the actual JOIN SQL in {@code
+ * getPhysicalOperator()}.
  */
 public final class JdbcPushJoinIntoScan extends RelOptRule {
+
+  private static final Logger logger = LoggerFactory.getLogger(JdbcPushJoinIntoScan.class);
 
   public static final RelOptRule INSTANCE = new JdbcPushJoinIntoScan();
 
   private JdbcPushJoinIntoScan() {
     super(
-        RelOptHelper.some(
-            JoinRel.class,
-            RelOptHelper.any(JdbcScanDrel.class),
-            RelOptHelper.any(JdbcScanDrel.class)),
+        operand(LogicalJoin.class, RelOptRule.any()),
         "JdbcPushJoinIntoScan");
   }
 
   /**
-   * Guards: both sides must reference the same JDBC source instance.
+   * Guards: both sides must have a single JdbcScanPrel leaf, and they must reference the same JDBC
+   * source instance.
+   *
+   * <p>We match any JoinPrel and walk each side to find JdbcScanPrel leaves because intermediate
+   * ProjectPrel, SingleMergeExchangePrel, or other single-input nodes may sit between the JoinPrel
+   * and the scan nodes.
    *
    * <p>Uses {@code pluginId.getName()} (the catalog-unique source name) for identity comparison
    * rather than {@code pluginId.equals()}, which also compares capabilities and other metadata.
    */
   @Override
   public boolean matches(RelOptRuleCall call) {
-    JdbcScanDrel left = call.rel(1);
-    JdbcScanDrel right = call.rel(2);
-    return left.getPluginId().getName().equals(right.getPluginId().getName());
+    LogicalJoin join = call.rel(0);
+    ScanRelBase left = findJdbcScan(join.getLeft());
+    ScanRelBase right = findJdbcScan(join.getRight());
+    if (left == null || right == null) {
+      return false;
+    }
+    boolean sameSource = left.getPluginId().getName().equals(right.getPluginId().getName());
+    if (sameSource) {
+      logger.info("[JOIN-PUSH] same-source match: {}", left.getPluginId().getName());
+    }
+    return sameSource;
   }
 
   @Override
   public void onMatch(RelOptRuleCall call) {
-    JoinRel join = call.rel(0);
-    JdbcScanDrel leftScan = call.rel(1);
-    JdbcScanDrel rightScan = call.rel(2);
+    LogicalJoin join = call.rel(0);
+    ScanRelBase leftScan = findJdbcScan(join.getLeft());
+    ScanRelBase rightScan = findJdbcScan(join.getRight());
+    if (leftScan == null || rightScan == null) {
+      return;
+    }
 
     JoinRelType joinType = join.getJoinType();
     RexNode condition = join.getCondition();
 
     // Extract schema and table from TableMetadata path components.
-    // Path components: [sourceName, schemaName, tableName] or [sourceName, tableName]
-    // This is the exact same pattern used in JdbcScanPrule.onMatch().
-    List<String> leftPath =
-        leftScan.getTableMetadata().getName().getPathComponents();
-    String leftSchema;
-    String leftTable;
-    if (leftPath.size() >= 3) {
-      leftSchema = leftPath.get(leftPath.size() - 2);
-      leftTable = leftPath.get(leftPath.size() - 1);
-    } else if (leftPath.size() == 2) {
-      leftSchema = leftPath.get(0);
-      leftTable = leftPath.get(1);
-    } else {
-      leftSchema = "";
-      leftTable = leftPath.isEmpty() ? "" : leftPath.get(0);
-    }
+    List<String> leftPath = leftScan.getTableMetadata().getName().getPathComponents();
+    String leftSchema =
+        leftPath.size() >= 3
+            ? leftPath.get(leftPath.size() - 2)
+            : (leftPath.size() == 2 ? leftPath.get(0) : "");
+    String leftTable =
+        leftPath.size() >= 2
+            ? leftPath.get(leftPath.size() - 1)
+            : (leftPath.isEmpty() ? "" : leftPath.get(0));
 
-    List<String> rightPath =
-        rightScan.getTableMetadata().getName().getPathComponents();
-    String rightSchema;
-    String rightTable;
-    if (rightPath.size() >= 3) {
-      rightSchema = rightPath.get(rightPath.size() - 2);
-      rightTable = rightPath.get(rightPath.size() - 1);
-    } else if (rightPath.size() == 2) {
-      rightSchema = rightPath.get(0);
-      rightTable = rightPath.get(1);
-    } else {
-      rightSchema = "";
-      rightTable = rightPath.isEmpty() ? "" : rightPath.get(0);
-    }
+    List<String> rightPath = rightScan.getTableMetadata().getName().getPathComponents();
+    String rightSchema =
+        rightPath.size() >= 3
+            ? rightPath.get(rightPath.size() - 2)
+            : (rightPath.size() == 2 ? rightPath.get(0) : "");
+    String rightTable =
+        rightPath.size() >= 2
+            ? rightPath.get(rightPath.size() - 1)
+            : (rightPath.isEmpty() ? "" : rightPath.get(0));
 
     // Convert join condition to alias-aware SQL using RexToJoinSqlString.
     int leftFieldCount = leftScan.getRowType().getFieldCount();
@@ -118,7 +126,7 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
         new RexToJoinSqlString(join.getRowType(), leftFieldCount, "t1", "t2");
     RexToSqlResult condResult = converter.convert(condition);
     if (condResult == null) {
-      // Unsupported condition -- decline pushdown.
+      logger.info("[JOIN-PUSH] Unsupported join condition — declining pushdown");
       return;
     }
 
@@ -132,10 +140,13 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
       rightProjectedCols = deriveColumnsFromRowType(rightScan.getRowType());
     }
 
+    // Produce a logical JdbcJoinScanDrel at the LOGICAL phase.
+    // The PHYSICAL phase will convert it to JdbcJoinScanPrel via JdbcJoinScanPrule
+    // (registered in JdbcRulesFactory PHYSICAL).
     JdbcJoinScanDrel joinScanDrel =
         new JdbcJoinScanDrel(
             join.getCluster(),
-            leftScan.getTraitSet(), // keep LOGICAL convention
+            join.getCluster().traitSetOf(com.dremio.exec.planner.logical.Rel.LOGICAL), // LOGICAL convention
             leftScan.getPluginId(),
             leftSchema,
             leftTable,
@@ -148,7 +159,54 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
             rightProjectedCols,
             join.getRowType());
 
+    logger.info(
+        "[JOIN-PUSH] Pushing JOIN to source '{}': {}.{} {} {}.{} ON {}",
+        leftScan.getPluginId().getName(),
+        leftSchema,
+        leftTable,
+        SqlBuilder.joinTypeToSql(joinType),
+        rightSchema,
+        rightTable,
+        condResult.getSql());
+
     call.transformTo(joinScanDrel);
+  }
+
+  /**
+   * Walks down the RelNode tree to find a single JdbcScanPrel leaf. Traverses through intermediate
+   * nodes like ProjectPrel, SingleMergeExchangePrel that sit between the JoinPrel and the scan.
+   * Returns null if no JdbcScanPrel is found or if the tree branches.
+   */
+  /**
+   * Walks down the RelNode tree to find a JDBC scan leaf (JdbcScanDrel or ScanCrel with a JDBC
+   * plugin). Returns the found ScanRelBase or null if not found. Traverses through single-input
+   * intermediate nodes (Project, Filter, etc.).
+   */
+  private static ScanRelBase findJdbcScan(RelNode node) {
+    // Unwrap Volcano's RelSubset to get the best/original rel
+    if (node instanceof org.apache.calcite.plan.volcano.RelSubset) {
+      org.apache.calcite.plan.volcano.RelSubset subset =
+          (org.apache.calcite.plan.volcano.RelSubset) node;
+      // Try all rels in the equivalence set
+      for (RelNode rel : subset.getRelList()) {
+        ScanRelBase found = findJdbcScan(rel);
+        if (found != null) {
+          return found;
+        }
+      }
+      return null;
+    }
+    if (node instanceof JdbcScanDrel) {
+      return (JdbcScanDrel) node;
+    }
+    if (node instanceof ScanCrel) {
+      return (ScanCrel) node;
+    }
+    // Walk through single-input nodes (Project, Filter, etc.)
+    if (node.getInputs().size() == 1) {
+      return findJdbcScan(node.getInput(0));
+    }
+    return null;
   }
 
   /** Derives a column list from the row type field names. */
@@ -168,8 +226,6 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
   /**
    * Converts a {@link JdbcJoinScanDrel} logical node to a {@link JdbcJoinScanPrel} physical node
    * during the PHYSICAL planning phase.
-   *
-   * <p>Registered in {@link JdbcRulesFactory} alongside the other Drel-to-Prel conversion rules.
    */
   public static final class JdbcJoinScanPrule extends RelOptRule {
 

@@ -67,16 +67,12 @@ public class JdbcRulesFactory extends StoragePluginTypeRulesFactory {
     switch (phase) {
       case LOGICAL:
         // Convert the generic ScanCrel into the JDBC-specific logical scan node.
-        // Also register the JOIN pushdown rule so JoinRel(JdbcScanDrel, JdbcScanDrel)
-        // same-source can be collapsed into a single JdbcJoinScanDrel.
-        return ImmutableSet.<RelOptRule>of(
-            new JdbcScanDrule(pluginType),
-            JdbcPushJoinIntoScan.INSTANCE);
+        // JOIN pushdown (JdbcPushJoinIntoScan) is injected globally via JdbcJoinRulesFactory.
+        return ImmutableSet.<RelOptRule>of(new JdbcScanDrule(pluginType));
 
       case PHYSICAL:
         // Convert logical JDBC scan to physical, then apply pushdown optimisations.
-        // JdbcJoinScanPrule converts JdbcJoinScanDrel (produced by the LOGICAL join rule)
-        // to JdbcJoinScanPrel which builds the actual JOIN SQL at getPhysicalOperator() time.
+        // JdbcJoinScanPrule converts JdbcJoinScanDrel -> JdbcJoinScanPrel (Drel->Prel).
         return ImmutableSet.<RelOptRule>of(
             JdbcScanPrule.INSTANCE,
             JdbcPushJoinIntoScan.JdbcJoinScanPrule.INSTANCE,
@@ -87,9 +83,7 @@ public class JdbcRulesFactory extends StoragePluginTypeRulesFactory {
             JdbcPushLimitIntoScan.INSTANCE);
 
       case PHYSICAL_HEP:
-        // After Volcano, SortPrel/TopNPrel exist as concrete nodes (possibly with exchanges
-        // between them and JdbcScanPrel in distributed mode). Absorb them into the scan
-        // to enable combined WHERE + ORDER BY + LIMIT pushdown.
+        // After Volcano, concrete physical nodes exist. Absorb sort/topn/limit into scans.
         return ImmutableSet.<RelOptRule>of(
             JdbcPushSortIntoScanHep.INSTANCE,
             JdbcPushTopNIntoScanHep.INSTANCE,
