@@ -48,6 +48,17 @@ import org.slf4j.LoggerFactory;
  * <p>Purpose: Avoid unnecessary data transfer for joins between tables on the same JDBC source. The
  * source engine computes the join using its own indexes and statistics, returning only the combined
  * result set.
+ *
+ * <p>This rule also handles EXCEPT pushdown. Dremio's {@code MinusToJoin} rule (PRE_LOGICAL phase)
+ * rewrites {@code A EXCEPT B} into {@code Project -> Filter -> LogicalJoin(LEFT) -> Aggregate ->
+ * Scan}. This rule matches the resulting {@code LogicalJoin} and pushes the entire join (including
+ * aggregate subqueries) as a single SQL query to the JDBC source. The Filter and Project above the
+ * join are applied by Dremio after receiving the join results.
+ *
+ * <p>INTERSECT pushdown is NOT supported because Calcite's {@code INTERSECT_TO_DISTINCT} rule
+ * rewrites {@code A INTERSECT B} into {@code UNION ALL + GROUP BY + HAVING}, which does not produce
+ * a {@code LogicalJoin} node for this rule to match. INTERSECT queries execute correctly but use two
+ * separate scans with in-engine aggregation.
  */
 public final class JdbcPushJoinIntoScan extends RelOptRule {
 
@@ -79,11 +90,7 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
     if (left == null || right == null) {
       return false;
     }
-    boolean sameSource = left.getPluginId().getName().equals(right.getPluginId().getName());
-    if (sameSource) {
-      logger.info("[JOIN-PUSH] same-source match: {}", left.getPluginId().getName());
-    }
-    return sameSource;
+    return left.getPluginId().getName().equals(right.getPluginId().getName());
   }
 
   @Override
@@ -241,7 +248,6 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
     if (node instanceof org.apache.calcite.plan.volcano.RelSubset) {
       org.apache.calcite.plan.volcano.RelSubset subset =
           (org.apache.calcite.plan.volcano.RelSubset) node;
-      // Try all rels in the equivalence set
       for (RelNode rel : subset.getRelList()) {
         ScanRelBase found = findJdbcScan(rel);
         if (found != null) {
@@ -256,7 +262,7 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
     if (node instanceof ScanCrel) {
       return (ScanCrel) node;
     }
-    // Walk through single-input nodes (Project, Filter, etc.)
+    // Walk through single-input nodes (Project, Filter, Aggregate, etc.)
     if (node.getInputs().size() == 1) {
       return findJdbcScan(node.getInput(0));
     }
