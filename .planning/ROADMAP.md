@@ -194,6 +194,27 @@ Plans:
 - [ ] 35-02-PLAN.md — ADBC COPY optimization: LiteralInliner utility, AdbcRecordReader inline-mode wiring, SQL injection safety tests
 - [ ] 35-03-PLAN.md — Integration tests: PostgreSQL JOIN + ADBC COPY + Oracle JOIN against Testcontainers
 
+### Phase 36: Calcite JDBC Convention Migration for SQL Generation
+**Goal**: Replace the manual `SqlBuilder` SQL string generation with Calcite's JDBC convention (`JdbcConvention`) where the entire pushdown subtree is represented as Calcite JDBC adapter nodes (`JdbcFilter`, `JdbcProject`, `JdbcJoin`, `JdbcSort`, `JdbcAggregate`) and Calcite renders the final SQL via `JdbcImplementor` + `SqlDialect`. This eliminates manual SQL construction, column aliasing bugs, and dialect-specific overrides — Calcite handles all of it. Pushdown rules store Calcite objects (RexNode, RelCollation, ImmutableBitSet, AggregateCall) instead of SQL strings. No kernel changes. All existing integration and unit test scenarios must produce identical results; test code may change but test logic and expected outcomes must not.
+**Depends on**: Phase 35
+**Requirements**: CALCITE-01
+**Success Criteria** (what must be TRUE):
+  1. All existing pushdowns (WHERE, projection, LIMIT, ORDER BY, aggregation, JOIN) produce identical query results before and after migration
+  2. SQL generation uses Calcite's `JdbcImplementor` + `SqlDialect` (PG dialect, Oracle dialect) instead of manual `SqlBuilder`
+  3. Self-joins and shared column names are handled automatically by Calcite (no manual dedup aliasing)
+  4. JOINs, filters, projections, and aggregations compose correctly in any combination via JdbcRel subtree
+  5. No kernel changes — DrelTransformer untouched (per user decision: "limit the intervention on core kernel part")
+  6. No SQL injection risk — Calcite renders AST, never string-interpolates
+  7. All existing unit tests pass (test code may be refactored, test scenarios unchanged)
+  8. All existing integration tests (Testcontainers + Docker UAT) pass with identical expected results
+  9. Plugin remains fully self-contained — no kernel modifications
+**Plans:** 3 plans
+
+Plans:
+- [ ] 36-01-PLAN.md — JdbcCalciteLeaf, createDialect(), JdbcScanPrel field migration to Calcite objects, pushdown rule updates, getPhysicalOperator() JdbcImplementor rewrite
+- [ ] 36-02-PLAN.md — JdbcJoinScanPrel Calcite migration: RexNode join condition, JdbcJoin subtree, JdbcImplementor rendering
+- [ ] 36-03-PLAN.md — Unit test updates, TestCalciteDialectSql, full integration test suite verification
+
 ## Quick Tasks
 
 Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for details.
@@ -247,24 +268,4 @@ Phases execute in numeric order: 30 → 31 → 32 → 33 → 34 → 35 → 36
 | 33. Advanced Query Pushdown Hardening | v1.5 | 0/3 | Not started | - |
 | 34. ADBC Driver for PostgreSQL | v1.5 | 0/3 | Not started | - |
 | 35. JOIN/INTERSECT/EXCEPT Single-Engine Pushdown | v1.5 | Complete    | 2026-03-14 | - |
-| 36. Calcite JDBC Convention Migration | v1.5 | 0/2 | Not started | - |
-
-### Phase 36: Calcite JDBC Convention Migration for SQL Generation
-**Goal**: Replace the manual `SqlBuilder` SQL string generation with Calcite's JDBC convention (`JdbcConvention`) where the entire pushdown subtree is represented as Calcite JDBC adapter nodes (`JdbcTableScan`, `JdbcJoin`, `JdbcFilter`, `JdbcProject`, etc.) and Calcite renders the final SQL via `SqlDialect`. This eliminates manual SQL construction, column aliasing bugs, and dialect-specific overrides — Calcite handles all of it. Requires ~10 lines in `DrelTransformer` (kernel) for the OSS JDBC pushdown pipeline hook. All existing integration and unit test scenarios must produce identical results; test code may change but test logic and expected outcomes must not.
-**Depends on**: Phase 35
-**Requirements**: CALCITE-01
-**Success Criteria** (what must be TRUE):
-  1. All existing pushdowns (WHERE, projection, LIMIT, ORDER BY, aggregation, JOIN) produce identical query results before and after migration
-  2. SQL generation uses Calcite's `SqlDialect` (PG dialect, Oracle dialect) instead of manual `SqlBuilder`
-  3. Self-joins and shared column names are handled automatically by Calcite (no manual dedup aliasing)
-  4. JOINs, filters, projections, and aggregations compose correctly in any combination via Calcite convention
-  5. ~10 line kernel change in `DrelTransformer` for OSS JDBC pushdown pipeline hook — cleanly maintainable across Dremio version upgrades
-  6. No SQL injection risk — Calcite renders AST, never string-interpolates
-  7. All existing unit tests pass (test code may be refactored, test scenarios unchanged)
-  8. All existing integration tests (Testcontainers + Docker UAT) pass with identical expected results
-  9. Plugin remains self-contained except for the kernel hook
-**Plans:** 2 plans
-
-Plans:
-- [ ] 36-01-PLAN.md — JdbcCalciteLeaf, createDialect(), JdbcScanPrel Calcite migration
-- [ ] 36-02-PLAN.md — JdbcJoinScanPrel Calcite migration, test updates, integration verification
+| 36. Calcite JDBC Convention Migration | v1.5 | 0/3 | Not started | - |
