@@ -50,6 +50,8 @@ import com.dremio.service.namespace.capabilities.SourceCapabilities;
 import com.dremio.service.namespace.dataset.proto.DatasetConfig;
 import java.io.IOException;
 import java.sql.Connection;
+import org.apache.calcite.sql.SqlDialect;
+import org.apache.calcite.sql.dialect.PostgresqlSqlDialect;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -152,6 +154,21 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
    */
   public SqlBuilder createSqlBuilder() {
     return new SqlBuilder();
+  }
+
+  /**
+   * Returns the Calcite {@link SqlDialect} for this source, used by {@link
+   * com.dremio.plugins.jdbc.planning.DremioJdbcImplementor} to render SQL.
+   *
+   * <p>The default implementation returns {@link PostgresqlSqlDialect#DEFAULT}, which is correct
+   * for PostgreSQL and a reasonable baseline for other SQL-standard databases. Connector subclasses
+   * should override this method to return the appropriate dialect (e.g., {@link
+   * org.apache.calcite.sql.dialect.OracleSqlDialect#DEFAULT} for Oracle).
+   *
+   * @return the {@link SqlDialect} for this source
+   */
+  public SqlDialect createDialect() {
+    return PostgresqlSqlDialect.DEFAULT;
   }
 
   /**

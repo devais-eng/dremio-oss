@@ -31,6 +31,8 @@ import com.dremio.plugins.jdbc.pool.JdbcConnectionPool;
 import com.dremio.plugins.jdbc.reader.JdbcRecordReader;
 import com.dremio.plugins.jdbc.schema.JdbcSchemaFetcher;
 import com.dremio.sabot.exec.context.OperatorContext;
+import org.apache.calcite.sql.SqlDialect;
+import org.apache.calcite.sql.dialect.OracleSqlDialect;
 import io.protostuff.Tag;
 import java.util.Properties;
 import javax.inject.Provider;
@@ -247,6 +249,11 @@ public class OracleConf extends BaseJdbcConf<OracleConf, JdbcStoragePlugin> {
       @Override
       public SqlBuilder createSqlBuilder() {
         return new OracleSqlBuilder();
+      }
+
+      @Override
+      public SqlDialect createDialect() {
+        return OracleSqlDialect.DEFAULT;
       }
     };
   }

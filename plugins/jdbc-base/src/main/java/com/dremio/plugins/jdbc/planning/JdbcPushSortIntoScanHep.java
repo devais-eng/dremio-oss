@@ -26,7 +26,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * HEP-phase pushdown rule that absorbs a concrete {@link SortPrel} into the {@link JdbcScanPrel}
- * below it, adding an ORDER BY clause to the generated SQL.
+ * below it, storing the Calcite {@link org.apache.calcite.rel.RelCollation} on the scan so that
+ * {@link DremioJdbcImplementor} renders the ORDER BY clause at {@link
+ * JdbcScanPrel#getPhysicalOperator} time.
  *
  * <p>This rule complements {@link JdbcPushSortIntoScan} (which matches logical {@code
  * SortRel(JdbcScanDrel)} in the Volcano phase). The Volcano-phase rule handles the simple case
@@ -38,7 +40,8 @@ import org.slf4j.LoggerFactory;
  * <p>After Volcano extracts the best plan, {@code SortPrel} exists as a concrete node in the plan
  * tree. In distributed mode (Dremio's default), exchange nodes are inserted between SortPrel and
  * JdbcScanPrel. This rule traverses through exchange nodes to find the underlying JdbcScanPrel and
- * absorbs the ORDER BY into the scan, enabling combined WHERE + ORDER BY pushdown.
+ * stores the {@link org.apache.calcite.rel.RelCollation} on the scan, enabling combined WHERE +
+ * ORDER BY pushdown.
  *
  * <p>Registered in {@code PHYSICAL_HEP} via {@link JdbcRulesFactory}.
  */
@@ -100,12 +103,8 @@ public final class JdbcPushSortIntoScanHep extends RelOptRule {
       return;
     }
 
-    String orderByExpr =
-        JdbcPushSortIntoScan.collationToSql(sort.getCollation(), scan.getRowType());
-    if (orderByExpr == null) {
-      return;
-    }
-
-    call.transformTo(scan.cloneWithOrderBy(orderByExpr));
+    // Store RelCollation directly -- DremioJdbcImplementor renders ORDER BY at
+    // getPhysicalOperator() time via JdbcRules.JdbcSort.
+    call.transformTo(scan.cloneWithCollation(sort.getCollation()));
   }
 }

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: complete
-stopped_at: Completed 35-03-PLAN.md
-last_updated: "2026-03-14T21:35:00Z"
-last_activity: "2026-03-14 — Completed Phase 35 Plan 03 (JOIN pushdown integration tests: TestPostgresJoinPushdown 13 tests, TestOracleJoinPushdown 5 tests, Docker UAT test-uat-35.sh 18 tests; OracleSqlBuilder AS alias fix)"
+stopped_at: Completed 36-03-PLAN.md
+last_updated: "2026-03-15T20:55:00Z"
+last_activity: "2026-03-15 — Completed Phase 36 Plan 03 (Docker UAT 44/44 pass; filter+agg normalization at push time; position-based JdbcRecordReader; JOIN+WHERE column projection fix in JdbcPushJoinIntoScan)"
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 15
-  completed_plans: 15
+  total_phases: 6
+  completed_phases: 6
+  total_plans: 18
+  completed_plans: 18
   percent: 100
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** Phase 35 — JOIN/INTERSECT/EXCEPT single-engine pushdown
+**Current focus:** Phase 36 — Calcite JDBC convention migration for SQL generation
 
 ## Current Position
 
-Phase: 35 of 35 (JOIN/INTERSECT/EXCEPT single-engine pushdown)
-Plan: 3 of 3 complete (35-03 JOIN pushdown integration tests + Docker UAT script)
-Status: COMPLETE — All phases and plans done
-Last activity: 2026-03-14 — Completed 35-03 (TestPostgresJoinPushdown 13 tests, TestOracleJoinPushdown 5 tests, test-uat-35.sh Docker UAT 18 tests, OracleSqlBuilder AS alias fix)
+Phase: 36 of 36 (Calcite JDBC convention migration for SQL generation)
+Plan: 3 of 3 complete — PHASE COMPLETE
+Status: COMPLETE — All 6 phases, 18 plans done; v1.5 RDBMS JDBC Plugin milestone complete
+Last activity: 2026-03-15 — Completed 36-03 (Docker UAT 44/44 pass; fixed filter/agg index normalization at push time; position-based JdbcRecordReader; JOIN+WHERE column projection fix)
 
-Progress: [██████████] 100% (15 of 15 plans complete)
+Progress: [██████████] 100% (18 of 18 plans complete)
 
 ## Performance Metrics
 
@@ -63,6 +63,9 @@ Progress: [██████████] 100% (15 of 15 plans complete)
 | 35-join-intersect-except-pushdown P01 | 1 | 15 min | 15 min |
 | 35-join-intersect-except-pushdown P02 | 1 | 5 min | 5 min |
 | 35-join-intersect-except-pushdown P03 | 1 | 22 min | 22 min |
+| 36-calcite-jdbc-convention-migration P01 | 1 | 47 min | 47 min |
+| 36-calcite-jdbc-convention-migration P02 | 1 | 11 min | 11 min |
+| 36-calcite-jdbc-convention-migration P03 | 1 | 285 min | 285 min |
 
 *Updated after each plan completion*
 
@@ -126,6 +129,17 @@ Progress: [██████████] 100% (15 of 15 plans complete)
 - [Phase 35-02]: Maven 3.9.9 rejects # comment lines in .mvn/maven.config — removed comments, kept only -Drevision= flag
 - [Phase 35-03]: OracleSqlBuilder.buildJoinSql() overrides base to omit AS keyword — Oracle rejects AS for table aliases in FROM/JOIN (ORA-00933); space-separated alias: "schema"."table" "alias"
 - [Phase 35-03]: INTERSECT semantics verified via INNER JOIN DISTINCT; EXCEPT semantics via LEFT JOIN + IS NULL filter
+- [Phase 36-01]: JdbcCalciteLeaf extends AbstractRelNode (not TableScan) -- TableScan requires non-null RelOptTable; AbstractRelNode is cleaner for direct schema/table string control
+- [Phase 36-01]: DremioJdbcImplementor subclass needed -- stock JdbcImplementor only handles JdbcTableScan; our JdbcCalciteLeaf needs explicit visit(JdbcCalciteLeaf) dispatch via reflection
+- [Phase 36-01]: Inline literals in WHERE clause (no bind params) -- JdbcImplementor renders literals via AST nodes; JdbcGroupScan receives Collections.emptyList() for bindParams
+- [Phase 36-01]: collationToSql() static method removed -- JdbcRules.JdbcSort.implement() handles ORDER BY rendering automatically including NULLS FIRST/LAST per dialect
+- [Phase 36-02]: JdbcJoinScanDrel replaces String onClauseSql + List<BindParam> conditionBindParams with single RexNode conditionRex -- eliminates RexToJoinSqlString from the join pipeline
+- [Phase 36-02]: JdbcJoinScanPrel.getPhysicalOperator() builds JdbcCalciteLeaf+JdbcJoin subtree rendered by DremioJdbcImplementor -- OracleSqlDialect.allowsAs()==false handles AS-less aliases automatically
+- [Phase 36-02]: SqlBuilder.buildJoinSql() and OracleSqlBuilder.buildJoinSql() are now dead code -- kept because unit tests test them directly; Plan 36-03 may remove them
+- [Phase 36-03]: Filter/agg index normalization must happen at push time (in each pushdown rule), not at getPhysicalOperator() -- Volcano planner rule firing order means the scan row type can change between push and build time
+- [Phase 36-03]: JdbcAggregate always wrapped with renaming JdbcProject -- Calcite renders aggregates without AS aliases; explicit aliases required for JdbcRecordReader column matching
+- [Phase 36-03]: JdbcRecordReader uses position-based ResultSet reading -- name-based fails for self-joins (duplicate names) and aggregate alias differences; buildColumnPositions() with ordinal fallback handles all cases
+- [Phase 36-03]: JdbcPushJoinIntoScan derives leftColumns from join.getLeft().getRowType() not leftScan.getProjectedColumns() -- scan's projection may exclude WHERE-only columns causing SQL/schema field order mismatch
 
 ### Pending Todos
 
@@ -136,6 +150,7 @@ None.
 - Phase 33 added: Advanced Query Pushdown Hardening
 - Phase 34 added: adbc driver for (at least) postgres
 - Phase 35 added: JOIN/UNION/INTERSECT/EXCEPT single-engine pushdown
+- Phase 36 added: Calcite JDBC convention migration for SQL generation
 
 ### Blockers/Concerns
 
@@ -143,6 +158,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14
-Stopped at: Completed 35-03-PLAN.md — JOIN pushdown integration tests (TestPostgresJoinPushdown, TestOracleJoinPushdown, test-uat-35.sh Docker UAT, OracleSqlBuilder AS alias fix)
+Last session: 2026-03-15
+Stopped at: Completed 36-03-PLAN.md — Phase 36 complete. All 18 plans, 6 phases done. v1.5 milestone complete.
 Resume file: None

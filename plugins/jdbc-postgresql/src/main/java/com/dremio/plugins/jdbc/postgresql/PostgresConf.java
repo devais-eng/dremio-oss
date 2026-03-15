@@ -30,6 +30,8 @@ import com.dremio.plugins.jdbc.pool.JdbcConnectionPool;
 import com.dremio.plugins.jdbc.reader.JdbcRecordReader;
 import com.dremio.plugins.jdbc.schema.JdbcSchemaFetcher;
 import com.dremio.sabot.exec.context.OperatorContext;
+import org.apache.calcite.sql.SqlDialect;
+import org.apache.calcite.sql.dialect.PostgresqlSqlDialect;
 import io.protostuff.Tag;
 import java.util.Properties;
 import javax.inject.Provider;
@@ -276,6 +278,11 @@ public class PostgresConf extends BaseJdbcConf<PostgresConf, JdbcStoragePlugin> 
       public JdbcRecordReader createRecordReader(
           OperatorContext ctx, JdbcSubScan config, JdbcConnectionPool pool) {
         return new PostgresRecordReader(ctx, config, pool, getQueryTimeoutSec());
+      }
+
+      @Override
+      public SqlDialect createDialect() {
+        return PostgresqlSqlDialect.DEFAULT;
       }
     };
   }

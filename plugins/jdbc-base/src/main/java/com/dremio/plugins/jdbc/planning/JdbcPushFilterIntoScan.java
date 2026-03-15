@@ -15,20 +15,32 @@
  */
 package com.dremio.plugins.jdbc.planning;
 
+import com.dremio.common.expression.SchemaPath;
 import com.dremio.exec.planner.logical.RelOptHelper;
 import com.dremio.exec.planner.physical.FilterPrel;
+import java.util.List;
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
+import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rel.type.RelDataTypeField;
+import org.apache.calcite.rex.RexBuilder;
+import org.apache.calcite.rex.RexInputRef;
+import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.rex.RexShuttle;
 
 /**
- * Pushdown rule that converts a {@link FilterPrel} above a {@link JdbcScanPrel} into a WHERE clause
- * carried by the scan node itself (BASE-05).
+ * Pushdown rule that converts a {@link FilterPrel} above a {@link JdbcScanPrel} into a Calcite
+ * {@link RexNode} filter condition carried by the scan node itself (BASE-05).
  *
- * <p>The rule translates the filter's {@code RexNode} condition into a SQL string using the
- * top-level {@link RexToSqlString} converter, which returns a {@link RexToSqlResult} containing
- * {@code ?} placeholders and ordered bind parameters. If any part of the predicate cannot be
- * translated, the rule declines to push down and leaves the FilterPrel in place so Dremio handles
- * it in-engine.
+ * <p>The filter condition is <em>normalized to full-table column indices</em> before storage.
+ * This is necessary because the Volcano planner may fire {@link JdbcPushProjectIntoScan} before
+ * this rule, setting the scan's row type to a projected subset. The FilterPrel's condition indices
+ * are relative to its input's row type (potentially projected), but {@link
+ * JdbcScanPrel#getPhysicalOperator} builds the Calcite subtree starting from a leaf with the
+ * <em>full</em> table row type. Storing full-table indices avoids incorrect column references.
+ *
+ * <p>At {@link JdbcScanPrel#getPhysicalOperator} time, the stored {@link RexNode} is passed
+ * directly to {@code JdbcRules.JdbcFilter} and rendered to SQL by {@link DremioJdbcImplementor}.
  */
 public final class JdbcPushFilterIntoScan extends RelOptRule {
 
@@ -52,12 +64,91 @@ public final class JdbcPushFilterIntoScan extends RelOptRule {
     FilterPrel filter = call.rel(0);
     JdbcScanPrel scan = call.rel(1);
 
-    RexToSqlResult result = new RexToSqlString(scan.getRowType()).convert(filter.getCondition());
-    if (result == null) {
-      // Unsupported expression -- do not push down.
-      return;
+    // Normalize the filter condition: translate RexInputRef indices from the scan's
+    // current row type (which may be a projected subset) to full-table column indices.
+    // This ensures filterRex indices in getPhysicalOperator() always reference the
+    // full-table leaf row type, regardless of what projection was pushed first.
+    RexNode normalizedCondition =
+        normalizeToFullTable(
+            filter.getCondition(),
+            scan.getProjectedColumns(),
+            getFullTableRowType(scan),
+            scan.getCluster().getRexBuilder());
+
+    call.transformTo(scan.cloneWithFilter(normalizedCondition));
+  }
+
+  /**
+   * Returns the full (unprojected) row type for the given scan node.
+   *
+   * <p>Uses the Calcite RelOptTable row type (which reflects the full schema). Falls back to
+   * the scan's derived row type if the table row type is unavailable.
+   */
+  static RelDataType getFullTableRowType(JdbcScanPrel scan) {
+    try {
+      return scan.getTable().getRowType();
+    } catch (Exception e) {
+      return scan.deriveRowType();
+    }
+  }
+
+  /**
+   * Remaps RexInputRef indices in {@code condition} from the scan's current projected row type
+   * to the full-table row type.
+   *
+   * <p>Each RexInputRef with index {@code i} in a projected-column row type refers to
+   * {@code projectedColumns.get(i)}. We find that column's position in the full-table row type
+   * and replace the RexInputRef with a new one at the full-table index.
+   *
+   * <p>If {@code projectedColumns} is null or empty (scan already uses full-table row type),
+   * the condition is returned unchanged.
+   *
+   * @param condition the filter condition with projected-rowtype indices
+   * @param projectedColumns the scan's current projected column list (may be null)
+   * @param fullTableRowType the full (unprojected) table row type
+   * @param rexBuilder the RexBuilder for constructing new RexInputRef nodes
+   * @return the condition with indices remapped to the full-table row type
+   */
+  static RexNode normalizeToFullTable(
+      RexNode condition,
+      List<SchemaPath> projectedColumns,
+      RelDataType fullTableRowType,
+      RexBuilder rexBuilder) {
+
+    if (projectedColumns == null || projectedColumns.isEmpty()) {
+      // Scan uses full-table row type; indices already correct.
+      return condition;
     }
 
-    call.transformTo(scan.cloneWithFilter(result.getSql(), result.getParams()));
+    // Build projected-to-full mapping: projectedColumns[i] → full-table index.
+    final int[] projToFull = new int[projectedColumns.size()];
+    List<RelDataTypeField> fullFields = fullTableRowType.getFieldList();
+    for (int pi = 0; pi < projectedColumns.size(); pi++) {
+      String colName = projectedColumns.get(pi).getRootSegment().getPath();
+      int fullIdx = -1;
+      for (int fi = 0; fi < fullFields.size(); fi++) {
+        if (fullFields.get(fi).getName().equalsIgnoreCase(colName)) {
+          fullIdx = fi;
+          break;
+        }
+      }
+      projToFull[pi] = (fullIdx >= 0) ? fullIdx : pi; // fallback: identity
+    }
+
+    // Remap RexInputRef indices. Only remap indices within the projected range;
+    // indices beyond the projected range are assumed to already be full-table indices.
+    return condition.accept(
+        new RexShuttle() {
+          @Override
+          public RexNode visitInputRef(RexInputRef inputRef) {
+            int idx = inputRef.getIndex();
+            if (idx >= 0 && idx < projToFull.length) {
+              int fullIdx = projToFull[idx];
+              RelDataTypeField fullField = fullTableRowType.getFieldList().get(fullIdx);
+              return rexBuilder.makeInputRef(fullField.getType(), fullIdx);
+            }
+            return inputRef;
+          }
+        });
   }
 }

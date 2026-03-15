@@ -81,9 +81,7 @@ public final class JdbcScanPrule extends RelOptRule {
             logicalScan.getHintsAsList(),
             ImmutableList.of(),
             schemaName,
-            tableName,
-            null,
-            null);
+            tableName);
 
     call.transformTo(physicalScan);
   }

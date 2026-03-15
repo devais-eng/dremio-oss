@@ -21,7 +21,8 @@ import org.apache.calcite.plan.RelOptRuleCall;
 
 /**
  * HEP-phase pushdown rule that absorbs a {@link TopNPrel} into the {@link JdbcScanPrel} below it,
- * pushing both ORDER BY and LIMIT into the generated SQL.
+ * pushing both ORDER BY (as a Calcite {@link org.apache.calcite.rel.RelCollation}) and LIMIT into
+ * the generated SQL.
  *
  * <p>TopNPrel is created by Dremio's {@code PushLimitToTopN} rule during the Volcano phase when a
  * LIMIT sits above a Sort. It combines the sort collation and row limit into a single operator.
@@ -61,14 +62,10 @@ public final class JdbcPushTopNIntoScanHep extends RelOptRule {
       return;
     }
 
-    String orderByExpr =
-        JdbcPushSortIntoScan.collationToSql(topN.getCollation(), scan.getRowType());
-    if (orderByExpr == null) {
-      return;
-    }
-
-    JdbcScanPrel withOrderBy = scan.cloneWithOrderBy(orderByExpr);
-    JdbcScanPrel withOrderByAndLimit = withOrderBy.cloneWithLimit(topN.getLimit());
-    call.transformTo(withOrderByAndLimit);
+    // Store RelCollation directly -- DremioJdbcImplementor renders ORDER BY at
+    // getPhysicalOperator() time. The limit field (Integer) is unchanged.
+    JdbcScanPrel withCollation = scan.cloneWithCollation(topN.getCollation());
+    JdbcScanPrel withCollationAndLimit = withCollation.cloneWithLimit(topN.getLimit());
+    call.transformTo(withCollationAndLimit);
   }
 }

@@ -29,12 +29,16 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.BitVector;
 import org.apache.arrow.vector.DateMilliVector;
@@ -65,6 +69,22 @@ import org.slf4j.LoggerFactory;
  *   <li>{@link #close} — releases ResultSet, PreparedStatement, and Connection.
  * </ol>
  *
+ * <p>Column binding uses <em>position-based</em> access (1-indexed {@link ResultSet#getXxx(int)}).
+ * This is more robust than name-based access because it handles:
+ * <ul>
+ *   <li>Self-join duplicate column names (e.g. {@code id, name, ..., id, name} → renamed
+ *       {@code id0, name0} in the schema but not in the ResultSet)
+ *   <li>Aggregate column aliases that may differ between databases (e.g. {@code EXPR$1} vs
+ *       {@code count})
+ * </ul>
+ *
+ * <p>The position mapping strategy (built once after query execution):
+ * <ol>
+ *   <li>For each expected schema column (in order), try to find an unused ResultSet column
+ *       with a matching name (case-insensitive).
+ *   <li>If no matching name is found, fall back to the ordinal position (i+1).
+ * </ol>
+ *
  * <p>The {@link #writeValue} helper is protected so that concrete connectors can override it to
  * handle database-specific types or custom mappings.
  */
@@ -80,8 +100,15 @@ public class JdbcRecordReader extends AbstractRecordReader {
   private PreparedStatement stmt;
   private ResultSet rs;
 
-  /** Ordered map from column name to the Arrow vector that receives its values. */
+  /** Ordered map from column name to the Arrow vector that receives its values (used in setup). */
   private final Map<String, ValueVector> vectors = new LinkedHashMap<>();
+
+  /**
+   * Ordered list of (ResultSet column position, Arrow vector) pairs.
+   * Built once after query execution; used in {@link #next} for position-based reading.
+   * Positions are 1-indexed (JDBC convention).
+   */
+  private List<Map.Entry<Integer, ValueVector>> columnPositions;
 
   /**
    * Creates a new reader.
@@ -157,6 +184,11 @@ public class JdbcRecordReader extends AbstractRecordReader {
     } catch (SQLException e) {
       throw new RuntimeException("Failed to execute JDBC query: " + config.getSql(), e);
     }
+
+    // Build position mapping: map each expected vector to a ResultSet column position.
+    // This handles self-join duplicate column names (e.g. "id0" not in ResultSet) and
+    // aggregate column aliases that differ between databases.
+    columnPositions = buildColumnPositions(rs, colNames, vectors);
   }
 
   /**
@@ -173,7 +205,7 @@ public class JdbcRecordReader extends AbstractRecordReader {
         if (!rs.next()) {
           break;
         }
-        for (Map.Entry<String, ValueVector> entry : vectors.entrySet()) {
+        for (Map.Entry<Integer, ValueVector> entry : columnPositions) {
           writeValue(entry.getValue(), rs, entry.getKey(), count);
         }
         count++;
@@ -219,6 +251,95 @@ public class JdbcRecordReader extends AbstractRecordReader {
       }
       conn = null;
     }
+  }
+
+  /**
+   * Builds the column-position mapping after query execution.
+   *
+   * <p>For each expected column name (from {@code colNames}), tries to find an unused ResultSet
+   * column with a matching name (case-insensitive). Falls back to ordinal position if no matching
+   * unused column exists.
+   *
+   * <p>This correctly handles:
+   * <ul>
+   *   <li>Normal scans: name-based matching succeeds for all columns
+   *   <li>Self-joins: duplicate column names (e.g. {@code id} appears twice) — the second
+   *       occurrence is matched by ordinal since its schema name ({@code id0}) differs
+   *   <li>Aggregate renames: if the SQL alias matches the schema name, name-based match succeeds
+   * </ul>
+   *
+   * @param rs the open result set (not yet advanced)
+   * @param colNames the expected column names in schema order
+   * @param vectors the registered vectors (in insertion order, same order as colNames)
+   * @return ordered list of (1-indexed position, vector) pairs for use in {@link #next}
+   */
+  private static List<Map.Entry<Integer, ValueVector>> buildColumnPositions(
+      ResultSet rs, List<String> colNames, Map<String, ValueVector> vectors) {
+
+    List<Map.Entry<Integer, ValueVector>> result = new ArrayList<>();
+
+    // Build case-insensitive name → position list from ResultSet metadata
+    // (LinkedHashMap preserves order; list for multi-occurrence handling)
+    java.util.Map<String, List<Integer>> rsNameToPositions = new LinkedHashMap<>();
+    try {
+      ResultSetMetaData meta = rs.getMetaData();
+      int colCount = meta.getColumnCount();
+      for (int col = 1; col <= colCount; col++) {
+        String rsColName = meta.getColumnLabel(col); // alias if specified, else column name
+        rsNameToPositions.computeIfAbsent(rsColName.toUpperCase(), k -> new ArrayList<>()).add(col);
+      }
+    } catch (SQLException e) {
+      logger.warn("Failed to read ResultSet metadata for column mapping; using ordinal positions", e);
+      // Fall back: assign 1-indexed positions by order
+      int pos = 1;
+      for (String colName : colNames) {
+        ValueVector vec = vectors.get(colName);
+        if (vec != null) {
+          result.add(new AbstractMap.SimpleEntry<>(pos++, vec));
+        }
+      }
+      return result;
+    }
+
+    // Track which positions are already assigned to handle duplicate column names
+    Set<Integer> usedPositions = new HashSet<>();
+    int ordinalPos = 1;
+
+    for (String colName : colNames) {
+      ValueVector vec = vectors.get(colName);
+      if (vec == null) {
+        // Column was skipped during registration (not in schema); skip here too
+        ordinalPos++;
+        continue;
+      }
+
+      // Try to find an unused ResultSet column with this name
+      List<Integer> candidates = rsNameToPositions.get(colName.toUpperCase());
+      int assignedPosition = -1;
+      if (candidates != null) {
+        for (int candidate : candidates) {
+          if (!usedPositions.contains(candidate)) {
+            assignedPosition = candidate;
+            break;
+          }
+        }
+      }
+
+      if (assignedPosition < 0) {
+        // Name not found or all matching positions used: fall back to ordinal position
+        // This handles self-join columns like "id0" where ResultSet has "id" at position 5
+        assignedPosition = ordinalPos;
+        logger.debug(
+            "Column '{}' not found in ResultSet by name; falling back to ordinal position {}",
+            colName, ordinalPos);
+      }
+
+      usedPositions.add(assignedPosition);
+      result.add(new AbstractMap.SimpleEntry<>(assignedPosition, vec));
+      ordinalPos++;
+    }
+
+    return result;
   }
 
   /**
@@ -315,7 +436,10 @@ public class JdbcRecordReader extends AbstractRecordReader {
 
   /**
    * Writes a single column value from the current {@link ResultSet} row into the Arrow vector at
-   * position {@code index}.
+   * row slot {@code index}.
+   *
+   * <p>Reads by <em>position</em> (1-indexed) rather than by name to handle duplicate column
+   * names (e.g. self-join) and columns with aliases that differ from the schema field names.
    *
    * <p>Null values (as reported by {@link ResultSet#wasNull()}) are silently skipped — the vector
    * retains its default null/zero value for the slot.
@@ -325,78 +449,99 @@ public class JdbcRecordReader extends AbstractRecordReader {
    *
    * @param vec the Arrow vector that will receive the value
    * @param rs the active result set positioned on the current row
-   * @param colName the column name to read
+   * @param colPosition the 1-indexed ResultSet column position to read
    * @param index the slot within the vector to write into
    * @throws SQLException if the JDBC driver reports an error
    */
-  protected void writeValue(ValueVector vec, ResultSet rs, String colName, int index)
+  protected void writeValue(ValueVector vec, ResultSet rs, int colPosition, int index)
       throws SQLException {
     if (vec instanceof IntVector) {
-      int val = rs.getInt(colName);
+      int val = rs.getInt(colPosition);
       if (!rs.wasNull()) {
         ((IntVector) vec).setSafe(index, val);
       }
     } else if (vec instanceof BigIntVector) {
-      long val = rs.getLong(colName);
+      long val = rs.getLong(colPosition);
       if (!rs.wasNull()) {
         ((BigIntVector) vec).setSafe(index, val);
       }
     } else if (vec instanceof Float4Vector) {
-      float val = rs.getFloat(colName);
+      float val = rs.getFloat(colPosition);
       if (!rs.wasNull()) {
         ((Float4Vector) vec).setSafe(index, val);
       }
     } else if (vec instanceof Float8Vector) {
-      double val = rs.getDouble(colName);
+      double val = rs.getDouble(colPosition);
       if (!rs.wasNull()) {
         ((Float8Vector) vec).setSafe(index, val);
       }
     } else if (vec instanceof BitVector) {
-      boolean val = rs.getBoolean(colName);
+      boolean val = rs.getBoolean(colPosition);
       if (!rs.wasNull()) {
         ((BitVector) vec).setSafe(index, val ? 1 : 0);
       }
     } else if (vec instanceof VarCharVector) {
-      String val = rs.getString(colName);
+      String val = rs.getString(colPosition);
       if (!rs.wasNull() && val != null) {
         byte[] bytes = val.getBytes(StandardCharsets.UTF_8);
         ((VarCharVector) vec).setSafe(index, bytes, 0, bytes.length);
       }
     } else if (vec instanceof VarBinaryVector) {
-      byte[] val = rs.getBytes(colName);
+      byte[] val = rs.getBytes(colPosition);
       if (!rs.wasNull() && val != null) {
         ((VarBinaryVector) vec).setSafe(index, val, 0, val.length);
       }
     } else if (vec instanceof DecimalVector) {
-      BigDecimal val = rs.getBigDecimal(colName);
+      BigDecimal val = rs.getBigDecimal(colPosition);
       if (!rs.wasNull() && val != null) {
         DecimalVector dv = (DecimalVector) vec;
         ((DecimalVector) vec)
             .setSafe(index, val.setScale(dv.getScale(), java.math.RoundingMode.HALF_UP));
       }
     } else if (vec instanceof DateMilliVector) {
-      java.sql.Date val = rs.getDate(colName);
+      java.sql.Date val = rs.getDate(colPosition);
       if (!rs.wasNull() && val != null) {
         ((DateMilliVector) vec).setSafe(index, val.getTime());
       }
     } else if (vec instanceof TimeMilliVector) {
-      java.sql.Time val = rs.getTime(colName);
+      java.sql.Time val = rs.getTime(colPosition);
       if (!rs.wasNull() && val != null) {
         // TimeMilliVector stores milliseconds since midnight.
         ((TimeMilliVector) vec).setSafe(index, (int) (val.getTime() % 86_400_000L));
       }
     } else if (vec instanceof TimeStampMilliVector) {
-      java.sql.Timestamp val = rs.getTimestamp(colName);
+      java.sql.Timestamp val = rs.getTimestamp(colPosition);
       if (!rs.wasNull() && val != null) {
         ((TimeStampMilliVector) vec).setSafe(index, val.getTime());
       }
     } else {
       // Fallback: attempt to read as string and store as UTF-8 bytes (best-effort).
-      String val = rs.getString(colName);
+      String val = rs.getString(colPosition);
       if (!rs.wasNull() && val != null && vec instanceof VarCharVector) {
         byte[] bytes = val.getBytes(StandardCharsets.UTF_8);
         ((VarCharVector) vec).setSafe(index, bytes, 0, bytes.length);
       }
+    }
+  }
+
+  /**
+   * Backward-compatible name-based overload for subclasses that override column reading.
+   *
+   * <p>Subclasses that override database-specific type handling should override
+   * {@link #writeValue(ValueVector, ResultSet, int, int)} instead.
+   *
+   * @deprecated Use {@link #writeValue(ValueVector, ResultSet, int, int)} (position-based).
+   */
+  @Deprecated
+  protected void writeValue(ValueVector vec, ResultSet rs, String colName, int index)
+      throws SQLException {
+    // Delegate to position-based access using findColumn (best-effort)
+    try {
+      int colPosition = rs.findColumn(colName);
+      writeValue(vec, rs, colPosition, index);
+    } catch (SQLException e) {
+      // If column not found by name, log and skip
+      logger.warn("Column '{}' not found in ResultSet; skipping", colName);
     }
   }
 

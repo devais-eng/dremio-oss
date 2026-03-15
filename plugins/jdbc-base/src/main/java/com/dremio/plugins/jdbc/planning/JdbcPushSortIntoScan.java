@@ -24,12 +24,12 @@ import java.util.List;
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
 import org.apache.calcite.rel.RelCollation;
-import org.apache.calcite.rel.RelFieldCollation;
-import org.apache.calcite.rel.type.RelDataType;
 
 /**
- * Pushdown rule that absorbs a logical {@link SortRel} into a physical {@link JdbcScanPrel}, so the
- * generated SQL includes an ORDER BY clause and the database returns rows pre-sorted.
+ * Pushdown rule that absorbs a logical {@link SortRel} into a physical {@link JdbcScanPrel},
+ * storing the Calcite {@link RelCollation} directly on the scan so that {@link
+ * DremioJdbcImplementor} can render the ORDER BY clause at {@link
+ * JdbcScanPrel#getPhysicalOperator} time.
  *
  * <p>This rule matches at the <b>logical</b> level ({@code SortRel} above {@link JdbcScanDrel})
  * rather than the physical level because Dremio's {@code SortPrule} does not explicitly create a
@@ -38,13 +38,13 @@ import org.apache.calcite.rel.type.RelDataType;
  * SortPrel(JdbcScanPrel)}) would never fire.
  *
  * <p>By matching the logical sort above the logical JDBC scan, the rule produces a physical {@link
- * JdbcScanPrel} with the ORDER BY clause and the collation trait already set. Volcano then sees
+ * JdbcScanPrel} with the ORDER BY collation and the collation trait already set. Volcano then sees
  * that the sort group already has a physical implementation satisfying the required collation and
  * does not need to insert a {@code SortPrel} enforcer.
  *
- * <p>The rule extracts sort direction and null ordering from the {@link RelCollation} carried by
- * the SortRel and translates each field collation into a SQL ORDER BY expression with explicit
- * {@code NULLS FIRST} or {@code NULLS LAST} directives.
+ * <p>The {@link RelCollation} is stored as-is on the scan. At {@code getPhysicalOperator()} time,
+ * {@code JdbcRules.JdbcSort.implement()} renders it including explicit {@code NULLS FIRST} or
+ * {@code NULLS LAST} directives, automatically respecting the target dialect's SQL syntax.
  *
  * <p>Registered in the {@code PHYSICAL} (Volcano) phase via {@link JdbcRulesFactory}.
  */
@@ -74,10 +74,7 @@ public final class JdbcPushSortIntoScan extends RelOptRule {
     SortRel sort = call.rel(0);
     JdbcScanDrel logicalScan = call.rel(1);
 
-    String orderByExpr = collationToSql(sort.getCollation(), logicalScan.getRowType());
-    if (orderByExpr == null) {
-      return;
-    }
+    RelCollation sortCollation = sort.getCollation();
 
     // Extract schema and table names from the dataset namespace key path (same as JdbcScanPrule).
     List<String> pathComponents = logicalScan.getTableMetadata().getName().getPathComponents();
@@ -94,7 +91,7 @@ public final class JdbcPushSortIntoScan extends RelOptRule {
       tableName = pathComponents.isEmpty() ? "" : pathComponents.get(0);
     }
 
-    // Create a physical scan with ORDER BY and the collation trait.
+    // Create a physical scan with the RelCollation stored as a Calcite object.
     // SINGLETON distribution matches LimitPrule's requirement so limit pushdown still works.
     JdbcScanPrel physicalScan =
         new JdbcScanPrel(
@@ -103,7 +100,7 @@ public final class JdbcPushSortIntoScan extends RelOptRule {
                 .getTraitSet()
                 .replace(Prel.PHYSICAL)
                 .plus(DistributionTrait.SINGLETON)
-                .plus(sort.getCollation()),
+                .plus(sortCollation),
             logicalScan.getTable(),
             logicalScan.getPluginId(),
             logicalScan.getTableMetadata(),
@@ -113,74 +110,13 @@ public final class JdbcPushSortIntoScan extends RelOptRule {
             ImmutableList.of(),
             schemaName,
             tableName,
-            null, // whereClause
-            ImmutableList.of(), // bindParams
-            orderByExpr, // orderByClause
-            null); // limit
+            null,           // filterRex
+            sortCollation,  // collation stored as Calcite object
+            null,           // limit
+            null,           // groupSet
+            null,           // aggCalls
+            null);          // overrideRowType
 
     call.transformTo(physicalScan);
-  }
-
-  /**
-   * Translates a {@link RelCollation} into a SQL ORDER BY expression string.
-   *
-   * <p>Each field collation is rendered as {@code "column" ASC NULLS FIRST} with explicit null
-   * ordering. The returned string does NOT include the {@code ORDER BY} keywords -- those are added
-   * by {@link SqlBuilder}.
-   *
-   * @param collation the sort collation from the SortRel
-   * @param rowType the row type of the scan (used for field name lookup)
-   * @return the ORDER BY expression, or null if the collation cannot be expressed
-   */
-  static String collationToSql(RelCollation collation, RelDataType rowType) {
-    List<RelFieldCollation> fieldCollations = collation.getFieldCollations();
-    StringBuilder sb = new StringBuilder();
-    for (int i = 0; i < fieldCollations.size(); i++) {
-      if (i > 0) {
-        sb.append(", ");
-      }
-      RelFieldCollation fc = fieldCollations.get(i);
-      int fieldIndex = fc.getFieldIndex();
-
-      // Validate field index within bounds.
-      if (fieldIndex < 0 || fieldIndex >= rowType.getFieldCount()) {
-        return null;
-      }
-
-      // Quote the field name using double-quote escaping.
-      String fieldName = rowType.getFieldList().get(fieldIndex).getName();
-      sb.append("\"").append(fieldName.replace("\"", "\"\"")).append("\"");
-
-      // Direction
-      switch (fc.direction) {
-        case ASCENDING:
-        case STRICTLY_ASCENDING:
-          sb.append(" ASC");
-          break;
-        case DESCENDING:
-        case STRICTLY_DESCENDING:
-          sb.append(" DESC");
-          break;
-        default:
-          // CLUSTERED or unknown -- cannot express in SQL ORDER BY.
-          return null;
-      }
-
-      // Null direction
-      switch (fc.nullDirection) {
-        case FIRST:
-          sb.append(" NULLS FIRST");
-          break;
-        case LAST:
-          sb.append(" NULLS LAST");
-          break;
-        case UNSPECIFIED:
-          // Let the database use its default null ordering.
-          break;
-        default:
-          break;
-      }
-    }
-    return sb.toString();
   }
 }

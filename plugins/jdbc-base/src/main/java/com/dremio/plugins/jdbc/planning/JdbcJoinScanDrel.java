@@ -27,9 +27,12 @@ import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.AbstractRelNode;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
+import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.util.ImmutableBitSet;
 
 /**
  * Logical join scan node carrying raw join components for JDBC pushdown.
@@ -38,12 +41,16 @@ import org.apache.calcite.rel.type.RelDataType;
  * {@link com.dremio.exec.planner.logical.JoinRel} reference tables from the same JDBC source.
  *
  * <p>This is a leaf node (no children) that stores all raw join components needed to later build
- * the JOIN SQL at physical time: schema/table names, join type, ON clause SQL, bind params, and
- * projected columns for each side.
+ * the JOIN SQL at physical time: schema/table names, join type, ON condition as a {@link RexNode},
+ * projected columns for each side, and the full input row types for each table.
+ *
+ * <p>The {@code leftInputRowType} and {@code rightInputRowType} store the FULL row types of the
+ * left and right scan inputs. These are needed in {@code getPhysicalOperator()} to correctly
+ * construct the Calcite leaf row types that match the RexInputRef indices in {@code conditionRex}.
  *
  * <p>The subsequent PHYSICAL phase converts this to {@link JdbcJoinScanPrel} via the
- * {@link JdbcPushJoinIntoScan.JdbcJoinScanPrule}, which resolves the plugin-specific
- * {@link SqlBuilder} and builds the final JOIN SQL in {@code getPhysicalOperator()}.
+ * {@link JdbcPushJoinIntoScan.JdbcJoinScanPrule}, which renders the final JOIN SQL via
+ * {@link DremioJdbcImplementor} in {@code getPhysicalOperator()}.
  */
 public class JdbcJoinScanDrel extends AbstractRelNode implements Rel {
 
@@ -53,11 +60,47 @@ public class JdbcJoinScanDrel extends AbstractRelNode implements Rel {
   private final String rightSchema;
   private final String rightTable;
   private final JoinRelType joinType;
-  private final String onClauseSql;
-  private final List<BindParam> conditionBindParams;
+  private final RexNode conditionRex;
   private final List<SchemaPath> leftColumns;
   private final List<SchemaPath> rightColumns;
   private final RelDataType outputRowType;
+  /**
+   * Full row type of the left scan input (all columns). Used in {@code getPhysicalOperator()} to
+   * build the Calcite leaf row type that matches the RexInputRef indices in {@code conditionRex}.
+   */
+  private final RelDataType leftInputRowType;
+  /**
+   * Full row type of the right scan input (all columns). Used in {@code getPhysicalOperator()} to
+   * build the Calcite leaf row type that matches the RexInputRef indices in {@code conditionRex}.
+   */
+  private final RelDataType rightInputRowType;
+
+  /**
+   * Actual row type of the left table (from the scan node). When the join input wraps the scan
+   * in an Aggregate (e.g., MinusToJoin for EXCEPT), this differs from leftInputRowType (which
+   * includes the aggregate-added COUNT column). Null means leftScanRowType == leftInputRowType.
+   */
+  private final RelDataType leftScanRowType;
+
+  /**
+   * Actual row type of the right table (from the scan node). Null means same as rightInputRowType.
+   */
+  private final RelDataType rightScanRowType;
+
+  /**
+   * Aggregate group set for the left join input. Non-null when the left input is an Aggregate
+   * wrapping a scan (e.g., MinusToJoin). Null means no aggregate.
+   */
+  private final ImmutableBitSet leftAggGroupSet;
+
+  /** Aggregate calls for the left join input. Non-null when leftAggGroupSet is non-null. */
+  private final List<AggregateCall> leftAggCalls;
+
+  /** Aggregate group set for the right join input. Non-null when the right input is an Aggregate. */
+  private final ImmutableBitSet rightAggGroupSet;
+
+  /** Aggregate calls for the right join input. Non-null when rightAggGroupSet is non-null. */
+  private final List<AggregateCall> rightAggCalls;
 
   /**
    * Creates a new logical join scan node.
@@ -70,11 +113,18 @@ public class JdbcJoinScanDrel extends AbstractRelNode implements Rel {
    * @param rightSchema schema name for the right table
    * @param rightTable table name for the right table
    * @param joinType INNER, LEFT, RIGHT, or FULL join type
-   * @param onClauseSql the ON condition as a SQL string with ? placeholders
-   * @param conditionBindParams bind parameters for the ON clause ? placeholders
+   * @param conditionRex the raw join ON condition as a Calcite {@link RexNode}
    * @param leftColumns projected columns from the left table
    * @param rightColumns projected columns from the right table
    * @param outputRowType the combined output row type of the join
+   * @param leftInputRowType full row type of the left join input (may include aggregate columns)
+   * @param rightInputRowType full row type of the right join input (may include aggregate columns)
+   * @param leftScanRowType actual row type of the left table scan (null = same as leftInputRowType)
+   * @param rightScanRowType actual row type of the right table scan (null = same as rightInputRowType)
+   * @param leftAggGroupSet group set if left input is an Aggregate (null = no aggregate)
+   * @param leftAggCalls aggregate calls if left input is an Aggregate (null = no aggregate)
+   * @param rightAggGroupSet group set if right input is an Aggregate (null = no aggregate)
+   * @param rightAggCalls aggregate calls if right input is an Aggregate (null = no aggregate)
    */
   public JdbcJoinScanDrel(
       RelOptCluster cluster,
@@ -85,11 +135,18 @@ public class JdbcJoinScanDrel extends AbstractRelNode implements Rel {
       String rightSchema,
       String rightTable,
       JoinRelType joinType,
-      String onClauseSql,
-      List<BindParam> conditionBindParams,
+      RexNode conditionRex,
       List<SchemaPath> leftColumns,
       List<SchemaPath> rightColumns,
-      RelDataType outputRowType) {
+      RelDataType outputRowType,
+      RelDataType leftInputRowType,
+      RelDataType rightInputRowType,
+      RelDataType leftScanRowType,
+      RelDataType rightScanRowType,
+      ImmutableBitSet leftAggGroupSet,
+      List<AggregateCall> leftAggCalls,
+      ImmutableBitSet rightAggGroupSet,
+      List<AggregateCall> rightAggCalls) {
     super(cluster, traitSet);
     this.pluginId = pluginId;
     this.leftSchema = leftSchema;
@@ -97,14 +154,18 @@ public class JdbcJoinScanDrel extends AbstractRelNode implements Rel {
     this.rightSchema = rightSchema;
     this.rightTable = rightTable;
     this.joinType = joinType;
-    this.onClauseSql = onClauseSql;
-    this.conditionBindParams =
-        conditionBindParams != null
-            ? Collections.unmodifiableList(conditionBindParams)
-            : Collections.emptyList();
+    this.conditionRex = conditionRex;
     this.leftColumns = leftColumns != null ? leftColumns : Collections.emptyList();
     this.rightColumns = rightColumns != null ? rightColumns : Collections.emptyList();
     this.outputRowType = outputRowType;
+    this.leftInputRowType = leftInputRowType;
+    this.rightInputRowType = rightInputRowType;
+    this.leftScanRowType = leftScanRowType;
+    this.rightScanRowType = rightScanRowType;
+    this.leftAggGroupSet = leftAggGroupSet;
+    this.leftAggCalls = leftAggCalls;
+    this.rightAggGroupSet = rightAggGroupSet;
+    this.rightAggCalls = rightAggCalls;
   }
 
   @Override
@@ -141,11 +202,18 @@ public class JdbcJoinScanDrel extends AbstractRelNode implements Rel {
         rightSchema,
         rightTable,
         joinType,
-        onClauseSql,
-        conditionBindParams,
+        conditionRex,
         leftColumns,
         rightColumns,
-        outputRowType);
+        outputRowType,
+        leftInputRowType,
+        rightInputRowType,
+        leftScanRowType,
+        rightScanRowType,
+        leftAggGroupSet,
+        leftAggCalls,
+        rightAggGroupSet,
+        rightAggCalls);
   }
 
   @Override
@@ -154,7 +222,7 @@ public class JdbcJoinScanDrel extends AbstractRelNode implements Rel {
         .item("leftTable", leftSchema + "." + leftTable)
         .item("rightTable", rightSchema + "." + rightTable)
         .item("joinType", joinType)
-        .item("onClause", onClauseSql);
+        .item("condition", conditionRex);
   }
 
   // -------------------------------------------------------------------------
@@ -185,12 +253,8 @@ public class JdbcJoinScanDrel extends AbstractRelNode implements Rel {
     return joinType;
   }
 
-  public String getOnClauseSql() {
-    return onClauseSql;
-  }
-
-  public List<BindParam> getConditionBindParams() {
-    return conditionBindParams;
+  public RexNode getConditionRex() {
+    return conditionRex;
   }
 
   public List<SchemaPath> getLeftColumns() {
@@ -199,5 +263,43 @@ public class JdbcJoinScanDrel extends AbstractRelNode implements Rel {
 
   public List<SchemaPath> getRightColumns() {
     return rightColumns;
+  }
+
+  public RelDataType getLeftInputRowType() {
+    return leftInputRowType;
+  }
+
+  public RelDataType getRightInputRowType() {
+    return rightInputRowType;
+  }
+
+  /** Returns the actual left table scan row type, or null if same as leftInputRowType. */
+  public RelDataType getLeftScanRowType() {
+    return leftScanRowType;
+  }
+
+  /** Returns the actual right table scan row type, or null if same as rightInputRowType. */
+  public RelDataType getRightScanRowType() {
+    return rightScanRowType;
+  }
+
+  /** Returns the aggregate group set for the left input, or null if no aggregate. */
+  public ImmutableBitSet getLeftAggGroupSet() {
+    return leftAggGroupSet;
+  }
+
+  /** Returns the aggregate calls for the left input, or null if no aggregate. */
+  public List<AggregateCall> getLeftAggCalls() {
+    return leftAggCalls;
+  }
+
+  /** Returns the aggregate group set for the right input, or null if no aggregate. */
+  public ImmutableBitSet getRightAggGroupSet() {
+    return rightAggGroupSet;
+  }
+
+  /** Returns the aggregate calls for the right input, or null if no aggregate. */
+  public List<AggregateCall> getRightAggCalls() {
+    return rightAggCalls;
   }
 }

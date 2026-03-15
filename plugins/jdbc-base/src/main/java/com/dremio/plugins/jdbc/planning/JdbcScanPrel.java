@@ -30,157 +30,76 @@ import com.dremio.plugins.jdbc.exec.JdbcGroupScan;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
+import org.apache.calcite.adapter.java.JavaTypeFactory;
+import org.apache.calcite.adapter.jdbc.JdbcConvention;
+import org.apache.calcite.adapter.jdbc.JdbcRules;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.RelTraitSet;
+import org.apache.calcite.rel.RelCollation;
+import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
+import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.hint.RelHint;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
+import org.apache.calcite.rel.rel2sql.SqlImplementor;
 import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rex.RexBuilder;
+import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.sql.SqlDialect;
+import org.apache.calcite.sql.dialect.PostgresqlSqlDialect;
+import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.util.ImmutableBitSet;
 
 /**
  * Physical scan node for JDBC-backed tables in the Dremio planner.
  *
- * <p>Carries the pushdown state accumulated during the PHYSICAL planning phase:
+ * <p>Carries the pushdown state accumulated during the PHYSICAL planning phase as Calcite objects
+ * (not SQL strings):
  *
  * <ul>
- *   <li>{@link #whereClause} -- SQL WHERE predicate pushed down from a FilterPrel
- *   <li>{@link #bindParams} -- ordered bind parameters for WHERE clause ? placeholders
- *   <li>{@link #selectExprs} -- aggregation SELECT expressions (e.g. COUNT(*), SUM("col"))
- *   <li>{@link #groupByClause} -- GROUP BY expression pushed down from an AggregatePrel
- *   <li>{@link #orderByClause} -- ORDER BY expression pushed down from a SortPrel
+ *   <li>{@link #filterRex} -- Calcite {@link RexNode} pushed down from a FilterPrel
+ *   <li>{@link #collation} -- Calcite {@link RelCollation} pushed down from a SortPrel
+ *   <li>{@link #groupSet} -- Calcite {@link ImmutableBitSet} pushed down from an AggregatePrel
+ *   <li>{@link #aggCalls} -- Calcite {@link AggregateCall} list pushed down from an AggregatePrel
  *   <li>{@link #limit} -- row limit pushed down from a LimitPrel
  *   <li>projected columns -- columns to project (inherited from ScanPrelBase)
  * </ul>
  *
- * <p>The {@link #getPhysicalOperator} method assembles the final SQL string via {@link SqlBuilder}
- * and hands it to {@link JdbcGroupScan} for execution.
+ * <p>The {@link #getPhysicalOperator} method builds a Calcite JDBC convention subtree
+ * ({@code JdbcCalciteLeaf -> JdbcFilter -> JdbcProject -> JdbcAggregate -> JdbcSort}) and renders
+ * the final SQL string via {@link DremioJdbcImplementor}, which handles all dialect-specific
+ * concerns (LIMIT vs FETCH FIRST, identifier quoting, AS keyword presence) automatically.
  */
 public class JdbcScanPrel extends ScanPrelBase {
 
   private final String schemaName;
   private final String tableName;
-  private final String whereClause;
-  private final List<BindParam> bindParams;
-  private final String orderByClause;
+  private final RexNode filterRex;
+  private final RelCollation collation;
   private final Integer limit;
-  private final List<String> selectExprs;
-  private final String groupByClause;
+  private final ImmutableBitSet groupSet;
+  private final List<AggregateCall> aggCalls;
   private final RelDataType overrideRowType;
 
-  public JdbcScanPrel(
-      RelOptCluster cluster,
-      RelTraitSet traitSet,
-      RelOptTable table,
-      StoragePluginId pluginId,
-      TableMetadata dataset,
-      List<SchemaPath> projectedColumns,
-      double observedRowcountAdjustment,
-      List<RelHint> hints,
-      List<Info> runtimeFilters,
-      String schemaName,
-      String tableName,
-      String whereClause,
-      Integer limit) {
-    this(
-        cluster,
-        traitSet,
-        table,
-        pluginId,
-        dataset,
-        projectedColumns,
-        observedRowcountAdjustment,
-        hints,
-        runtimeFilters,
-        schemaName,
-        tableName,
-        whereClause,
-        Collections.emptyList(),
-        null,
-        limit);
-  }
-
-  public JdbcScanPrel(
-      RelOptCluster cluster,
-      RelTraitSet traitSet,
-      RelOptTable table,
-      StoragePluginId pluginId,
-      TableMetadata dataset,
-      List<SchemaPath> projectedColumns,
-      double observedRowcountAdjustment,
-      List<RelHint> hints,
-      List<Info> runtimeFilters,
-      String schemaName,
-      String tableName,
-      String whereClause,
-      List<BindParam> bindParams,
-      Integer limit) {
-    this(
-        cluster,
-        traitSet,
-        table,
-        pluginId,
-        dataset,
-        projectedColumns,
-        observedRowcountAdjustment,
-        hints,
-        runtimeFilters,
-        schemaName,
-        tableName,
-        whereClause,
-        bindParams,
-        null,
-        limit);
-  }
-
-  public JdbcScanPrel(
-      RelOptCluster cluster,
-      RelTraitSet traitSet,
-      RelOptTable table,
-      StoragePluginId pluginId,
-      TableMetadata dataset,
-      List<SchemaPath> projectedColumns,
-      double observedRowcountAdjustment,
-      List<RelHint> hints,
-      List<Info> runtimeFilters,
-      String schemaName,
-      String tableName,
-      String whereClause,
-      List<BindParam> bindParams,
-      String orderByClause,
-      Integer limit) {
-    this(
-        cluster,
-        traitSet,
-        table,
-        pluginId,
-        dataset,
-        projectedColumns,
-        observedRowcountAdjustment,
-        hints,
-        runtimeFilters,
-        schemaName,
-        tableName,
-        whereClause,
-        bindParams,
-        orderByClause,
-        limit,
-        null,
-        null,
-        null);
-  }
+  // -------------------------------------------------------------------------
+  // Full constructor
+  // -------------------------------------------------------------------------
 
   /**
-   * Full constructor with all pushdown state including aggregation fields.
+   * Full constructor with all pushdown state as Calcite objects.
    *
-   * @param selectExprs aggregation SELECT expressions (e.g., COUNT(*), SUM("col")); null when no
-   *     aggregation is pushed
-   * @param groupByClause GROUP BY expression (e.g., "name", "category"); null when no grouping
-   * @param overrideRowType when non-null, overrides the base-class derived rowType to reflect the
-   *     aggregated output schema
+   * @param filterRex Calcite RexNode filter condition (WHERE clause); null when no filter pushed
+   * @param collation Calcite RelCollation for ORDER BY; null when no sort pushed
+   * @param limit row limit (LIMIT / FETCH FIRST); null when not pushed
+   * @param groupSet GROUP BY column indices; null when no aggregation pushed
+   * @param aggCalls aggregate function calls; null when no aggregation pushed
+   * @param overrideRowType when non-null, overrides the derived row type for aggregated output
    */
   public JdbcScanPrel(
       RelOptCluster cluster,
@@ -194,12 +113,11 @@ public class JdbcScanPrel extends ScanPrelBase {
       List<Info> runtimeFilters,
       String schemaName,
       String tableName,
-      String whereClause,
-      List<BindParam> bindParams,
-      String orderByClause,
+      RexNode filterRex,
+      RelCollation collation,
       Integer limit,
-      List<String> selectExprs,
-      String groupByClause,
+      ImmutableBitSet groupSet,
+      List<AggregateCall> aggCalls,
       RelDataType overrideRowType) {
     super(
         cluster,
@@ -213,20 +131,51 @@ public class JdbcScanPrel extends ScanPrelBase {
         runtimeFilters);
     this.schemaName = Preconditions.checkNotNull(schemaName, "schemaName");
     this.tableName = Preconditions.checkNotNull(tableName, "tableName");
-    this.whereClause = whereClause;
-    this.bindParams =
-        ImmutableList.copyOf(bindParams != null ? bindParams : Collections.emptyList());
-    this.orderByClause = orderByClause;
+    this.filterRex = filterRex;
+    this.collation = collation;
     this.limit = limit;
-    this.selectExprs = selectExprs != null ? ImmutableList.copyOf(selectExprs) : null;
-    this.groupByClause = groupByClause;
+    this.groupSet = groupSet;
+    this.aggCalls = aggCalls != null ? ImmutableList.copyOf(aggCalls) : null;
     this.overrideRowType = overrideRowType;
     // Force the cached rowType in AbstractRelNode so Volcano sees the aggregated schema.
-    // deriveRowType() is called lazily, but if the parent caches it during construction
-    // (before overrideRowType is set), the wrong type gets registered.
     if (overrideRowType != null) {
       this.rowType = overrideRowType;
     }
+  }
+
+  /**
+   * Simple constructor with no pushdown state. All Calcite pushdown fields are null.
+   */
+  public JdbcScanPrel(
+      RelOptCluster cluster,
+      RelTraitSet traitSet,
+      RelOptTable table,
+      StoragePluginId pluginId,
+      TableMetadata dataset,
+      List<SchemaPath> projectedColumns,
+      double observedRowcountAdjustment,
+      List<RelHint> hints,
+      List<Info> runtimeFilters,
+      String schemaName,
+      String tableName) {
+    this(
+        cluster,
+        traitSet,
+        table,
+        pluginId,
+        dataset,
+        projectedColumns,
+        observedRowcountAdjustment,
+        hints,
+        runtimeFilters,
+        schemaName,
+        tableName,
+        null,  // filterRex
+        null,  // collation
+        null,  // limit
+        null,  // groupSet
+        null,  // aggCalls
+        null); // overrideRowType
   }
 
   // -------------------------------------------------------------------------
@@ -248,28 +197,20 @@ public class JdbcScanPrel extends ScanPrelBase {
         getRuntimeFilters(),
         schemaName,
         tableName,
-        whereClause,
-        bindParams,
-        orderByClause,
+        filterRex,
+        collation,
         limit,
-        selectExprs,
-        groupByClause,
+        groupSet,
+        aggCalls,
         overrideRowType);
   }
 
   /**
-   * Returns a new JdbcScanPrel with an updated WHERE clause, preserving projection and limit.
-   * Backward-compatible signature (no bind params).
+   * Returns a new JdbcScanPrel with a filter RexNode pushed down.
+   *
+   * @param newFilterRex the Calcite RexNode representing the WHERE condition
    */
-  public JdbcScanPrel cloneWithFilter(String newWhereClause) {
-    return cloneWithFilter(newWhereClause, Collections.emptyList());
-  }
-
-  /**
-   * Returns a new JdbcScanPrel with an updated WHERE clause and bind parameters, preserving all
-   * other pushdown state.
-   */
-  public JdbcScanPrel cloneWithFilter(String newWhereClause, List<BindParam> newBindParams) {
+  public JdbcScanPrel cloneWithFilter(RexNode newFilterRex) {
     return new JdbcScanPrel(
         getCluster(),
         getTraitSet(),
@@ -282,12 +223,11 @@ public class JdbcScanPrel extends ScanPrelBase {
         getRuntimeFilters(),
         schemaName,
         tableName,
-        newWhereClause,
-        newBindParams,
-        orderByClause,
+        newFilterRex,
+        collation,
         limit,
-        selectExprs,
-        groupByClause,
+        groupSet,
+        aggCalls,
         overrideRowType);
   }
 
@@ -305,17 +245,20 @@ public class JdbcScanPrel extends ScanPrelBase {
         getRuntimeFilters(),
         schemaName,
         tableName,
-        whereClause,
-        bindParams,
-        orderByClause,
+        filterRex,
+        collation,
         newLimit,
-        selectExprs,
-        groupByClause,
+        groupSet,
+        aggCalls,
         overrideRowType);
   }
 
-  /** Returns a new JdbcScanPrel with an ORDER BY clause, preserving all other pushdown state. */
-  public JdbcScanPrel cloneWithOrderBy(String newOrderBy) {
+  /**
+   * Returns a new JdbcScanPrel with a sort collation pushed down.
+   *
+   * @param newCollation the Calcite RelCollation representing ORDER BY
+   */
+  public JdbcScanPrel cloneWithCollation(RelCollation newCollation) {
     return new JdbcScanPrel(
         getCluster(),
         getTraitSet(),
@@ -328,48 +271,45 @@ public class JdbcScanPrel extends ScanPrelBase {
         getRuntimeFilters(),
         schemaName,
         tableName,
-        whereClause,
-        bindParams,
-        newOrderBy,
+        filterRex,
+        newCollation,
         limit,
-        selectExprs,
-        groupByClause,
+        groupSet,
+        aggCalls,
         overrideRowType);
   }
 
   /**
-   * Returns a new JdbcScanPrel with aggregation pushdown state: custom SELECT expressions
-   * (aggregate functions), a GROUP BY clause, and an overridden output rowType reflecting the
-   * aggregated schema.
+   * Returns a new JdbcScanPrel with aggregation pushed down.
    *
    * <p>When aggregation is active, projectedColumns are set to null because the SELECT list is
-   * driven entirely by {@code newSelectExprs}.
+   * driven entirely by the {@code JdbcRules.JdbcAggregate} node built from {@code newGroupSet} and
+   * {@code newAggCalls}. The groupSet and aggCall indices must already be normalized to full-table
+   * column positions (done by {@link JdbcPushAggIntoScan} before calling this method).
    *
-   * @param newSelectExprs aggregate SELECT expressions (e.g., {@code "name"}, {@code COUNT(*)})
-   * @param newGroupByClause GROUP BY expression (e.g., {@code "name", "category"})
+   * @param newGroupSet the GROUP BY column indices (normalized to full-table positions)
+   * @param newAggCalls the aggregate function calls (normalized to full-table positions)
    * @param newRowType the aggregated output row type matching the AggregatePrel's output
-   * @return a new scan with aggregation state
    */
   public JdbcScanPrel cloneWithAggregation(
-      List<String> newSelectExprs, String newGroupByClause, RelDataType newRowType) {
+      ImmutableBitSet newGroupSet, List<AggregateCall> newAggCalls, RelDataType newRowType) {
     return new JdbcScanPrel(
         getCluster(),
         getTraitSet(),
         getTable(),
         getPluginId(),
         getTableMetadata(),
-        null,
+        null, // aggregation drives the SELECT list; individual column projection is irrelevant
         getCostAdjustmentFactor(),
         getHintsAsList(),
         getRuntimeFilters(),
         schemaName,
         tableName,
-        whereClause,
-        bindParams,
-        orderByClause,
+        filterRex,
+        collation,
         limit,
-        newSelectExprs,
-        newGroupByClause,
+        newGroupSet,
+        newAggCalls,
         newRowType);
   }
 
@@ -389,12 +329,12 @@ public class JdbcScanPrel extends ScanPrelBase {
 
   @Override
   public boolean hasFilter() {
-    return whereClause != null;
+    return filterRex != null;
   }
 
   @Override
   public double getFilterReduction() {
-    return whereClause == null ? super.getFilterReduction() : 0.15d;
+    return filterRex == null ? super.getFilterReduction() : 0.15d;
   }
 
   @Override
@@ -434,12 +374,11 @@ public class JdbcScanPrel extends ScanPrelBase {
         getRuntimeFilters(),
         schemaName,
         tableName,
-        whereClause,
-        bindParams,
-        orderByClause,
+        filterRex,
+        collation,
         limit,
-        selectExprs,
-        groupByClause,
+        groupSet,
+        aggCalls,
         overrideRowType);
   }
 
@@ -448,57 +387,205 @@ public class JdbcScanPrel extends ScanPrelBase {
     super.explainTerms(pw);
     pw.itemIf("schema", schemaName, schemaName != null);
     pw.itemIf("table", tableName, tableName != null);
-    pw.itemIf("where", whereClause, whereClause != null);
-    pw.itemIf("bindParams", bindParams.size(), !bindParams.isEmpty());
-    pw.itemIf("selectExprs", selectExprs, selectExprs != null);
-    pw.itemIf("groupBy", groupByClause, groupByClause != null);
-    pw.itemIf("orderBy", orderByClause, orderByClause != null);
+    pw.itemIf("filter", filterRex, filterRex != null);
+    pw.itemIf("collation", collation, collation != null);
+    pw.itemIf("groupSet", groupSet, groupSet != null);
+    pw.itemIf("aggCalls", aggCalls, aggCalls != null && !aggCalls.isEmpty());
     pw.itemIf("limit", limit, limit != null);
     return pw;
   }
 
   /**
-   * Assembles the final SQL query via {@link SqlBuilder} and creates the {@link JdbcGroupScan}
-   * physical operator for execution.
+   * Builds a Calcite JDBC convention subtree and renders it to SQL via {@link
+   * DremioJdbcImplementor}, then creates the {@link JdbcGroupScan} physical operator for
+   * execution.
    *
-   * <p>Resolves the {@link JdbcStoragePlugin} for the source at plan time to obtain the correct
-   * {@link SqlBuilder} dialect (e.g., Oracle uses FETCH FIRST instead of LIMIT). Falls back to a
-   * base {@code SqlBuilder} if the plugin is unavailable.
+   * <p>The subtree is: {@code JdbcCalciteLeaf -> [JdbcFilter] -> [JdbcProject] ->
+   * [JdbcAggregate] -> [JdbcSort]}, where each layer is only added when the corresponding
+   * pushdown state is non-null.
+   *
+   * <p>Calcite handles all dialect-specific rendering automatically: {@code PostgresqlSqlDialect}
+   * renders {@code LIMIT N}; {@code OracleSqlDialect} renders {@code FETCH FIRST N ROWS ONLY}. The
+   * bind-params list passed to {@link JdbcGroupScan} is always empty because Calcite renders
+   * literals inline (no {@code ?} placeholders).
    */
   @Override
   public PhysicalOperator getPhysicalOperator(PhysicalPlanCreator creator) throws IOException {
+    // ---- 1. Resolve dialect -----------------------------------------------
     StoragePlugin rawPlugin =
         creator.getContext().getCatalogService().getSource(getPluginId().getName());
-    SqlBuilder sb =
-        (rawPlugin instanceof JdbcStoragePlugin)
-            ? ((JdbcStoragePlugin) rawPlugin).createSqlBuilder()
-            : new SqlBuilder();
+    JdbcStoragePlugin jdbcPlugin =
+        (rawPlugin instanceof JdbcStoragePlugin) ? (JdbcStoragePlugin) rawPlugin : null;
+    SqlDialect dialect =
+        jdbcPlugin != null ? jdbcPlugin.createDialect() : PostgresqlSqlDialect.DEFAULT;
 
-    SqlBuildRequest.Builder requestBuilder =
-        SqlBuildRequest.builder()
-            .schema(schemaName)
-            .table(tableName)
-            .projectedColumns(getProjectedColumns())
-            .where(whereClause)
-            .bindParams(bindParams)
-            .selectExprs(selectExprs)
-            .groupBy(groupByClause)
-            .orderBy(orderByClause)
-            .limit(limit);
-    String sql = sb.buildSql(requestBuilder.build());
+    // ---- 2. Create JdbcConvention and trait set ----------------------------
+    JdbcConvention convention =
+        JdbcConvention.of(dialect, null, "DREMIO_JDBC_" + getPluginId().getName());
+    RelOptCluster cluster = getCluster();
+    RelTraitSet jdbcTraitSet = cluster.traitSet().replace(convention);
 
+    // ---- 3. Determine the full table row type for the leaf -----------------
+    // The full (unfiltered, unprojected) table row type is needed so JdbcFilter
+    // and JdbcProject can reference column indices correctly.
+    // Captured as a final local so anonymous RexShuttle classes can reference it.
+    final RelDataType fullTableRowType;
+    {
+      RelDataType tmp;
+      try {
+        tmp = getTable().getRowType();
+      } catch (Exception e) {
+        tmp = deriveRowType();
+      }
+      fullTableRowType = tmp;
+    }
+
+    // ---- 4. Build leaf -----------------------------------------------------
+    JdbcCalciteLeaf leaf =
+        new JdbcCalciteLeaf(cluster, jdbcTraitSet, fullTableRowType, schemaName, tableName);
+    RelNode root = leaf;
+
+    // ---- 5. Build projected-to-full-table index mapping -------------------
+    // Used to build the JdbcProject's RexInputRef nodes (mapping projected position → full index).
+    // filterRex, groupSet, and aggCall indices are already normalized to full-table positions
+    // by JdbcPushFilterIntoScan and JdbcPushAggIntoScan at push time. No remap needed here.
+    final int[] projToFull;
+    if (getProjectedColumns() != null && !getProjectedColumns().isEmpty()) {
+      projToFull = new int[getProjectedColumns().size()];
+      for (int pi = 0; pi < getProjectedColumns().size(); pi++) {
+        String colName = getProjectedColumns().get(pi).getRootSegment().getPath();
+        int fullIdx = -1;
+        for (int fi = 0; fi < fullTableRowType.getFieldCount(); fi++) {
+          if (fullTableRowType.getFieldList().get(fi).getName().equalsIgnoreCase(colName)) {
+            fullIdx = fi;
+            break;
+          }
+        }
+        projToFull[pi] = (fullIdx >= 0) ? fullIdx : pi; // fallback: identity
+      }
+    } else {
+      projToFull = null;
+    }
+
+    // ---- 6. Wrap with JdbcFilter if filterRex present ---------------------
+    // filterRex indices are already normalized to full-table positions by
+    // JdbcPushFilterIntoScan. No remapping needed here.
+    if (filterRex != null) {
+      root = new JdbcRules.JdbcFilter(cluster, jdbcTraitSet, root, filterRex);
+    }
+
+    // ---- 7. Wrap with JdbcProject for column projection (no aggregation) --
+    // JdbcProject uses full-table indices to select the projected columns.
+    // It sits ABOVE the JdbcFilter so Calcite generates flat SQL:
+    //   SELECT col1, col2 FROM "schema"."table" WHERE cond
+    // rather than a subquery.
+    // When aggregation is present, JdbcAggregate drives the SELECT list instead.
+    if (!hasAggregation() && getProjectedColumns() != null && !getProjectedColumns().isEmpty()) {
+      RexBuilder rexBuilder = cluster.getRexBuilder();
+      List<RexNode> projects = new ArrayList<>();
+      List<String> fieldNames = new ArrayList<>();
+      for (int pi = 0; pi < getProjectedColumns().size(); pi++) {
+        String colName = getProjectedColumns().get(pi).getRootSegment().getPath();
+        int fullIdx = (projToFull != null) ? projToFull[pi] : pi;
+        if (fullIdx < fullTableRowType.getFieldCount()) {
+          org.apache.calcite.rel.type.RelDataTypeField fullField =
+              fullTableRowType.getFieldList().get(fullIdx);
+          projects.add(rexBuilder.makeInputRef(fullField.getType(), fullIdx));
+          fieldNames.add(fullField.getName());
+        }
+      }
+      if (!projects.isEmpty()) {
+        RelDataType projRowType =
+            cluster
+                .getTypeFactory()
+                .createStructType(
+                    projects.stream().map(RexNode::getType).collect(Collectors.toList()),
+                    fieldNames);
+        root = new JdbcRules.JdbcProject(cluster, jdbcTraitSet, root, projects, projRowType);
+      }
+    }
+
+    // ---- 8. Wrap with JdbcAggregate if aggregation pushed -----------------
+    // groupSet and aggCalls indices are already normalized to full-table positions
+    // by JdbcPushAggIntoScan at push time. No remapping needed here.
+    if (hasAggregation()) {
+      try {
+        root =
+            new JdbcRules.JdbcAggregate(
+                cluster, jdbcTraitSet, root, groupSet, null, aggCalls);
+      } catch (org.apache.calcite.rel.InvalidRelException e) {
+        throw new IOException("Invalid aggregation for JDBC pushdown: " + e.getMessage(), e);
+      }
+
+      // Wrap JdbcAggregate with a JdbcProject that gives every output column an explicit
+      // SQL alias matching the expected Dremio output column names (from overrideRowType).
+      //
+      // Without this, Calcite renders aggregate functions without aliases
+      // (e.g. "COUNT(*)" instead of "COUNT(*) AS \"EXPR$1\""). The JDBC driver then returns
+      // the column under the database's own default name ("count" in PostgreSQL, "COUNT(*)" in
+      // Oracle), which JdbcRecordReader cannot match to the expected "EXPR$1" field name.
+      //
+      // The JdbcProject identity-projects each aggregate output field while assigning the
+      // correct alias, generating "SELECT ... COUNT(*) AS \"EXPR$1\" ..." in the final SQL.
+      //
+      // For AVG, Calcite decomposes the aggregate into SUM/COUNT internally. If the
+      // JdbcAggregate has more fields than overrideRowType (e.g. decomposed AVG → 2 cols but
+      // Dremio expects 1 col), skip the rename and fall back to Dremio's own AVG handling.
+      if (overrideRowType != null) {
+        RelNode aggRoot = root;
+        java.util.List<org.apache.calcite.rel.type.RelDataTypeField> aggFields =
+            aggRoot.getRowType().getFieldList();
+        java.util.List<org.apache.calcite.rel.type.RelDataTypeField> expectedFields =
+            overrideRowType.getFieldList();
+
+        if (aggFields.size() == expectedFields.size()) {
+          RexBuilder rexBuilder = cluster.getRexBuilder();
+          java.util.List<RexNode> renameProjects = new ArrayList<>();
+          java.util.List<String> renameNames = new ArrayList<>();
+          for (int i = 0; i < aggFields.size(); i++) {
+            org.apache.calcite.rel.type.RelDataTypeField f = aggFields.get(i);
+            renameProjects.add(rexBuilder.makeInputRef(f.getType(), i));
+            renameNames.add(expectedFields.get(i).getName());
+          }
+          RelDataType renameRowType =
+              cluster
+                  .getTypeFactory()
+                  .createStructType(
+                      renameProjects.stream().map(RexNode::getType).collect(Collectors.toList()),
+                      renameNames);
+          root =
+              new JdbcRules.JdbcProject(cluster, jdbcTraitSet, aggRoot, renameProjects, renameRowType);
+        }
+      }
+    }
+
+    // ---- 9. Wrap with JdbcSort for ORDER BY and/or LIMIT ------------------
+    if (collation != null || limit != null) {
+      RexBuilder rexBuilder = cluster.getRexBuilder();
+      RelCollation sortCollation = collation != null ? collation : RelCollations.EMPTY;
+      RexNode fetchNode =
+          limit != null
+              ? rexBuilder.makeLiteral(
+                  limit,
+                  cluster.getTypeFactory().createSqlType(SqlTypeName.INTEGER),
+                  true)
+              : null;
+      root = new JdbcRules.JdbcSort(cluster, jdbcTraitSet, root, sortCollation, null, fetchNode);
+    }
+
+    // ---- 9. Render SQL via DremioJdbcImplementor --------------------------
+    JavaTypeFactory typeFactory = (JavaTypeFactory) cluster.getTypeFactory();
+    DremioJdbcImplementor implementor = new DremioJdbcImplementor(dialect, typeFactory);
+    SqlImplementor.Result result = implementor.implement(root);
+    String sql = result.asStatement().toSqlString(dialect).getSql();
+
+    // ---- 10. Resolve schema paths and output schema -----------------------
     List<String> tableSchemaPath = getTableMetadata().getName().getPathComponents();
 
-    // When aggregation is active, the output schema is derived from the overrideRowType
-    // (the aggregated schema) rather than the original table schema.
+    // When aggregation is active, the output schema is derived from the overrideRowType.
     if (hasAggregation() && overrideRowType != null) {
       BatchSchema aggSchema = CalciteArrowHelper.fromCalciteRowType(overrideRowType);
-      // Build projected columns matching the aggregated field names so that
-      // ScanOperator.setup() pre-materializes vectors for the correct columns.
-      // Without this, ScanOperator sees an empty projection, materializes nothing,
-      // and JdbcRecordReader.setup() triggers a SCHEMA_CHANGE when it adds the
-      // aggregated output fields via OutputMutator.addField().
-      List<SchemaPath> aggColumns = new java.util.ArrayList<>();
+      List<SchemaPath> aggColumns = new ArrayList<>();
       for (org.apache.arrow.vector.types.pojo.Field f : aggSchema.getFields()) {
         aggColumns.add(SchemaPath.getSimplePath(f.getName()));
       }
@@ -509,11 +596,10 @@ public class JdbcScanPrel extends ScanPrelBase {
           aggSchema,
           getPluginId(),
           tableSchemaPath,
-          bindParams);
+          Collections.emptyList());
     }
 
     // Schema may be null if the catalog hasn't completed a full metadata refresh yet.
-    // Fall back to fetching directly from the plugin's schema fetcher.
     BatchSchema fullSchema = getTableMetadata().getSchema();
     if (fullSchema == null && rawPlugin instanceof JdbcStoragePlugin) {
       try {
@@ -542,7 +628,7 @@ public class JdbcScanPrel extends ScanPrelBase {
         fullSchema,
         getPluginId(),
         tableSchemaPath,
-        bindParams);
+        Collections.emptyList());
   }
 
   // -------------------------------------------------------------------------
@@ -557,36 +643,33 @@ public class JdbcScanPrel extends ScanPrelBase {
     return tableName;
   }
 
-  public String getWhereClause() {
-    return whereClause;
+  public RexNode getFilterRex() {
+    return filterRex;
   }
 
-  public List<BindParam> getBindParams() {
-    return bindParams;
-  }
-
-  public String getOrderByClause() {
-    return orderByClause;
-  }
-
-  public boolean hasOrderBy() {
-    return orderByClause != null;
+  public RelCollation getCollation() {
+    return collation;
   }
 
   public Integer getLimit() {
     return limit;
   }
 
-  public List<String> getSelectExprs() {
-    return selectExprs;
+  public ImmutableBitSet getGroupSet() {
+    return groupSet;
   }
 
-  public String getGroupByClause() {
-    return groupByClause;
+  public List<AggregateCall> getAggCalls() {
+    return aggCalls;
+  }
+
+  /** Returns true when a sort ORDER BY has been pushed into this scan. */
+  public boolean hasOrderBy() {
+    return collation != null;
   }
 
   /** Returns true when aggregation has been pushed into this scan. */
   public boolean hasAggregation() {
-    return selectExprs != null;
+    return groupSet != null;
   }
 }
