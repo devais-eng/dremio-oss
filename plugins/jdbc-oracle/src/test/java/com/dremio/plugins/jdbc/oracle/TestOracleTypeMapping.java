@@ -85,6 +85,9 @@ public class TestOracleTypeMapping {
             + "  col_date DATE,\n"
             + "  col_timestamp TIMESTAMP(6),\n"
             + "  col_timestamp_tz TIMESTAMP(6) WITH TIME ZONE,\n"
+            + "  col_timestamp_ltz TIMESTAMP(6) WITH LOCAL TIME ZONE,\n"
+            + "  col_interval_ym INTERVAL YEAR(3) TO MONTH,\n"
+            + "  col_interval_ds INTERVAL DAY(3) TO SECOND(6),\n"
             + "  PRIMARY KEY (id)\n"
             + ")");
 
@@ -98,7 +101,10 @@ public class TestOracleTypeMapping {
             + " UTL_RAW.CAST_TO_RAW('raw data'),"
             + " TO_DATE('2024-01-15 10:30:00', 'YYYY-MM-DD HH24:MI:SS'),"
             + " TIMESTAMP '2024-01-15 10:30:00.123456',"
-            + " TIMESTAMP '2024-01-15 10:30:00.123 +05:30'"
+            + " TIMESTAMP '2024-01-15 10:30:00.123 +05:30',"
+            + " TIMESTAMP '2024-01-15 10:30:00.456789',"
+            + " INTERVAL '2-6' YEAR TO MONTH,"
+            + " INTERVAL '5 12:30:45.123456' DAY TO SECOND"
             + ")");
   }
 
@@ -172,6 +178,15 @@ public class TestOracleTypeMapping {
 
     // TIMESTAMP WITH TIME ZONE — TZ dropped by OracleSchemaFetcher → Timestamp
     assertTimestamp(schema, "COL_TIMESTAMP_TZ");
+
+    // TIMESTAMP WITH LOCAL TIME ZONE — TZ dropped → Timestamp
+    assertTimestamp(schema, "COL_TIMESTAMP_LTZ");
+
+    // INTERVAL YEAR TO MONTH → Interval(YEAR_MONTH)
+    assertInterval(schema, "COL_INTERVAL_YM");
+
+    // INTERVAL DAY TO SECOND → Interval(DAY_TIME)
+    assertInterval(schema, "COL_INTERVAL_DS");
   }
 
   // ---------------------------------------------------------------------------
@@ -195,6 +210,42 @@ public class TestOracleTypeMapping {
     assertUtf8(schema, "COL_NCLOB");
     assertBinary(schema, "COL_BLOB");
     assertBinary(schema, "COL_RAW");
+    // New types with null values must still map correctly
+    assertTimestamp(schema, "COL_TIMESTAMP_LTZ");
+    assertInterval(schema, "COL_INTERVAL_YM");
+    assertInterval(schema, "COL_INTERVAL_DS");
+  }
+
+  /**
+   * Verifies that a row with NULL INTERVAL and TIMESTAMP LTZ values can be read without errors.
+   * The null row (id=2) was inserted in testNullHandling — all nullable columns are NULL.
+   */
+  @Test
+  public void testNullIntervalAndTimestampLtzRoundtrip() throws Exception {
+    // Insert a row with explicit NULL values for the new types
+    OracleTestContainer.executeSql(
+        "INSERT INTO type_test (id, col_timestamp_ltz, col_interval_ym, col_interval_ds) "
+            + "VALUES (3, NULL, NULL, NULL)");
+
+    try (Connection conn = pool.getConnection();
+        java.sql.PreparedStatement ps =
+            conn.prepareStatement("SELECT * FROM type_test WHERE id = 3");
+        ResultSet rs = ps.executeQuery()) {
+
+      assertTrue("Expected one row with id=3", rs.next());
+
+      // NULL TIMESTAMP WITH LOCAL TIME ZONE
+      java.sql.Timestamp tsLtz = rs.getTimestamp("COL_TIMESTAMP_LTZ");
+      assertTrue("COL_TIMESTAMP_LTZ should be null for id=3", rs.wasNull());
+
+      // NULL INTERVAL YEAR TO MONTH
+      String intervalYm = rs.getString("COL_INTERVAL_YM");
+      assertTrue("COL_INTERVAL_YM should be null for id=3", rs.wasNull() || intervalYm == null);
+
+      // NULL INTERVAL DAY TO SECOND
+      String intervalDs = rs.getString("COL_INTERVAL_DS");
+      assertTrue("COL_INTERVAL_DS should be null for id=3", rs.wasNull() || intervalDs == null);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -229,6 +280,24 @@ public class TestOracleTypeMapping {
       // TIMESTAMP
       java.sql.Timestamp ts = rs.getTimestamp("COL_TIMESTAMP");
       assertNotNull("COL_TIMESTAMP must not be null", ts);
+
+      // TIMESTAMP WITH LOCAL TIME ZONE — readable as Timestamp
+      java.sql.Timestamp tsLtz = rs.getTimestamp("COL_TIMESTAMP_LTZ");
+      assertNotNull("COL_TIMESTAMP_LTZ must not be null", tsLtz);
+
+      // INTERVAL YEAR TO MONTH — returned as String
+      String intervalYm = rs.getString("COL_INTERVAL_YM");
+      assertNotNull("COL_INTERVAL_YM must not be null", intervalYm);
+      assertTrue(
+          "INTERVAL YM should contain year-month pattern (got: " + intervalYm + ")",
+          intervalYm.contains("2") && intervalYm.contains("6"));
+
+      // INTERVAL DAY TO SECOND — returned as String
+      String intervalDs = rs.getString("COL_INTERVAL_DS");
+      assertNotNull("COL_INTERVAL_DS must not be null", intervalDs);
+      assertTrue(
+          "INTERVAL DS should contain day-time pattern (got: " + intervalDs + ")",
+          intervalDs.contains("5") && intervalDs.contains("12"));
     }
   }
 
@@ -288,5 +357,9 @@ public class TestOracleTypeMapping {
 
   private static void assertBinary(BatchSchema schema, String name) {
     assertFieldType(schema, name, ArrowType.Binary.class);
+  }
+
+  private static void assertInterval(BatchSchema schema, String name) {
+    assertFieldType(schema, name, ArrowType.Interval.class);
   }
 }

@@ -64,6 +64,24 @@ public class OracleSchemaFetcher extends JdbcSchemaFetcher {
   private static final int ORACLE_TIMESTAMPTZ_TYPE = -101;
 
   /**
+   * Oracle JDBC type code for TIMESTAMP WITH LOCAL TIME ZONE. The Oracle driver uses -102
+   * (OracleTypes.TIMESTAMPLTZ) instead of standard {@link java.sql.Types} codes.
+   */
+  private static final int ORACLE_TIMESTAMPLTZ_TYPE = -102;
+
+  /**
+   * Oracle JDBC type code for INTERVAL YEAR TO MONTH. Not defined in standard {@link
+   * java.sql.Types}; specific to the Oracle JDBC driver.
+   */
+  private static final int ORACLE_INTERVAL_YM_TYPE = -103;
+
+  /**
+   * Oracle JDBC type code for INTERVAL DAY TO SECOND. Not defined in standard {@link
+   * java.sql.Types}; specific to the Oracle JDBC driver.
+   */
+  private static final int ORACLE_INTERVAL_DS_TYPE = -104;
+
+  /**
    * Scale value Oracle uses to represent FLOAT columns (e.g., {@code FLOAT(126)}) in JDBC metadata.
    * When scale == -127, the NUMBER column is a floating-point FLOAT type.
    */
@@ -119,6 +137,9 @@ public class OracleSchemaFetcher extends JdbcSchemaFetcher {
    *   <li>NUMERIC with scale = -127 → double (Oracle FLOAT sentinel)
    *   <li>NUMERIC with precision = 0 → double (bare NUMBER without precision)
    *   <li>TIMESTAMP_WITH_TIMEZONE → millisecond timestamp (timezone dropped)
+   *   <li>TIMESTAMP WITH LOCAL TIME ZONE (jdbcType -102) → millisecond timestamp (TZ dropped)
+   *   <li>INTERVAL YEAR TO MONTH (jdbcType -103) → Interval(YEAR_MONTH)
+   *   <li>INTERVAL DAY TO SECOND (jdbcType -104) → Interval(DAY_TIME)
    * </ul>
    *
    * @param jdbcType the {@link java.sql.Types} constant (or Oracle-specific code)
@@ -178,6 +199,20 @@ public class OracleSchemaFetcher extends JdbcSchemaFetcher {
     // TIMESTAMP WITH TIME ZONE — drop timezone, return as millisecond timestamp
     if (jdbcType == Types.TIMESTAMP_WITH_TIMEZONE) {
       return new ArrowType.Timestamp(TimeUnit.MILLISECOND, null);
+    }
+    // Oracle TIMESTAMP WITH LOCAL TIME ZONE — driver uses -102 (OracleTypes.TIMESTAMPLTZ)
+    if (jdbcType == ORACLE_TIMESTAMPLTZ_TYPE) {
+      return new ArrowType.Timestamp(TimeUnit.MILLISECOND, null);
+    }
+    // Oracle INTERVAL YEAR TO MONTH → Arrow Interval(YEAR_MONTH)
+    // Stored as total months (int32) in IntervalYearVector.
+    if (jdbcType == ORACLE_INTERVAL_YM_TYPE) {
+      return new ArrowType.Interval(org.apache.arrow.vector.types.IntervalUnit.YEAR_MONTH);
+    }
+    // Oracle INTERVAL DAY TO SECOND → Arrow Interval(DAY_TIME)
+    // Stored as (days, milliseconds) pair in IntervalDayVector.
+    if (jdbcType == ORACLE_INTERVAL_DS_TYPE) {
+      return new ArrowType.Interval(org.apache.arrow.vector.types.IntervalUnit.DAY_TIME);
     }
     return super.mapJdbcType(jdbcType, typeName, precision, scale);
   }

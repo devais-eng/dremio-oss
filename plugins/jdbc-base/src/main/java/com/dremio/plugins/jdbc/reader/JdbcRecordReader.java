@@ -46,6 +46,8 @@ import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
+import org.apache.arrow.vector.IntervalDayVector;
+import org.apache.arrow.vector.IntervalYearVector;
 import org.apache.arrow.vector.TimeMilliVector;
 import org.apache.arrow.vector.TimeStampMilliVector;
 import org.apache.arrow.vector.ValueVector;
@@ -514,6 +516,19 @@ public class JdbcRecordReader extends AbstractRecordReader {
       if (!rs.wasNull() && val != null) {
         ((TimeStampMilliVector) vec).setSafe(index, val.getTime());
       }
+    } else if (vec instanceof IntervalYearVector) {
+      // INTERVAL YEAR TO MONTH — read as string (e.g. "+02-06"), parse to total months.
+      String val = rs.getString(colPosition);
+      if (!rs.wasNull() && val != null) {
+        ((IntervalYearVector) vec).setSafe(index, parseIntervalYearMonths(val));
+      }
+    } else if (vec instanceof IntervalDayVector) {
+      // INTERVAL DAY TO SECOND — read as string (e.g. "+5 12:30:45.123"), parse to days+ms.
+      String val = rs.getString(colPosition);
+      if (!rs.wasNull() && val != null) {
+        int[] dayMs = parseIntervalDayMillis(val);
+        ((IntervalDayVector) vec).setSafe(index, dayMs[0], dayMs[1]);
+      }
     } else {
       // Fallback: attempt to read as string and store as UTF-8 bytes (best-effort).
       String val = rs.getString(colPosition);
@@ -549,5 +564,59 @@ public class JdbcRecordReader extends AbstractRecordReader {
   @Override
   protected boolean isStarQuery() {
     return super.isStarQuery();
+  }
+
+  /**
+   * Parses an Oracle INTERVAL YEAR TO MONTH string (e.g. "+02-06", "-01-03") to total months.
+   * Format: [+|-]YY-MM
+   */
+  static int parseIntervalYearMonths(String s) {
+    if (s == null || s.isEmpty()) {
+      return 0;
+    }
+    int sign = 1;
+    String trimmed = s.trim();
+    if (trimmed.startsWith("-")) {
+      sign = -1;
+      trimmed = trimmed.substring(1);
+    } else if (trimmed.startsWith("+")) {
+      trimmed = trimmed.substring(1);
+    }
+    String[] parts = trimmed.split("-");
+    int years = parts.length > 0 ? Integer.parseInt(parts[0]) : 0;
+    int months = parts.length > 1 ? Integer.parseInt(parts[1]) : 0;
+    return sign * (years * 12 + months);
+  }
+
+  /**
+   * Parses an Oracle INTERVAL DAY TO SECOND string (e.g. "+5 12:30:45.123000") to [days, millis].
+   * Format: [+|-]D HH:MI:SS[.fractional]
+   */
+  static int[] parseIntervalDayMillis(String s) {
+    if (s == null || s.isEmpty()) {
+      return new int[] {0, 0};
+    }
+    int sign = 1;
+    String trimmed = s.trim();
+    if (trimmed.startsWith("-")) {
+      sign = -1;
+      trimmed = trimmed.substring(1);
+    } else if (trimmed.startsWith("+")) {
+      trimmed = trimmed.substring(1);
+    }
+    // Split into day part and time part at the space
+    String[] dayTime = trimmed.split("\\s+", 2);
+    int days = Integer.parseInt(dayTime[0]);
+    int millis = 0;
+    if (dayTime.length > 1) {
+      String timePart = dayTime[1];
+      // Split HH:MI:SS.frac
+      String[] hms = timePart.split(":");
+      int hours = hms.length > 0 ? Integer.parseInt(hms[0]) : 0;
+      int minutes = hms.length > 1 ? Integer.parseInt(hms[1]) : 0;
+      double seconds = hms.length > 2 ? Double.parseDouble(hms[2]) : 0;
+      millis = (hours * 3600 + minutes * 60) * 1000 + (int) (seconds * 1000);
+    }
+    return new int[] {sign * days, sign * millis};
   }
 }
