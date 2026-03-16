@@ -46,23 +46,20 @@ COPY --from=extractor --chown=dremio:dremio /opt/dremio /opt/dremio
 # Install native ADBC PostgreSQL driver for high-performance Arrow-native query execution.
 # The JNI bridge is bundled inside adbc-driver-jni.jar (self-extracting),
 # but the database-specific native driver .so must be installed separately.
-# We use the dbc CLI (from columnar.tech) to install the driver, falling back
-# to a direct GitHub release download if the CLI is unavailable.
+# Download the Python wheel from the Apache ADBC GitHub release and extract the .so.
 RUN mkdir -p /opt/adbc/drivers \
     && apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
-    && ( curl -LsSf https://dbc.columnar.tech/install.sh | sh \
-         && export PATH="$HOME/.cargo/bin:$PATH" \
-         && dbc install postgresql \
-         && cp /root/.config/columnar/adbc_drivers/*.so /opt/adbc/drivers/ 2>/dev/null \
-       ) \
-    || ( echo "dbc CLI unavailable, downloading ADBC driver from GitHub releases..." \
-         && curl -L https://github.com/apache/arrow-adbc/releases/download/apache-arrow-adbc-22/adbc_driver_postgresql-1.4.0-linux-amd64.tar.gz \
-            | tar xz -C /opt/adbc/drivers/ 2>/dev/null \
-         || echo "WARN: ADBC native driver download failed; ADBC mode will fall back to JDBC at runtime" \
-       ) \
+    && apt-get install -y --no-install-recommends curl ca-certificates unzip software-properties-common \
+    && add-apt-repository -y ppa:ubuntu-toolchain-r/test \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends libstdc++6 \
+    && curl -L -o /tmp/adbc_pg.whl \
+       "https://github.com/apache/arrow-adbc/releases/download/apache-arrow-adbc-22/adbc_driver_postgresql-1.10.0-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl" \
+    && unzip -j /tmp/adbc_pg.whl "adbc_driver_postgresql/*.so*" -d /opt/adbc/drivers/ \
+    && rm -f /tmp/adbc_pg.whl \
+    && ls -la /opt/adbc/drivers/ \
     && chmod -R 755 /opt/adbc/drivers \
-    && apt-get remove -y curl \
+    && apt-get remove -y curl unzip software-properties-common \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 

@@ -66,6 +66,14 @@
         </exclusion>
       </exclusions>
     </dependency>
+    <!-- Arrow C Data Interface — needed by adbc-driver-jni for JNI bridge (ArrowArrayStream).
+         Excluded by the blanket arrow exclusion above, so added explicitly.
+         Uses vanilla Arrow version; the C Data API is stable across 18.1.x. -->
+    <dependency>
+      <groupId>org.apache.arrow</groupId>
+      <artifactId>arrow-c-data</artifactId>
+      <version>18.1.0</version>
+    </dependency>
 
     <!-- test dependencies -->
     <dependency>

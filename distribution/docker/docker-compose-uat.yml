@@ -1,0 +1,115 @@
+#
+# Unified UAT stack: Dremio + PostgreSQL + Oracle + Nessie + MinIO
+#
+# Sources available:
+#   pg_jdbc     — PostgreSQL via JDBC (POSTGRES_DB)
+#   pg_adbc     — PostgreSQL via ADBC (POSTGRES_DB, protocolMode=ADBC)
+#   oracle_jdbc — Oracle via JDBC (ORACLE_DB)
+#   nessie_iceberg — Nessie Iceberg REST catalog (RESTCATALOG)
+#
+# Usage:
+#   docker compose -f docker-compose-uat.yml up -d
+#   # Wait for all services healthy, then run Playwright UAT
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "log_statement=all", "-c", "log_destination=stderr"]
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: pguser
+      POSTGRES_PASSWORD: pgpass
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pguser -d testdb"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      uat-net:
+        aliases:
+          - postgres
+
+  oracle:
+    image: gvenzl/oracle-xe:21-slim
+    environment:
+      ORACLE_PASSWORD: orapass
+      APP_USER: testuser
+      APP_USER_PASSWORD: testpass
+    ports:
+      - "1522:1521"
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks:
+      uat-net:
+        aliases:
+          - oracle
+
+  minio:
+    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      uat-net:
+        aliases:
+          - minio
+
+  nessie:
+    image: ghcr.io/projectnessie/nessie:0.100.3
+    ports:
+      - "19120:19120"
+    environment:
+      nessie.catalog.default-warehouse: warehouse
+      nessie.catalog.warehouses.warehouse.location: "s3://warehouse/"
+      nessie.catalog.service.s3.default-options.endpoint: "http://minio:9000"
+      nessie.catalog.service.s3.default-options.external-endpoint: "http://minio:9000"
+      nessie.catalog.service.s3.default-options.path-style-access: "true"
+      nessie.catalog.service.s3.default-options.region: us-east-1
+      nessie.catalog.service.s3.default-options.auth-type: APPLICATION_GLOBAL
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      uat-net:
+        aliases:
+          - nessie
+
+  dremio:
+    image: dremio-oss:jdbc-test
+    ports:
+      - "9047:9047"
+      - "31010:31010"
+      - "32010:32010"
+      - "45678:45678"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      oracle:
+        condition: service_healthy
+      nessie:
+        condition: service_started
+    networks:
+      uat-net:
+        aliases:
+          - dremio
+
+networks:
+  uat-net:
+    driver: bridge

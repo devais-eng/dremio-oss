@@ -30,7 +30,9 @@ import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rel.logical.LogicalJoin;
+import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.slf4j.Logger;
@@ -262,7 +264,26 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
     if (node instanceof ScanCrel) {
       return (ScanCrel) node;
     }
-    // Walk through single-input nodes (Project, Filter, Aggregate, etc.)
+    // Decline pushdown when an intermediate Project contains non-trivial expressions
+    // (e.g. CAST). This happens when the planner inserts type-coercion projects between
+    // a LogicalJoin and the scan (e.g. cross-source Oracle + Iceberg queries). Pushing
+    // the join would use the project's output rowType (with columns like EXPR$0) to build
+    // SQL against the source table, causing "Fail to convert to internal representation".
+    // Declining is safe — the query still works with separate scans and in-engine join.
+    if (node instanceof LogicalProject) {
+      LogicalProject project = (LogicalProject) node;
+      for (RexNode expr : project.getProjects()) {
+        if (!(expr instanceof RexInputRef)) {
+          logger.debug(
+              "[JOIN-PUSH] Declining pushdown: intermediate Project has non-trivial expression: {}",
+              expr);
+          return null;
+        }
+      }
+      // All projections are simple column refs — safe to walk through
+      return findJdbcScan(project.getInput());
+    }
+    // Walk through single-input nodes (Filter, Aggregate, etc.)
     if (node.getInputs().size() == 1) {
       return findJdbcScan(node.getInput(0));
     }
