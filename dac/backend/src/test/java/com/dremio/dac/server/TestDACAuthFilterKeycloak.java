@@ -22,6 +22,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.dremio.common.SuppressForbidden;
 import com.dremio.dac.model.usergroup.UserName;
 import com.dremio.service.keycloak.OidcTokenValidator;
 import com.dremio.service.tokens.TokenDetails;
@@ -209,6 +210,7 @@ public class TestDACAuthFilterKeycloak {
    * Sets a private field on the target object via reflection, bypassing field injection. Supports
    * null values (to simulate @Nullable fields being absent).
    */
+  @SuppressForbidden
   private static void injectField(Object target, String fieldName, Object value) throws Exception {
     Field field = findField(target.getClass(), fieldName);
     field.setAccessible(true);

@@ -101,7 +101,9 @@ public abstract class BasicFlightAuthenticationTest {
     // KC_USERNAME token creation
     final TokenDetails kcTokenDetails =
         TokenDetails.of(TOKEN, KC_USERNAME, System.currentTimeMillis() + 1000);
-    lenient().when(mockTokenManager.createToken(eq(KC_USERNAME), eq(null))).thenReturn(kcTokenDetails);
+    lenient()
+        .when(mockTokenManager.createToken(eq(KC_USERNAME), eq(null)))
+        .thenReturn(kcTokenDetails);
   }
 
   public Provider<UserService> getMockUserServiceProvider() {

@@ -25,6 +25,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.dremio.common.SuppressForbidden;
 import com.dremio.config.DremioConfig;
 import com.dremio.exec.rbac.RbacService;
 import com.dremio.service.keycloak.JitUserProvisioner;
@@ -300,6 +301,7 @@ public class TestDACAuthFilterJit {
    * Sets a private field on the target object via reflection, bypassing field injection. Supports
    * null values (to simulate @Nullable fields being absent).
    */
+  @SuppressForbidden
   private static void injectField(Object target, String fieldName, Object value) throws Exception {
     Field field = findField(target.getClass(), fieldName);
     field.setAccessible(true);

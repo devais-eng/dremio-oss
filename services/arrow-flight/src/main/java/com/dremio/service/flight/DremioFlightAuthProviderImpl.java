@@ -80,7 +80,13 @@ public class DremioFlightAuthProviderImpl implements DremioFlightAuthProvider {
       Provider<DremioConfig> configProvider,
       Provider<UserService> userServiceProvider,
       Provider<TokenManager> tokenManagerProvider) {
-    this(configProvider, userServiceProvider, tokenManagerProvider, () -> null, () -> null, () -> null);
+    this(
+        configProvider,
+        userServiceProvider,
+        tokenManagerProvider,
+        () -> null,
+        () -> null,
+        () -> null);
   }
 
   @Override

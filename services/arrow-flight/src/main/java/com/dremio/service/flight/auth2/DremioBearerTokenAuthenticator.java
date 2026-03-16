@@ -96,13 +96,7 @@ public class DremioBearerTokenAuthenticator implements CallHeaderAuthenticator {
       Provider<UserService> userServiceProvider,
       Provider<TokenManager> tokenManagerProvider,
       DremioFlightSessionsManager dremioFlightSessionsManager) {
-    this(
-        userServiceProvider,
-        tokenManagerProvider,
-        dremioFlightSessionsManager,
-        null,
-        null,
-        null);
+    this(userServiceProvider, tokenManagerProvider, dremioFlightSessionsManager, null, null, null);
   }
 
   /**

@@ -25,6 +25,7 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.dremio.common.SuppressForbidden;
 import com.dremio.exec.server.SabotContext;
 import com.dremio.service.keycloak.JitUserProvisioner;
 import com.dremio.service.keycloak.KeycloakConfig;
@@ -188,9 +189,7 @@ public class TestOidcResource {
     URI location = (URI) response.getHeaders().getFirst("Location");
     assertThat(location.toString())
         .isEqualTo(
-            "/login/sso/landing#token="
-                + DREMIO_SESSION_TOKEN
-                + "&userName=testuser&admin=false");
+            "/login/sso/landing#token=" + DREMIO_SESSION_TOKEN + "&userName=testuser&admin=false");
   }
 
   /**
@@ -271,6 +270,7 @@ public class TestOidcResource {
    * Sets a private field on the target object via reflection, bypassing field injection. Supports
    * null values (to simulate @Nullable fields being absent).
    */
+  @SuppressForbidden
   private static void injectField(Object target, String fieldName, Object value) throws Exception {
     Field field = findField(target.getClass(), fieldName);
     field.setAccessible(true);

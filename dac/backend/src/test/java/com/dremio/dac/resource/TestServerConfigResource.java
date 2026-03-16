@@ -30,8 +30,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * Unit tests for {@link ServerConfigResource} covering the unauthenticated
- * {@code GET /api/v3/server-config} endpoint.
+ * Unit tests for {@link ServerConfigResource} covering the unauthenticated {@code GET
+ * /api/v3/server-config} endpoint.
  *
  * <p>Covers requirements UI-01 and UI-02.
  */
@@ -62,7 +62,10 @@ public class TestServerConfigResource {
     assertThat(body.getAuthType()).isEqualTo("keycloak");
   }
 
-  /** UI-02: When auth.type=internal (default), GET /api/v3/server-config returns {"authType":"internal"}. */
+  /**
+   * UI-02: When auth.type=internal (default), GET /api/v3/server-config returns
+   * {"authType":"internal"}.
+   */
   @Test
   void testGetServerConfigInternal() {
     when(dremioConfig.getString(DremioConfig.WEB_AUTH_TYPE)).thenReturn("internal");

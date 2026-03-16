@@ -60,16 +60,15 @@ public class ServerConfigResource {
   @GET
   // NO @Secured — pre-login UI must be able to call this without a session token
   public Response getServerConfig() {
-    String authType =
-        sabotContext.getDremioConfig().getString(DremioConfig.WEB_AUTH_TYPE);
+    String authType = sabotContext.getDremioConfig().getString(DremioConfig.WEB_AUTH_TYPE);
     return Response.ok(new ServerConfig(authType)).build();
   }
 
   /**
    * Response body for {@code GET /api/v3/server-config}.
    *
-   * <p>Deliberately contains only {@code authType} — no secrets, no URLs, no client IDs are
-   * exposed to unauthenticated callers.
+   * <p>Deliberately contains only {@code authType} — no secrets, no URLs, no client IDs are exposed
+   * to unauthenticated callers.
    */
   public static final class ServerConfig {
     private final String authType;
