@@ -45,7 +45,6 @@ import com.nimbusds.openid.connect.sdk.OIDCTokenResponse;
 import com.nimbusds.openid.connect.sdk.OIDCTokenResponseParser;
 import java.io.IOException;
 import java.net.URI;
-import java.text.ParseException;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.GET;
@@ -213,10 +212,54 @@ public class OidcResource {
             "/login/sso/landing#token="
                 + dremioToken.token
                 + "&userName="
-                + java.net.URLEncoder.encode(ktd.getUsername(), java.nio.charset.StandardCharsets.UTF_8)
+                + java.net.URLEncoder.encode(
+                    ktd.getUsername(), java.nio.charset.StandardCharsets.UTF_8)
                 + "&admin="
                 + isAdmin);
     return Response.status(Response.Status.FOUND).location(landingUri).build();
+  }
+
+  /**
+   * RP-Initiated Logout: invalidates the Dremio session, cleans up the stored id_token, and
+   * redirects the browser to Keycloak's logout endpoint with {@code id_token_hint} so that Keycloak
+   * also clears its session.
+   *
+   * <p>After Keycloak logout, the browser is redirected back to the Dremio login page via {@code
+   * post_logout_redirect_uri}.
+   *
+   * @param token the Dremio session token (from localStorage, passed as query param)
+   * @return 302 redirect to Keycloak logout, or 302 to login page if no id_token found
+   */
+  @GET
+  @Path("/logout")
+  public Response initiateLogout(@QueryParam("token") String token) {
+    String loginRedirect = "/login";
+
+    if (keycloakConfig == null || oidcSessionStore == null) {
+      return Response.status(Response.Status.FOUND).location(URI.create(loginRedirect)).build();
+    }
+
+    String idToken = null;
+    if (token != null) {
+      idToken = oidcSessionStore.get(token);
+      oidcSessionStore.remove(token);
+    }
+
+    if (idToken == null) {
+      return Response.status(Response.Status.FOUND).location(URI.create(loginRedirect)).build();
+    }
+
+    String keycloakLogoutUrl =
+        keycloakConfig.getIssuerUrl()
+            + "/protocol/openid-connect/logout"
+            + "?id_token_hint="
+            + idToken
+            + "&post_logout_redirect_uri="
+            + java.net.URLEncoder.encode(
+                keycloakConfig.getRedirectUri().replace("/api/v3/oidc/callback", "/login"),
+                java.nio.charset.StandardCharsets.UTF_8);
+
+    return Response.status(Response.Status.FOUND).location(URI.create(keycloakLogoutUrl)).build();
   }
 
   /**

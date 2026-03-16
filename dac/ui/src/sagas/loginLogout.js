@@ -112,9 +112,35 @@ export function* handleAppStop() {
 
 export function* handleLogout() {
   yield call(handleAppStop);
+
+  // Read the raw Dremio token BEFORE clearing localStorage — needed for Keycloak logout
+  const userData = localStorageUtils.getUserData();
+  const dremioToken = userData && userData.token;
+
   log("clear user data and token");
   yield call([localStorageUtils, localStorageUtils.clearUserData]);
   removeLastSession();
+
+  // If Keycloak SSO is active, redirect through the OIDC logout endpoint so
+  // the Keycloak session is also terminated (RP-Initiated Logout).
+  if (dremioToken) {
+    try {
+      const response = yield call(fetch, "/api/v3/server-config");
+      if (response.ok) {
+        const cfg = yield call([response, response.json]);
+        if (cfg && cfg.authType === "keycloak") {
+          log("keycloak logout — redirecting through /api/v3/oidc/logout");
+          window.location.assign(
+            `/api/v3/oidc/logout?token=${encodeURIComponent(dremioToken)}`,
+          );
+          return;
+        }
+      }
+    } catch (e) {
+      // Fall through to normal login redirect
+    }
+  }
+
   log("go to login page");
   window.location.assign(getLoginUrl());
 }

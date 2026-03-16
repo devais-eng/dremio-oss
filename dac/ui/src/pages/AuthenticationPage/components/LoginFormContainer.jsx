@@ -74,7 +74,7 @@ export class LoginFormContainer extends PureComponent {
       <div style={{ marginTop: "var(--dremio--spacing--2)" }}>
         <Button
           className="w-full"
-          variant="secondary"
+          variant="primary"
           onClick={() => {
             LoginFormContainer._navigate("/api/v3/oidc/login");
           }}
@@ -86,6 +86,7 @@ export class LoginFormContainer extends PureComponent {
   }
 
   render() {
+    const isKeycloak = this.state.authType === "keycloak";
     return (
       <div className="login-form-wrapper">
         <div id="login-form" className="drop-shadow-lg" style={styles.base}>
@@ -93,15 +94,17 @@ export class LoginFormContainer extends PureComponent {
             Log in
             {isBeta && <BetaTag />}
           </h1>
-          {this.renderForm({
-            loginType: this.state.loginScreen,
-            ssoPending: !!this.props.ssoPending,
-          })}
+          {!isKeycloak &&
+            this.renderForm({
+              loginType: this.state.loginScreen,
+              ssoPending: !!this.props.ssoPending,
+            })}
           {this.renderSSOButton()}
-          {renderSSOLoginToggleLink({
-            setScreenFn: this.setLoginScreen.bind(this),
-            ssoPending: !!this.props.ssoPending,
-          })}
+          {!isKeycloak &&
+            renderSSOLoginToggleLink({
+              setScreenFn: this.setLoginScreen.bind(this),
+              ssoPending: !!this.props.ssoPending,
+            })}
         </div>
         <div className="flex justify-center mt-5 dremio-typography-small">
           <Link
