@@ -93,9 +93,10 @@ Progress: [██████████] 100%
 | 6 | Read the opened pull requests and evaluate the comments of copilot. | 2026-03-02 | — | [6-read-the-opened-pull-requests-and-evalua](./quick/6-read-the-opened-pull-requests-and-evalua/) |
 | 7 | Apply all actionable Copilot review items (O(1) roleIds, precomputed-path overload, semicolon injection block). | 2026-03-02 | 246251057 | [7-apply-all-actionable-copilot-review-item](./quick/7-apply-all-actionable-copilot-review-item/) |
 | 8 | Enable RBAC and PDS SELECT enforcement by default (dremio-reference.conf). | 2026-03-02 | afb403227 | [8-enable-rbac-by-default](./quick/8-enable-rbac-by-default/) |
+| 9 | Extend samples/iceberg-rest-catalog with LDAP overlay (OpenLDAP + Keycloak federation). | 2026-03-16 | b12cb458e | [9-extend-samples-environment-with-ldap-pro](./quick/9-extend-samples-environment-with-ldap-pro/) |
 
 ## Session Continuity
 
-Last session: 2026-03-13T11:09:02.388Z
-Stopped at: Completed 35-01-PLAN.md
+Last session: 2026-03-16T16:18:50Z
+Stopped at: Completed quick-9 (LDAP overlay for iceberg-rest-catalog)
 Resume file: None
