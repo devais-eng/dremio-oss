@@ -1,0 +1,55 @@
+# Base DN already created by osixia/openldap via LDAP_DOMAIN env var.
+
+# OU: people
+dn: ou=people,dc=example,dc=org
+objectClass: organizationalUnit
+ou: people
+
+# OU: groups
+dn: ou=groups,dc=example,dc=org
+objectClass: organizationalUnit
+ou: groups
+
+# User: ldap-engineer
+dn: uid=ldap-engineer,ou=people,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: ldap-engineer
+sn: Engineer
+givenName: LDAP
+cn: LDAP Engineer
+displayName: LDAP Engineer
+mail: ldap-engineer@example.org
+uidNumber: 10001
+gidNumber: 10001
+homeDirectory: /home/ldap-engineer
+userPassword: engineer123
+
+# User: ldap-analyst
+dn: uid=ldap-analyst,ou=people,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: ldap-analyst
+sn: Analyst
+givenName: LDAP
+cn: LDAP Analyst
+displayName: LDAP Analyst
+mail: ldap-analyst@example.org
+uidNumber: 10002
+gidNumber: 10002
+homeDirectory: /home/ldap-analyst
+userPassword: analyst123
+
+# Group: engineers (member: ldap-engineer)
+dn: cn=engineers,ou=groups,dc=example,dc=org
+objectClass: groupOfNames
+cn: engineers
+member: uid=ldap-engineer,ou=people,dc=example,dc=org
+
+# Group: analysts (member: ldap-analyst)
+dn: cn=analysts,ou=groups,dc=example,dc=org
+objectClass: groupOfNames
+cn: analysts
+member: uid=ldap-analyst,ou=people,dc=example,dc=org
