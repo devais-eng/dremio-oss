@@ -713,4 +713,179 @@ public class TestOraclePushdown {
       assertEquals("Expected 3 groups with AGE >= 30", 3, groupCount);
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Phase 38: Expression pushdown gap integration tests (Gaps 1-4) — Oracle
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Gap 1: GROUP BY with function expression EXTRACT(YEAR FROM HIRE_DATE).
+   * Expected 4 rows for years 2020-2023 with correct SUM(SALARY) values.
+   * Oracle EXTRACT returns NUMBER; column names are UPPERCASE.
+   */
+  @Test
+  public void testGroupByExpressionExtractYear() throws Exception {
+    // Ensure test data table exists (idempotent: skip if already present from a prior run)
+    try {
+      OracleTestContainer.executeSql(
+          "CREATE TABLE PUSHDOWN_EXPR_TEST ("
+              + "ID NUMBER(10), NAME VARCHAR2(50), DEPARTMENT VARCHAR2(50),"
+              + " SALARY NUMBER(10,2), HIRE_DATE DATE)");
+      OracleTestContainer.executeSql(
+          "INSERT ALL"
+              + " INTO PUSHDOWN_EXPR_TEST VALUES (1, 'Alice', 'Engineering', 80000.00,"
+              + " TO_DATE('2020-03-15','YYYY-MM-DD'))"
+              + " INTO PUSHDOWN_EXPR_TEST VALUES (2, 'Bob', 'Engineering', 95000.00,"
+              + " TO_DATE('2021-07-22','YYYY-MM-DD'))"
+              + " INTO PUSHDOWN_EXPR_TEST VALUES (3, 'Carol', 'Marketing', 72000.00,"
+              + " TO_DATE('2020-11-01','YYYY-MM-DD'))"
+              + " INTO PUSHDOWN_EXPR_TEST VALUES (4, 'Dave', 'Marketing', 68000.00,"
+              + " TO_DATE('2022-01-10','YYYY-MM-DD'))"
+              + " INTO PUSHDOWN_EXPR_TEST VALUES (5, 'Eve', 'Engineering', 105000.00,"
+              + " TO_DATE('2023-06-30','YYYY-MM-DD'))"
+              + " SELECT 1 FROM DUAL");
+    } catch (java.sql.SQLException e) {
+      // Table already exists — ignore ORA-00955
+      if (!e.getMessage().contains("ORA-00955") && !e.getMessage().contains("name is already used")) {
+        throw e;
+      }
+    }
+
+    String sql =
+        "SELECT EXTRACT(YEAR FROM \"HIRE_DATE\") AS HIRE_YEAR, SUM(\"SALARY\") AS TOTAL_SALARY"
+            + " FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\""
+            + " GROUP BY EXTRACT(YEAR FROM \"HIRE_DATE\")"
+            + " ORDER BY HIRE_YEAR";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      // Year 2020: Alice 80000 + Carol 72000 = 152000
+      assertTrue("Must have row for 2020", rs.next());
+      assertEquals("HIRE_YEAR 2020", 2020.0, rs.getDouble("HIRE_YEAR"), 0.01);
+      assertEquals("SUM 2020 = 152000", 152000.00, rs.getDouble("TOTAL_SALARY"), 0.01);
+      // Year 2021: Bob 95000
+      assertTrue("Must have row for 2021", rs.next());
+      assertEquals("HIRE_YEAR 2021", 2021.0, rs.getDouble("HIRE_YEAR"), 0.01);
+      assertEquals("SUM 2021 = 95000", 95000.00, rs.getDouble("TOTAL_SALARY"), 0.01);
+      // Year 2022: Dave 68000
+      assertTrue("Must have row for 2022", rs.next());
+      assertEquals("HIRE_YEAR 2022", 2022.0, rs.getDouble("HIRE_YEAR"), 0.01);
+      assertEquals("SUM 2022 = 68000", 68000.00, rs.getDouble("TOTAL_SALARY"), 0.01);
+      // Year 2023: Eve 105000
+      assertTrue("Must have row for 2023", rs.next());
+      assertEquals("HIRE_YEAR 2023", 2023.0, rs.getDouble("HIRE_YEAR"), 0.01);
+      assertEquals("SUM 2023 = 105000", 105000.00, rs.getDouble("TOTAL_SALARY"), 0.01);
+      assertFalse("Exactly 4 rows", rs.next());
+    }
+  }
+
+  /**
+   * Gap 3: Aggregate operand expression SUM(SALARY * 1.1) with GROUP BY DEPARTMENT.
+   * Engineering: (80000 + 95000 + 105000) * 1.1 = 308000; Marketing: (72000 + 68000) * 1.1 = 154000.
+   * Oracle column names in results are UPPERCASE.
+   */
+  @Test
+  public void testAggOperandExpression() throws Exception {
+    String sql =
+        "SELECT \"DEPARTMENT\", SUM(\"SALARY\" * 1.1) AS RAISED_TOTAL"
+            + " FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\""
+            + " GROUP BY \"DEPARTMENT\""
+            + " ORDER BY \"DEPARTMENT\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      // Engineering comes before Marketing alphabetically
+      assertTrue("Must have row for Engineering", rs.next());
+      assertEquals("DEPARTMENT Engineering", "Engineering", rs.getString("DEPARTMENT"));
+      assertEquals(
+          "RAISED_TOTAL Engineering = 308000", 308000.00, rs.getDouble("RAISED_TOTAL"), 1.0);
+      assertTrue("Must have row for Marketing", rs.next());
+      assertEquals("DEPARTMENT Marketing", "Marketing", rs.getString("DEPARTMENT"));
+      assertEquals(
+          "RAISED_TOTAL Marketing = 154000", 154000.00, rs.getDouble("RAISED_TOTAL"), 1.0);
+      assertFalse("Exactly 2 rows", rs.next());
+    }
+  }
+
+  /**
+   * Gap 4: Bare aggregate (no GROUP BY). SELECT SUM(SALARY), COUNT(*) over the whole table.
+   * Expected: total = 420000, count = 5.
+   */
+  @Test
+  public void testBareAggregateNoGroupBy() throws Exception {
+    String sql =
+        "SELECT SUM(\"SALARY\") AS TOTAL, COUNT(*) AS CNT"
+            + " FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have exactly one result row", rs.next());
+      assertEquals("total salary = 420000", 420000.00, rs.getDouble("TOTAL"), 0.01);
+      assertEquals("count = 5", 5L, rs.getLong("CNT"));
+      assertFalse("Exactly 1 row for bare aggregate", rs.next());
+    }
+  }
+
+  /**
+   * Gap 2: JOIN with CAST condition. Joins employees to departments on DEPARTMENT = CAST(DEPT_NAME
+   * AS VARCHAR2(50)). All 5 employees should match their department.
+   * Oracle requires a length for CAST to VARCHAR2/CHAR types.
+   */
+  @Test
+  public void testJoinWithCastCondition() throws Exception {
+    // Ensure departments table exists (idempotent)
+    try {
+      OracleTestContainer.executeSql(
+          "CREATE TABLE DEPARTMENTS_EXPR_TEST (DEPT_ID NUMBER(10), DEPT_NAME VARCHAR2(50))");
+      OracleTestContainer.executeSql(
+          "INSERT ALL"
+              + " INTO DEPARTMENTS_EXPR_TEST VALUES (1, 'Engineering')"
+              + " INTO DEPARTMENTS_EXPR_TEST VALUES (2, 'Marketing')"
+              + " SELECT 1 FROM DUAL");
+    } catch (java.sql.SQLException e) {
+      if (!e.getMessage().contains("ORA-00955") && !e.getMessage().contains("name is already used")) {
+        throw e;
+      }
+    }
+
+    String sql =
+        "SELECT e.\"NAME\", d.\"DEPT_NAME\""
+            + " FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\" e"
+            + " JOIN \"TEST_USER\".\"DEPARTMENTS_EXPR_TEST\" d"
+            + "   ON e.\"DEPARTMENT\" = CAST(d.\"DEPT_NAME\" AS VARCHAR2(50))"
+            + " ORDER BY e.\"NAME\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      // 5 employees should each match a department
+      int count = 0;
+      while (rs.next()) {
+        String name = rs.getString("NAME");
+        String dept = rs.getString("DEPT_NAME");
+        assertNotNull("NAME must not be null", name);
+        assertNotNull("DEPT_NAME must not be null", dept);
+        assertTrue(
+            "DEPT_NAME must be Engineering or Marketing",
+            "Engineering".equals(dept) || "Marketing".equals(dept));
+        count++;
+      }
+      assertEquals("All 5 employees matched via CAST JOIN", 5, count);
+    }
+  }
 }
