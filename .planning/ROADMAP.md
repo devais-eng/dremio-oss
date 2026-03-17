@@ -246,7 +246,7 @@ Plans:
 **Goal**: Close four expression pushdown gaps discovered during Phase 37 UAT: (1) GROUP BY with function expressions (e.g. EXTRACT(YEAR FROM col)), (2) JOIN with function expressions in conditions (e.g. ON CAST(col AS type)), (3) aggregate operand expressions (e.g. SUM(salary * 1.1)), and (4) bare aggregates without GROUP BY (e.g. SELECT SUM(salary) FROM table). All gaps share a common root cause: an intermediate ProjectPrel between the aggregate/join and JdbcScanPrel blocks the existing pushdown rules from firing.
 **Requirements**: GAP-01, GAP-02, GAP-03, GAP-04
 **Depends on:** Phase 37
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 38-01-PLAN.md — JdbcPushAggWithExpressionsHep rule, JdbcScanPrel extend/aggregate/trim, JdbcPushJoinIntoScan findJdbcScan() fix, unit tests
@@ -307,4 +307,4 @@ Phases execute in numeric order: 30 → 31 → 32 → 33 → 34 → 35 → 36 �
 | 35. JOIN/INTERSECT/EXCEPT Single-Engine Pushdown | v1.5 | Complete    | 2026-03-14 | - |
 | 36. Calcite JDBC Convention Migration | v1.5 | 0/3 | Not started | - |
 | 37. Expression Pushdown (pgvector foundation) | v1.5 | 0/2 | Not started | - |
-| 38. Expression Pushdown Gap Closure | 1/2 | In Progress|  | - |
+| 38. Expression Pushdown Gap Closure | 2/2 | Complete   | 2026-03-17 | - |

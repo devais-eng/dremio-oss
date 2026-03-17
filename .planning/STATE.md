@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: completed
-stopped_at: Completed 38-01-PLAN.md — JdbcPushAggWithExpressionsHep, extend/aggregate/trim pattern in JdbcScanPrel, findJdbcScan() registry validation
-last_updated: "2026-03-17T18:21:10.915Z"
+stopped_at: Completed 38-02-PLAN.md — PostgreSQL and Oracle integration tests for all 4 expression pushdown gaps
+last_updated: "2026-03-17T19:01:48.910Z"
 last_activity: 2026-03-17 — Completed 37-02 (JdbcScanPrel projectExpressions/sortKeyExpressions, JdbcPushProjectIntoScan function expression support, JdbcPushSortWithExpressionsHep, JdbcPushTopNWithExpressionsHep, extended sort-trim pattern in getPhysicalOperator)
 progress:
   total_phases: 9
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 23
-  completed_plans: 21
+  completed_plans: 22
   percent: 100
 ---
 
@@ -71,6 +71,7 @@ Progress: [██████████] 100% (20 of 20 plans complete)
 
 *Updated after each plan completion*
 | Phase 38-expression-pushdown P01 | 45 | 2 tasks | 7 files |
+| Phase 38 P02 | 18 | 2 tasks | 2 files |
 
 ## Shipped Milestones
 
@@ -149,6 +150,8 @@ Progress: [██████████] 100% (20 of 20 plans complete)
 - [Phase 38-expression-pushdown P01]: JdbcPushJoinIntoScan INSTANCE singleton removed; replaced with constructor-injected PushdownFunctionRegistry in JdbcJoinRulesFactory
 - [Phase 38-expression-pushdown P01]: extend/aggregate/trim pattern added to JdbcScanPrel.getPhysicalOperator() step 8a for GROUP BY and AGG operand function expressions (_group_key_N, _agg_operand_N columns)
 - [Phase 38-expression-pushdown P01]: LOGICAL case in JdbcRulesFactory kept with only JdbcScanDrule — JOIN rule stays in JdbcJoinRulesFactory to avoid duplicate registration
+- [Phase 38-02]: Oracle CAST(x AS VARCHAR) rejected — must use VARCHAR2(n) with explicit length; test uses VARCHAR2(50) for DEPT_NAME join condition
+- [Phase 38-02]: Docker Engine 29+ / Testcontainers 1.20.4 API version incompatibility fixed via -Dapi.version=1.46 system property (shaded dockerjava defaults to 1.32, Docker 29 requires min 1.40)
 
 ### Pending Todos
 
@@ -169,6 +172,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-17T18:21:10.912Z
-Stopped at: Completed 38-01-PLAN.md — JdbcPushAggWithExpressionsHep, extend/aggregate/trim pattern in JdbcScanPrel, findJdbcScan() registry validation
+Last session: 2026-03-17T19:01:48.905Z
+Stopped at: Completed 38-02-PLAN.md — PostgreSQL and Oracle integration tests for all 4 expression pushdown gaps
 Resume file: None
