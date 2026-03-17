@@ -70,6 +70,26 @@ public class TestPostgresPushdown {
     PostgresTestContainer.executeSql(
         "INSERT INTO pushdown_test (name, age) VALUES "
             + "('Alice', 30), ('Bob', 25), ('Charlie', 35), ('Dave', 28), ('Eve', 40)");
+
+    // Phase 38: expression pushdown gap test tables
+    PostgresTestContainer.executeSql(
+        "CREATE TABLE IF NOT EXISTS pushdown_expr_test ("
+            + "  id INTEGER, name VARCHAR(50), department VARCHAR(50),"
+            + "  salary NUMERIC(10,2), hire_date DATE"
+            + ")");
+    PostgresTestContainer.executeSql(
+        "INSERT INTO pushdown_expr_test VALUES "
+            + "(1, 'Alice', 'Engineering', 80000.00, '2020-03-15'),"
+            + "(2, 'Bob', 'Engineering', 95000.00, '2021-07-22'),"
+            + "(3, 'Carol', 'Marketing', 72000.00, '2020-11-01'),"
+            + "(4, 'Dave', 'Marketing', 68000.00, '2022-01-10'),"
+            + "(5, 'Eve', 'Engineering', 105000.00, '2023-06-30')");
+    PostgresTestContainer.executeSql(
+        "CREATE TABLE IF NOT EXISTS departments_expr_test ("
+            + "  dept_id INTEGER, dept_name VARCHAR(50)"
+            + ")");
+    PostgresTestContainer.executeSql(
+        "INSERT INTO departments_expr_test VALUES (1, 'Engineering'), (2, 'Marketing')");
   }
 
   @AfterClass
@@ -781,6 +801,135 @@ public class TestPostgresPushdown {
       assertTrue("Must have a result row", rs.next());
       long count = rs.getLong(1);
       assertEquals("COUNT(*) with age > 28 should return 3", 3L, count);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 38: Expression pushdown gap integration tests (Gaps 1-4)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Gap 1: GROUP BY with function expression EXTRACT(YEAR FROM hire_date).
+   * Expected 4 rows for years 2020-2023 with correct SUM(salary) values.
+   */
+  @Test
+  public void testGroupByExpressionExtractYear() throws Exception {
+    String sql =
+        "SELECT EXTRACT(YEAR FROM \"hire_date\") AS hire_year, SUM(\"salary\") AS total_salary"
+            + " FROM \"public\".\"pushdown_expr_test\""
+            + " GROUP BY EXTRACT(YEAR FROM \"hire_date\")"
+            + " ORDER BY hire_year";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      // Year 2020: Alice 80000 + Carol 72000 = 152000
+      assertTrue("Must have row for 2020", rs.next());
+      assertEquals("hire_year 2020", 2020.0, rs.getDouble("hire_year"), 0.01);
+      assertEquals("SUM 2020 = 152000", 152000.00, rs.getDouble("total_salary"), 0.01);
+      // Year 2021: Bob 95000
+      assertTrue("Must have row for 2021", rs.next());
+      assertEquals("hire_year 2021", 2021.0, rs.getDouble("hire_year"), 0.01);
+      assertEquals("SUM 2021 = 95000", 95000.00, rs.getDouble("total_salary"), 0.01);
+      // Year 2022: Dave 68000
+      assertTrue("Must have row for 2022", rs.next());
+      assertEquals("hire_year 2022", 2022.0, rs.getDouble("hire_year"), 0.01);
+      assertEquals("SUM 2022 = 68000", 68000.00, rs.getDouble("total_salary"), 0.01);
+      // Year 2023: Eve 105000
+      assertTrue("Must have row for 2023", rs.next());
+      assertEquals("hire_year 2023", 2023.0, rs.getDouble("hire_year"), 0.01);
+      assertEquals("SUM 2023 = 105000", 105000.00, rs.getDouble("total_salary"), 0.01);
+      assertFalse("Exactly 4 rows", rs.next());
+    }
+  }
+
+  /**
+   * Gap 3: Aggregate operand expression SUM(salary * 1.1) with GROUP BY department.
+   * Engineering: (80000 + 95000 + 105000) * 1.1 = 308000; Marketing: (72000 + 68000) * 1.1 = 154000.
+   */
+  @Test
+  public void testAggOperandExpression() throws Exception {
+    String sql =
+        "SELECT \"department\", SUM(\"salary\" * 1.1) AS raised_total"
+            + " FROM \"public\".\"pushdown_expr_test\""
+            + " GROUP BY \"department\""
+            + " ORDER BY \"department\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      // Engineering comes before Marketing alphabetically
+      assertTrue("Must have row for Engineering", rs.next());
+      assertEquals("department Engineering", "Engineering", rs.getString("department"));
+      assertEquals("raised_total Engineering = 308000", 308000.00, rs.getDouble("raised_total"), 1.0);
+      assertTrue("Must have row for Marketing", rs.next());
+      assertEquals("department Marketing", "Marketing", rs.getString("department"));
+      assertEquals("raised_total Marketing = 154000", 154000.00, rs.getDouble("raised_total"), 1.0);
+      assertFalse("Exactly 2 rows", rs.next());
+    }
+  }
+
+  /**
+   * Gap 4: Bare aggregate (no GROUP BY). SELECT SUM(salary), COUNT(*) over the whole table.
+   * Expected: total = 420000, count = 5.
+   */
+  @Test
+  public void testBareAggregateNoGroupBy() throws Exception {
+    String sql =
+        "SELECT SUM(\"salary\") AS total, COUNT(*) AS cnt"
+            + " FROM \"public\".\"pushdown_expr_test\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have exactly one result row", rs.next());
+      assertEquals("total salary = 420000", 420000.00, rs.getDouble("total"), 0.01);
+      assertEquals("count = 5", 5L, rs.getLong("cnt"));
+      assertFalse("Exactly 1 row for bare aggregate", rs.next());
+    }
+  }
+
+  /**
+   * Gap 2: JOIN with CAST condition. Joins employees to departments on department = CAST(dept_name
+   * AS VARCHAR). All 5 employees should match their department.
+   */
+  @Test
+  public void testJoinWithCastCondition() throws Exception {
+    String sql =
+        "SELECT e.\"name\", d.\"dept_name\""
+            + " FROM \"public\".\"pushdown_expr_test\" e"
+            + " JOIN \"public\".\"departments_expr_test\" d"
+            + "   ON e.\"department\" = CAST(d.\"dept_name\" AS VARCHAR)"
+            + " ORDER BY e.\"name\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      // 5 employees should each match a department
+      int count = 0;
+      while (rs.next()) {
+        String name = rs.getString("name");
+        String dept = rs.getString("dept_name");
+        assertNotNull("name must not be null", name);
+        assertNotNull("dept_name must not be null", dept);
+        assertTrue(
+            "dept_name must be Engineering or Marketing",
+            "Engineering".equals(dept) || "Marketing".equals(dept));
+        count++;
+      }
+      assertEquals("All 5 employees matched via CAST JOIN", 5, count);
     }
   }
 }
