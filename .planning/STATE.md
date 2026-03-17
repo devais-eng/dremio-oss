@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.6
-milestone_name: Expression Pushdown + pgvector Foundation
-status: complete
-stopped_at: Completed 37-02-PLAN.md
-last_updated: "2026-03-17T00:50:00Z"
-last_activity: "2026-03-17 — Completed Phase 37 Plan 02 (expression pushdown: JdbcPushProjectIntoScan function expressions, JdbcPushSortWithExpressionsHep, JdbcPushTopNWithExpressionsHep, getPhysicalOperator extended-sort-trim pattern)"
+milestone: v1.5
+milestone_name: Open-Source RDBMS JDBC Plugin
+status: completed
+stopped_at: Completed 38-01-PLAN.md — JdbcPushAggWithExpressionsHep, extend/aggregate/trim pattern in JdbcScanPrel, findJdbcScan() registry validation
+last_updated: "2026-03-17T18:21:10.915Z"
+last_activity: 2026-03-17 — Completed 37-02 (JdbcScanPrel projectExpressions/sortKeyExpressions, JdbcPushProjectIntoScan function expression support, JdbcPushSortWithExpressionsHep, JdbcPushTopNWithExpressionsHep, extended sort-trim pattern in getPhysicalOperator)
 progress:
-  total_phases: 7
+  total_phases: 9
   completed_phases: 7
-  total_plans: 20
-  completed_plans: 20
+  total_plans: 23
+  completed_plans: 21
   percent: 100
 ---
 
@@ -70,6 +70,7 @@ Progress: [██████████] 100% (20 of 20 plans complete)
 | 37-expression-pushdown P02 | 1 | 90 min | 90 min |
 
 *Updated after each plan completion*
+| Phase 38-expression-pushdown P01 | 45 | 2 tasks | 7 files |
 
 ## Shipped Milestones
 
@@ -145,6 +146,9 @@ Progress: [██████████] 100% (20 of 20 plans complete)
 - [Phase 37-01]: SqlKind.LOGICAL does not exist in Calcite 1.22.0 — replaced with explicit AND/OR/NOT individual kind checks in PushdownFunctionRegistry.isExpressionPushable()
 - [Phase 37-01]: JdbcPushFilterIntoScan changed from singleton INSTANCE to constructor injection (takes PushdownFunctionRegistry) — INSTANCE singleton removed; instantiated in JdbcRulesFactory with StandardPushdownFunctionRegistry.INSTANCE
 - [Phase 37-01]: COUNT(DISTINCT) now allowed in JdbcPushAggIntoScan — DISTINCT check changed from blanket rejection to kind check (only COUNT(DISTINCT) accepted); filterArg >= 0 (FILTER clause) always rejected
+- [Phase 38-expression-pushdown P01]: JdbcPushJoinIntoScan INSTANCE singleton removed; replaced with constructor-injected PushdownFunctionRegistry in JdbcJoinRulesFactory
+- [Phase 38-expression-pushdown P01]: extend/aggregate/trim pattern added to JdbcScanPrel.getPhysicalOperator() step 8a for GROUP BY and AGG operand function expressions (_group_key_N, _agg_operand_N columns)
+- [Phase 38-expression-pushdown P01]: LOGICAL case in JdbcRulesFactory kept with only JdbcScanDrule — JOIN rule stays in JdbcJoinRulesFactory to avoid duplicate registration
 
 ### Pending Todos
 
@@ -157,6 +161,7 @@ None.
 - Phase 35 added: JOIN/UNION/INTERSECT/EXCEPT single-engine pushdown
 - Phase 36 added: Calcite JDBC convention migration for SQL generation
 - Phase 37 added: Expression pushdown for functions, HAVING, and ORDER BY expressions (pgvector foundation)
+- Phase 38 added: Expression pushdown gap closure — AGG with expressions, JOIN with functions (PG + Oracle)
 
 ### Blockers/Concerns
 
@@ -164,6 +169,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-16
-Stopped at: Completed 37-01-PLAN.md — PushdownFunctionRegistry, HAVING pushdown, COUNT(DISTINCT), filter guard fix. 37-02-PLAN.md next.
+Last session: 2026-03-17T18:21:10.912Z
+Stopped at: Completed 38-01-PLAN.md — JdbcPushAggWithExpressionsHep, extend/aggregate/trim pattern in JdbcScanPrel, findJdbcScan() registry validation
 Resume file: None
