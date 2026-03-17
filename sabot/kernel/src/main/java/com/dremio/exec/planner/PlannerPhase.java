@@ -547,6 +547,7 @@ public enum PlannerPhase {
 
       moreRules.add(ExternalQueryScanRule.INSTANCE);
       moreRules.add(MFunctionQueryScanRule.INSTANCE);
+
       moreRules.add(CopyErrorsRule.INSTANCE);
       moreRules.add(ClusteringInfoRule.INSTANCE);
 

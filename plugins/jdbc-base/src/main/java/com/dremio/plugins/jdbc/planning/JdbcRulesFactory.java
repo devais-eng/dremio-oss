@@ -81,7 +81,7 @@ public class JdbcRulesFactory extends StoragePluginTypeRulesFactory {
             JdbcPushJoinIntoScan.JdbcJoinScanPrule.INSTANCE,
             new JdbcPushFilterIntoScan(registry),
             new JdbcPushHavingIntoScan(registry),
-            new JdbcPushProjectIntoScan(registry),
+            JdbcPushProjectIntoScan.INSTANCE,
             JdbcPushAggIntoScan.INSTANCE,
             JdbcPushSortIntoScan.INSTANCE,
             JdbcPushLimitIntoScan.INSTANCE);
