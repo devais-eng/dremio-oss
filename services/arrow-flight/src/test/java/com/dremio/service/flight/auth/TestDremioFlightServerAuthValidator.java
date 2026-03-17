@@ -24,6 +24,7 @@ import static org.mockito.Mockito.when;
 
 import com.dremio.service.flight.BasicFlightAuthenticationTest;
 import com.dremio.service.users.UserLoginException;
+import java.text.ParseException;
 import java.util.Optional;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.junit.After;
@@ -38,7 +39,7 @@ public class TestDremioFlightServerAuthValidator extends BasicFlightAuthenticati
 
   @Before
   @Override
-  public void setup() throws UserLoginException {
+  public void setup() throws UserLoginException, ParseException {
     super.setup();
     dremioFlightServerAuthValidator =
         new DremioFlightServerBasicAuthValidator(
