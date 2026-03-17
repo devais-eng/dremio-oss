@@ -229,7 +229,7 @@ Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for d
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 30 → 31 → 32 → 33 → 34 → 35 → 36
+Phases execute in numeric order: 30 → 31 → 32 → 33 → 34 → 35 → 36 → 37
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -269,3 +269,31 @@ Phases execute in numeric order: 30 → 31 → 32 → 33 → 34 → 35 → 36
 | 34. ADBC Driver for PostgreSQL | v1.5 | 0/3 | Not started | - |
 | 35. JOIN/INTERSECT/EXCEPT Single-Engine Pushdown | v1.5 | Complete    | 2026-03-14 | - |
 | 36. Calcite JDBC Convention Migration | v1.5 | 0/3 | Not started | - |
+| 37. Expression Pushdown (pgvector foundation) | v1.5 | 0/2 | Not started | - |
+
+### Phase 37: Expression Pushdown — Functions, HAVING, ORDER BY Expressions (pgvector foundation)
+**Goal**: Enable pushdown of SQL expressions containing standard functions, enabling HAVING clauses, ORDER BY with expressions, COUNT(DISTINCT), and CAST in JdbcProject nodes. Introduces a `PushdownFunctionRegistry` that whitelists which functions can be pushed to each dialect (PostgreSQL, Oracle). Function composition is supported when ALL functions in the expression tree are whitelisted; if any function is not whitelisted, the entire operator (agg, sort, project) stays in Dremio's engine. This phase lays the infrastructure for Phase 38 (pgvector UDFs + semantic search pushdown).
+**Depends on**: Phase 36
+**Requirements**: EXPR-01
+**Success Criteria** (what must be TRUE):
+  1. `PushdownFunctionRegistry` interface with per-dialect function whitelists (base: standard SQL, PG: standard + PG-specific, Oracle: standard + Oracle-specific like NVL)
+  2. HAVING pushdown: `GROUP BY col HAVING COUNT(*) > N` pushed as single SQL to source
+  3. COUNT(DISTINCT col) pushdown (currently rejected in Phase 33)
+  4. ORDER BY with expressions: `ORDER BY UPPER(name)`, `ORDER BY ROUND(salary, -3)`
+  5. ORDER BY expression + LIMIT K: `ORDER BY func(col) LIMIT K` pushed (critical for future pgvector `ORDER BY distance LIMIT K`)
+  6. CAST in JdbcProject: the cross-source JOIN CAST case from Phase 36 now pushes instead of declining
+  7. Whitelisted standard SQL functions pushed in WHERE, PROJECT, ORDER BY, HAVING:
+     - Math: ROUND, CEIL/CEILING, FLOOR, ABS
+     - String: UPPER, LOWER, TRIM, LENGTH/CHAR_LENGTH, SUBSTRING
+     - Date: EXTRACT(YEAR/MONTH/DAY FROM col)
+     - Null: COALESCE, NULLIF, NVL (Oracle)
+     - Type: CAST
+  8. Function composition works recursively: `ROUND(AVG(salary), 2)` pushes when both ROUND and AVG are whitelisted
+  9. Non-whitelisted functions in any expression → entire operator declines pushdown (no partial pushdown)
+  10. All existing tests pass; new tests for each pushdown pattern
+  11. Integration tests against PG and Oracle verify pushed SQL contains the functions
+**Plans:** 2 plans
+
+Plans:
+- [ ] 37-01-PLAN.md — PushdownFunctionRegistry, HAVING pushdown, COUNT(DISTINCT), filter guard fix
+- [ ] 37-02-PLAN.md — JdbcProject function expressions, ORDER BY with expressions, integration tests (PG + Oracle)

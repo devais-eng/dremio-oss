@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.5
-milestone_name: Open-Source RDBMS JDBC Plugin
+milestone: v1.6
+milestone_name: Expression Pushdown + pgvector Foundation
 status: complete
-stopped_at: Completed 36-03-PLAN.md
-last_updated: "2026-03-15T20:55:00Z"
-last_activity: "2026-03-15 — Completed Phase 36 Plan 03 (Docker UAT 44/44 pass; filter+agg normalization at push time; position-based JdbcRecordReader; JOIN+WHERE column projection fix in JdbcPushJoinIntoScan)"
+stopped_at: Completed 37-02-PLAN.md
+last_updated: "2026-03-17T00:50:00Z"
+last_activity: "2026-03-17 — Completed Phase 37 Plan 02 (expression pushdown: JdbcPushProjectIntoScan function expressions, JdbcPushSortWithExpressionsHep, JdbcPushTopNWithExpressionsHep, getPhysicalOperator extended-sort-trim pattern)"
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 18
-  completed_plans: 18
+  total_phases: 7
+  completed_phases: 7
+  total_plans: 20
+  completed_plans: 20
   percent: 100
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** Phase 36 — Calcite JDBC convention migration for SQL generation
+**Current focus:** Phase 37 — Expression pushdown for functions, HAVING, and ORDER BY expressions (pgvector foundation)
 
 ## Current Position
 
-Phase: 36 of 36 (Calcite JDBC convention migration for SQL generation)
-Plan: 3 of 3 complete — PHASE COMPLETE
-Status: COMPLETE — All 6 phases, 18 plans done; v1.5 RDBMS JDBC Plugin milestone complete
-Last activity: 2026-03-15 — Completed 36-03 (Docker UAT 44/44 pass; fixed filter/agg index normalization at push time; position-based JdbcRecordReader; JOIN+WHERE column projection fix)
+Phase: 37 of 37 (Expression pushdown for functions, HAVING, and ORDER BY expressions)
+Plan: 2 of 2 complete — PHASE COMPLETE
+Status: COMPLETE
+Last activity: 2026-03-17 — Completed 37-02 (JdbcScanPrel projectExpressions/sortKeyExpressions, JdbcPushProjectIntoScan function expression support, JdbcPushSortWithExpressionsHep, JdbcPushTopNWithExpressionsHep, extended sort-trim pattern in getPhysicalOperator)
 
-Progress: [██████████] 100% (18 of 18 plans complete)
+Progress: [██████████] 100% (20 of 20 plans complete)
 
 ## Performance Metrics
 
@@ -66,6 +66,8 @@ Progress: [██████████] 100% (18 of 18 plans complete)
 | 36-calcite-jdbc-convention-migration P01 | 1 | 47 min | 47 min |
 | 36-calcite-jdbc-convention-migration P02 | 1 | 11 min | 11 min |
 | 36-calcite-jdbc-convention-migration P03 | 1 | 285 min | 285 min |
+| 37-expression-pushdown P01 | 1 | 16 min | 16 min |
+| 37-expression-pushdown P02 | 1 | 90 min | 90 min |
 
 *Updated after each plan completion*
 
@@ -140,6 +142,9 @@ Progress: [██████████] 100% (18 of 18 plans complete)
 - [Phase 36-03]: JdbcAggregate always wrapped with renaming JdbcProject -- Calcite renders aggregates without AS aliases; explicit aliases required for JdbcRecordReader column matching
 - [Phase 36-03]: JdbcRecordReader uses position-based ResultSet reading -- name-based fails for self-joins (duplicate names) and aggregate alias differences; buildColumnPositions() with ordinal fallback handles all cases
 - [Phase 36-03]: JdbcPushJoinIntoScan derives leftColumns from join.getLeft().getRowType() not leftScan.getProjectedColumns() -- scan's projection may exclude WHERE-only columns causing SQL/schema field order mismatch
+- [Phase 37-01]: SqlKind.LOGICAL does not exist in Calcite 1.22.0 — replaced with explicit AND/OR/NOT individual kind checks in PushdownFunctionRegistry.isExpressionPushable()
+- [Phase 37-01]: JdbcPushFilterIntoScan changed from singleton INSTANCE to constructor injection (takes PushdownFunctionRegistry) — INSTANCE singleton removed; instantiated in JdbcRulesFactory with StandardPushdownFunctionRegistry.INSTANCE
+- [Phase 37-01]: COUNT(DISTINCT) now allowed in JdbcPushAggIntoScan — DISTINCT check changed from blanket rejection to kind check (only COUNT(DISTINCT) accepted); filterArg >= 0 (FILTER clause) always rejected
 
 ### Pending Todos
 
@@ -151,6 +156,7 @@ None.
 - Phase 34 added: adbc driver for (at least) postgres
 - Phase 35 added: JOIN/UNION/INTERSECT/EXCEPT single-engine pushdown
 - Phase 36 added: Calcite JDBC convention migration for SQL generation
+- Phase 37 added: Expression pushdown for functions, HAVING, and ORDER BY expressions (pgvector foundation)
 
 ### Blockers/Concerns
 
@@ -158,6 +164,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-15
-Stopped at: Completed 36-03-PLAN.md — Phase 36 complete. All 18 plans, 6 phases done. v1.5 milestone complete.
+Last session: 2026-03-16
+Stopped at: Completed 37-01-PLAN.md — PushdownFunctionRegistry, HAVING pushdown, COUNT(DISTINCT), filter guard fix. 37-02-PLAN.md next.
 Resume file: None

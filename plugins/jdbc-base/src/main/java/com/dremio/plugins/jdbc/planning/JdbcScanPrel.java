@@ -42,6 +42,7 @@ import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollations;
+import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.core.AggregateCall;
@@ -50,7 +51,9 @@ import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.rel2sql.SqlImplementor;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rex.RexBuilder;
+import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.rex.RexShuttle;
 import org.apache.calcite.sql.SqlDialect;
 import org.apache.calcite.sql.dialect.PostgresqlSqlDialect;
 import org.apache.calcite.sql.type.SqlTypeName;
@@ -69,6 +72,9 @@ import org.apache.calcite.util.ImmutableBitSet;
  *   <li>{@link #aggCalls} -- Calcite {@link AggregateCall} list pushed down from an AggregatePrel
  *   <li>{@link #limit} -- row limit pushed down from a LimitPrel
  *   <li>projected columns -- columns to project (inherited from ScanPrelBase)
+ *   <li>{@link #projectExpressions} -- function expressions for SELECT list (CAST, UPPER, etc.)
+ *   <li>{@link #projectOutputNames} -- output column names matching projectExpressions
+ *   <li>{@link #sortKeyExpressions} -- function expressions for ORDER BY (e.g. UPPER(name))
  * </ul>
  *
  * <p>The {@link #getPhysicalOperator} method builds a Calcite JDBC convention subtree
@@ -86,6 +92,24 @@ public class JdbcScanPrel extends ScanPrelBase {
   private final ImmutableBitSet groupSet;
   private final List<AggregateCall> aggCalls;
   private final RelDataType overrideRowType;
+  /** Post-aggregation filter (HAVING clause); null when not pushed. */
+  private final RexNode havingRex;
+  /**
+   * Function expressions for the SELECT list (e.g. CAST(col AS type), UPPER(col)). Non-null
+   * only when the SELECT list contains at least one non-trivial expression pushed from a
+   * ProjectPrel. When non-null, {@link #projectOutputNames} is also non-null. Indices of any
+   * RexInputRef nodes reference the scan's row type at push time (normalized to full-table
+   * positions at {@link #getPhysicalOperator} time).
+   */
+  private final List<RexNode> projectExpressions;
+  /** Output column names matching {@link #projectExpressions}; null when projectExpressions is null. */
+  private final List<String> projectOutputNames;
+  /**
+   * Sort key expressions for ORDER BY (e.g. RexCall(UPPER, [RexInputRef(3)])). Non-null only
+   * when ORDER BY uses function expressions pushed from a SortPrel or TopNPrel above a ProjectPrel.
+   * Simple column-ref sorts still use {@link #collation} with null sortKeyExpressions.
+   */
+  private final List<RexNode> sortKeyExpressions;
 
   // -------------------------------------------------------------------------
   // Full constructor
@@ -100,6 +124,10 @@ public class JdbcScanPrel extends ScanPrelBase {
    * @param groupSet GROUP BY column indices; null when no aggregation pushed
    * @param aggCalls aggregate function calls; null when no aggregation pushed
    * @param overrideRowType when non-null, overrides the derived row type for aggregated output
+   * @param havingRex post-aggregation filter (HAVING clause); null when not pushed
+   * @param projectExpressions function expressions for SELECT list; null for simple column-ref projection
+   * @param projectOutputNames output column names for projectExpressions; null when projectExpressions is null
+   * @param sortKeyExpressions sort key function expressions for ORDER BY; null for simple column-ref sorts
    */
   public JdbcScanPrel(
       RelOptCluster cluster,
@@ -118,7 +146,11 @@ public class JdbcScanPrel extends ScanPrelBase {
       Integer limit,
       ImmutableBitSet groupSet,
       List<AggregateCall> aggCalls,
-      RelDataType overrideRowType) {
+      RelDataType overrideRowType,
+      RexNode havingRex,
+      List<RexNode> projectExpressions,
+      List<String> projectOutputNames,
+      List<RexNode> sortKeyExpressions) {
     super(
         cluster,
         traitSet,
@@ -137,6 +169,10 @@ public class JdbcScanPrel extends ScanPrelBase {
     this.groupSet = groupSet;
     this.aggCalls = aggCalls != null ? ImmutableList.copyOf(aggCalls) : null;
     this.overrideRowType = overrideRowType;
+    this.havingRex = havingRex;
+    this.projectExpressions = projectExpressions != null ? ImmutableList.copyOf(projectExpressions) : null;
+    this.projectOutputNames = projectOutputNames != null ? ImmutableList.copyOf(projectOutputNames) : null;
+    this.sortKeyExpressions = sortKeyExpressions != null ? ImmutableList.copyOf(sortKeyExpressions) : null;
     // Force the cached rowType in AbstractRelNode so Volcano sees the aggregated schema.
     if (overrideRowType != null) {
       this.rowType = overrideRowType;
@@ -175,7 +211,11 @@ public class JdbcScanPrel extends ScanPrelBase {
         null,  // limit
         null,  // groupSet
         null,  // aggCalls
-        null); // overrideRowType
+        null,  // overrideRowType
+        null,  // havingRex
+        null,  // projectExpressions
+        null,  // projectOutputNames
+        null); // sortKeyExpressions
   }
 
   // -------------------------------------------------------------------------
@@ -202,7 +242,11 @@ public class JdbcScanPrel extends ScanPrelBase {
         limit,
         groupSet,
         aggCalls,
-        overrideRowType);
+        overrideRowType,
+        havingRex,
+        projectExpressions,
+        projectOutputNames,
+        sortKeyExpressions);
   }
 
   /**
@@ -228,7 +272,11 @@ public class JdbcScanPrel extends ScanPrelBase {
         limit,
         groupSet,
         aggCalls,
-        overrideRowType);
+        overrideRowType,
+        havingRex,
+        projectExpressions,
+        projectOutputNames,
+        sortKeyExpressions);
   }
 
   /** Returns a new JdbcScanPrel with an updated LIMIT, preserving all other pushdown state. */
@@ -250,7 +298,11 @@ public class JdbcScanPrel extends ScanPrelBase {
         newLimit,
         groupSet,
         aggCalls,
-        overrideRowType);
+        overrideRowType,
+        havingRex,
+        projectExpressions,
+        projectOutputNames,
+        sortKeyExpressions);
   }
 
   /**
@@ -276,7 +328,11 @@ public class JdbcScanPrel extends ScanPrelBase {
         limit,
         groupSet,
         aggCalls,
-        overrideRowType);
+        overrideRowType,
+        havingRex,
+        projectExpressions,
+        projectOutputNames,
+        sortKeyExpressions);
   }
 
   /**
@@ -310,7 +366,114 @@ public class JdbcScanPrel extends ScanPrelBase {
         limit,
         newGroupSet,
         newAggCalls,
-        newRowType);
+        newRowType,
+        havingRex,
+        projectExpressions,
+        projectOutputNames,
+        sortKeyExpressions);
+  }
+
+  /**
+   * Returns a new JdbcScanPrel with a HAVING condition pushed down.
+   *
+   * <p>The HAVING condition references the aggregate output row type (group keys + agg functions).
+   * It must only be called on a scan that already has aggregation pushed ({@link #hasAggregation()}).
+   *
+   * @param newHavingRex the post-aggregation filter condition (HAVING clause)
+   */
+  public JdbcScanPrel cloneWithHaving(RexNode newHavingRex) {
+    return new JdbcScanPrel(
+        getCluster(),
+        getTraitSet(),
+        getTable(),
+        getPluginId(),
+        getTableMetadata(),
+        getProjectedColumns(),
+        getCostAdjustmentFactor(),
+        getHintsAsList(),
+        getRuntimeFilters(),
+        schemaName,
+        tableName,
+        filterRex,
+        collation,
+        limit,
+        groupSet,
+        aggCalls,
+        overrideRowType,
+        newHavingRex,
+        projectExpressions,
+        projectOutputNames,
+        sortKeyExpressions);
+  }
+
+  /**
+   * Returns a new JdbcScanPrel that uses function expressions for the SELECT list.
+   *
+   * <p>When projectExpressions is set, the SELECT list is driven by the provided RexNode trees
+   * rather than by SchemaPath-based projected columns. {@code projectedColumns} is set to null
+   * because the JdbcProject node in getPhysicalOperator() step 7 drives the SELECT list.
+   *
+   * @param exprs full expression list from a ProjectPrel (including RexInputRef and function calls)
+   * @param names output column names matching {@code exprs}
+   */
+  public JdbcScanPrel cloneWithProjectExpressions(List<RexNode> exprs, List<String> names) {
+    return new JdbcScanPrel(
+        getCluster(),
+        getTraitSet(),
+        getTable(),
+        getPluginId(),
+        getTableMetadata(),
+        null, // function expressions drive SELECT list; SchemaPath projection is not used
+        getCostAdjustmentFactor(),
+        getHintsAsList(),
+        getRuntimeFilters(),
+        schemaName,
+        tableName,
+        filterRex,
+        collation,
+        limit,
+        groupSet,
+        aggCalls,
+        overrideRowType,
+        havingRex,
+        exprs,
+        names,
+        sortKeyExpressions);
+  }
+
+  /**
+   * Returns a new JdbcScanPrel with sort key function expressions and collation pushed down.
+   *
+   * <p>This is used by JdbcPushSortWithExpressionsHep and JdbcPushTopNWithExpressionsHep when
+   * the ORDER BY contains function expressions (e.g. ORDER BY UPPER(name)). The sort key
+   * expressions are the actual RexNode trees extracted from the ProjectPrel at push time.
+   *
+   * @param newCollation the ORDER BY collation (field indices reference the extended project output)
+   * @param sortExprs the sort key expression list (one RexNode per ORDER BY field)
+   */
+  public JdbcScanPrel cloneWithSortKeyExpressions(RelCollation newCollation, List<RexNode> sortExprs) {
+    return new JdbcScanPrel(
+        getCluster(),
+        getTraitSet(),
+        getTable(),
+        getPluginId(),
+        getTableMetadata(),
+        getProjectedColumns(),
+        getCostAdjustmentFactor(),
+        getHintsAsList(),
+        getRuntimeFilters(),
+        schemaName,
+        tableName,
+        filterRex,
+        newCollation,
+        limit,
+        groupSet,
+        aggCalls,
+        overrideRowType,
+        havingRex,
+        projectExpressions,
+        projectOutputNames,
+        sortExprs);
   }
 
   // -------------------------------------------------------------------------
@@ -379,7 +542,11 @@ public class JdbcScanPrel extends ScanPrelBase {
         limit,
         groupSet,
         aggCalls,
-        overrideRowType);
+        overrideRowType,
+        havingRex,
+        projectExpressions,
+        projectOutputNames,
+        sortKeyExpressions);
   }
 
   @Override
@@ -388,9 +555,12 @@ public class JdbcScanPrel extends ScanPrelBase {
     pw.itemIf("schema", schemaName, schemaName != null);
     pw.itemIf("table", tableName, tableName != null);
     pw.itemIf("filter", filterRex, filterRex != null);
+    pw.itemIf("projectExpressions", projectExpressions, projectExpressions != null);
     pw.itemIf("collation", collation, collation != null);
+    pw.itemIf("sortKeyExpressions", sortKeyExpressions, sortKeyExpressions != null);
     pw.itemIf("groupSet", groupSet, groupSet != null);
     pw.itemIf("aggCalls", aggCalls, aggCalls != null && !aggCalls.isEmpty());
+    pw.itemIf("having", havingRex, havingRex != null);
     pw.itemIf("limit", limit, limit != null);
     return pw;
   }
@@ -480,28 +650,66 @@ public class JdbcScanPrel extends ScanPrelBase {
     //   SELECT col1, col2 FROM "schema"."table" WHERE cond
     // rather than a subquery.
     // When aggregation is present, JdbcAggregate drives the SELECT list instead.
-    if (!hasAggregation() && getProjectedColumns() != null && !getProjectedColumns().isEmpty()) {
-      RexBuilder rexBuilder = cluster.getRexBuilder();
-      List<RexNode> projects = new ArrayList<>();
-      List<String> fieldNames = new ArrayList<>();
-      for (int pi = 0; pi < getProjectedColumns().size(); pi++) {
-        String colName = getProjectedColumns().get(pi).getRootSegment().getPath();
-        int fullIdx = (projToFull != null) ? projToFull[pi] : pi;
-        if (fullIdx < fullTableRowType.getFieldCount()) {
-          org.apache.calcite.rel.type.RelDataTypeField fullField =
-              fullTableRowType.getFieldList().get(fullIdx);
-          projects.add(rexBuilder.makeInputRef(fullField.getType(), fullIdx));
-          fieldNames.add(fullField.getName());
+    if (!hasAggregation()) {
+      if (projectExpressions != null) {
+        // --- 7a. Function expression projection path ---
+        // projectExpressions contains RexNode trees (CAST, UPPER, etc.) whose RexInputRef
+        // indices reference the scan's row type at push time (projected or full).
+        // Normalize to full-table indices using projToFull if the scan had projection.
+        RexBuilder rexBuilder = cluster.getRexBuilder();
+        final int[] normMap = projToFull; // captured as final for RexShuttle closure
+        List<RexNode> remappedExprs = new ArrayList<>(projectExpressions.size());
+        for (RexNode expr : projectExpressions) {
+          if (normMap != null) {
+            // Remap RexInputRef indices from projected positions to full-table positions.
+            RexNode remapped = expr.accept(new RexShuttle() {
+              @Override
+              public RexNode visitInputRef(RexInputRef ref) {
+                int projIdx = ref.getIndex();
+                int fullIdx = (projIdx >= 0 && projIdx < normMap.length) ? normMap[projIdx] : projIdx;
+                if (fullIdx < fullTableRowType.getFieldCount()) {
+                  return rexBuilder.makeInputRef(
+                      fullTableRowType.getFieldList().get(fullIdx).getType(), fullIdx);
+                }
+                return ref;
+              }
+            });
+            remappedExprs.add(remapped);
+          } else {
+            remappedExprs.add(expr);
+          }
         }
-      }
-      if (!projects.isEmpty()) {
         RelDataType projRowType =
             cluster
                 .getTypeFactory()
                 .createStructType(
-                    projects.stream().map(RexNode::getType).collect(Collectors.toList()),
-                    fieldNames);
-        root = new JdbcRules.JdbcProject(cluster, jdbcTraitSet, root, projects, projRowType);
+                    remappedExprs.stream().map(RexNode::getType).collect(Collectors.toList()),
+                    projectOutputNames);
+        root = new JdbcRules.JdbcProject(cluster, jdbcTraitSet, root, remappedExprs, projRowType);
+      } else if (getProjectedColumns() != null && !getProjectedColumns().isEmpty()) {
+        // --- 7b. Simple column-ref projection path (existing behavior) ---
+        RexBuilder rexBuilder = cluster.getRexBuilder();
+        List<RexNode> projects = new ArrayList<>();
+        List<String> fieldNames = new ArrayList<>();
+        for (int pi = 0; pi < getProjectedColumns().size(); pi++) {
+          String colName = getProjectedColumns().get(pi).getRootSegment().getPath();
+          int fullIdx = (projToFull != null) ? projToFull[pi] : pi;
+          if (fullIdx < fullTableRowType.getFieldCount()) {
+            org.apache.calcite.rel.type.RelDataTypeField fullField =
+                fullTableRowType.getFieldList().get(fullIdx);
+            projects.add(rexBuilder.makeInputRef(fullField.getType(), fullIdx));
+            fieldNames.add(fullField.getName());
+          }
+        }
+        if (!projects.isEmpty()) {
+          RelDataType projRowType =
+              cluster
+                  .getTypeFactory()
+                  .createStructType(
+                      projects.stream().map(RexNode::getType).collect(Collectors.toList()),
+                      fieldNames);
+          root = new JdbcRules.JdbcProject(cluster, jdbcTraitSet, root, projects, projRowType);
+        }
       }
     }
 
@@ -559,6 +767,15 @@ public class JdbcScanPrel extends ScanPrelBase {
       }
     }
 
+    // ---- 8.5. Wrap with JdbcFilter for HAVING if present ------------------
+    // havingRex indices reference the aggregate output row type (group keys + agg functions).
+    // No normalization needed — these are already correct for the JdbcAggregate output.
+    // Placed AFTER the rename JdbcProject (which wraps JdbcAggregate) so the HAVING condition
+    // indices match the rename project's output field positions.
+    if (havingRex != null) {
+      root = new JdbcRules.JdbcFilter(cluster, jdbcTraitSet, root, havingRex);
+    }
+
     // ---- 9. Wrap with JdbcSort for ORDER BY and/or LIMIT ------------------
     if (collation != null || limit != null) {
       RexBuilder rexBuilder = cluster.getRexBuilder();
@@ -570,16 +787,102 @@ public class JdbcScanPrel extends ScanPrelBase {
                   cluster.getTypeFactory().createSqlType(SqlTypeName.INTEGER),
                   true)
               : null;
-      root = new JdbcRules.JdbcSort(cluster, jdbcTraitSet, root, sortCollation, null, fetchNode);
+
+      if (sortKeyExpressions != null && !sortKeyExpressions.isEmpty()
+          && !sortCollation.getFieldCollations().isEmpty()) {
+        // --- 9a. Function expression ORDER BY path ---
+        // sortKeyExpressions contains RexNode trees (e.g. UPPER($3)) that reference the base
+        // table or projected row type at push time. We must:
+        //   Step 9a: Extend the current root's output with the sort key expressions
+        //   Step 9b: Build JdbcSort referencing the extended column indices
+        //   Step 9c: Trim back to original output width with an outer JdbcProject
+
+        final int[] normMap = projToFull;
+        int existingOutputWidth = root.getRowType().getFieldCount();
+
+        // Remap sort key expression RexInputRef indices to full-table positions.
+        List<RexNode> remappedSortExprs = new ArrayList<>(sortKeyExpressions.size());
+        for (RexNode sortExpr : sortKeyExpressions) {
+          if (normMap != null) {
+            RexNode remapped = sortExpr.accept(new RexShuttle() {
+              @Override
+              public RexNode visitInputRef(RexInputRef ref) {
+                int projIdx = ref.getIndex();
+                int fullIdx = (projIdx >= 0 && projIdx < normMap.length) ? normMap[projIdx] : projIdx;
+                if (fullIdx < fullTableRowType.getFieldCount()) {
+                  return rexBuilder.makeInputRef(
+                      fullTableRowType.getFieldList().get(fullIdx).getType(), fullIdx);
+                }
+                return ref;
+              }
+            });
+            remappedSortExprs.add(remapped);
+          } else {
+            remappedSortExprs.add(sortExpr);
+          }
+        }
+
+        // Step 9a: Build extended JdbcProject: [identity refs for existing output] + [sort key exprs]
+        List<RexNode> extendedProjects = new ArrayList<>();
+        List<String> extendedNames = new ArrayList<>();
+        List<org.apache.calcite.rel.type.RelDataTypeField> rootFields = root.getRowType().getFieldList();
+        for (int i = 0; i < existingOutputWidth; i++) {
+          org.apache.calcite.rel.type.RelDataTypeField f = rootFields.get(i);
+          extendedProjects.add(rexBuilder.makeInputRef(f.getType(), i));
+          extendedNames.add(f.getName());
+        }
+        for (int k = 0; k < remappedSortExprs.size(); k++) {
+          RexNode sortExpr = remappedSortExprs.get(k);
+          extendedProjects.add(sortExpr);
+          extendedNames.add("_sort_key_" + k);
+        }
+        RelDataType extendedRowType =
+            cluster.getTypeFactory().createStructType(
+                extendedProjects.stream().map(RexNode::getType).collect(Collectors.toList()),
+                extendedNames);
+        RelNode extendedRoot = new JdbcRules.JdbcProject(
+            cluster, jdbcTraitSet, root, extendedProjects, extendedRowType);
+
+        // Step 9b: Build JdbcSort with collation pointing to extended column indices.
+        List<RelFieldCollation> extendedFieldCollations = new ArrayList<>();
+        List<RelFieldCollation> originalFieldCollations = sortCollation.getFieldCollations();
+        for (int k = 0; k < originalFieldCollations.size(); k++) {
+          RelFieldCollation fc = originalFieldCollations.get(k);
+          // Point to the appended sort key column: existingOutputWidth + k
+          extendedFieldCollations.add(fc.withFieldIndex(existingOutputWidth + k));
+        }
+        RelCollation extendedCollation = RelCollations.of(extendedFieldCollations);
+        RelNode sortedRoot = new JdbcRules.JdbcSort(
+            cluster, jdbcTraitSet, extendedRoot, extendedCollation, null, fetchNode);
+
+        // Step 9c: Trim back to original output width with an outer JdbcProject.
+        List<RexNode> trimProjects = new ArrayList<>();
+        List<String> trimNames = new ArrayList<>();
+        List<org.apache.calcite.rel.type.RelDataTypeField> sortedFields =
+            sortedRoot.getRowType().getFieldList();
+        for (int i = 0; i < existingOutputWidth; i++) {
+          org.apache.calcite.rel.type.RelDataTypeField f = sortedFields.get(i);
+          trimProjects.add(rexBuilder.makeInputRef(f.getType(), i));
+          trimNames.add(f.getName());
+        }
+        RelDataType trimRowType =
+            cluster.getTypeFactory().createStructType(
+                trimProjects.stream().map(RexNode::getType).collect(Collectors.toList()),
+                trimNames);
+        root = new JdbcRules.JdbcProject(cluster, jdbcTraitSet, sortedRoot, trimProjects, trimRowType);
+      } else {
+        // --- 9b. Simple column-ref ORDER BY (existing behavior) ---
+        root = new JdbcRules.JdbcSort(cluster, jdbcTraitSet, root, sortCollation, null, fetchNode);
+      }
     }
 
-    // ---- 9. Render SQL via DremioJdbcImplementor --------------------------
+    // ---- 10. Render SQL via DremioJdbcImplementor -------------------------
     JavaTypeFactory typeFactory = (JavaTypeFactory) cluster.getTypeFactory();
     DremioJdbcImplementor implementor = new DremioJdbcImplementor(dialect, typeFactory);
     SqlImplementor.Result result = implementor.implement(root);
     String sql = result.asStatement().toSqlString(dialect).getSql();
 
-    // ---- 10. Resolve schema paths and output schema -----------------------
+    // ---- 11. Resolve schema paths and output schema -----------------------
     List<String> tableSchemaPath = getTableMetadata().getName().getPathComponents();
 
     // When aggregation is active, the output schema is derived from the overrideRowType.
@@ -594,6 +897,32 @@ public class JdbcScanPrel extends ScanPrelBase {
           sql,
           aggColumns,
           aggSchema,
+          getPluginId(),
+          tableSchemaPath,
+          Collections.emptyList());
+    }
+
+    // When function expression projection is active, derive schema from the expression output.
+    // The JdbcProject (step 7a) drives the SELECT list; the projected output names and types
+    // are in projectOutputNames / the expression types from root.getRowType().
+    if (projectExpressions != null && projectOutputNames != null) {
+      // Use the row type from the final root node (after any sort/trim projects).
+      // However, the trimmed root may have a different schema than the project expressions
+      // because of the sort key trim. Use the project expressions' output schema.
+      RelDataType projectedRowType =
+          cluster.getTypeFactory().createStructType(
+              projectExpressions.stream().map(RexNode::getType).collect(Collectors.toList()),
+              projectOutputNames);
+      BatchSchema projSchema = CalciteArrowHelper.fromCalciteRowType(projectedRowType);
+      List<SchemaPath> projColumns = new ArrayList<>();
+      for (String name : projectOutputNames) {
+        projColumns.add(SchemaPath.getSimplePath(name));
+      }
+      return new JdbcGroupScan(
+          creator.props(this, getTableMetadata().getUser(), projSchema),
+          sql,
+          projColumns,
+          projSchema,
           getPluginId(),
           tableSchemaPath,
           Collections.emptyList());
@@ -671,5 +1000,44 @@ public class JdbcScanPrel extends ScanPrelBase {
   /** Returns true when aggregation has been pushed into this scan. */
   public boolean hasAggregation() {
     return groupSet != null;
+  }
+
+  /**
+   * Returns the HAVING condition pushed down from a post-aggregation filter, or null if none.
+   *
+   * <p>The condition indices reference the aggregate output row type (group keys + agg functions),
+   * not the full base table row type.
+   */
+  public RexNode getHavingRex() {
+    return havingRex;
+  }
+
+  /** Returns true when a HAVING condition has been pushed into this scan. */
+  public boolean hasHaving() {
+    return havingRex != null;
+  }
+
+  /**
+   * Returns the function expression list for the SELECT list, or null if simple column-ref
+   * projection is used (or no projection is pushed at all).
+   */
+  public List<RexNode> getProjectExpressions() {
+    return projectExpressions;
+  }
+
+  /**
+   * Returns the output column names for {@link #projectExpressions}, or null when
+   * projectExpressions is null.
+   */
+  public List<String> getProjectOutputNames() {
+    return projectOutputNames;
+  }
+
+  /**
+   * Returns the sort key function expressions for ORDER BY, or null if simple column-ref
+   * ORDER BY is used (or no ORDER BY is pushed).
+   */
+  public List<RexNode> getSortKeyExpressions() {
+    return sortKeyExpressions;
   }
 }

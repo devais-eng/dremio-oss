@@ -29,8 +29,13 @@ import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexShuttle;
 
 /**
- * Pushdown rule that converts a {@link FilterPrel} above a {@link JdbcScanPrel} into a Calcite
- * {@link RexNode} filter condition carried by the scan node itself (BASE-05).
+ * Pushdown rule that converts a pre-aggregation {@link FilterPrel} above a {@link JdbcScanPrel}
+ * into a Calcite {@link RexNode} filter condition carried by the scan node itself (WHERE clause).
+ *
+ * <p>This rule handles only pre-aggregation filters (WHERE). Post-aggregation filters (HAVING)
+ * are handled by {@link JdbcPushHavingIntoScan}. If the scan already has aggregation pushed,
+ * this rule explicitly declines to prevent HAVING conditions from being incorrectly rendered
+ * as WHERE clauses.
  *
  * <p>The filter condition is <em>normalized to full-table column indices</em> before storage.
  * This is necessary because the Volcano planner may fire {@link JdbcPushProjectIntoScan} before
@@ -39,24 +44,41 @@ import org.apache.calcite.rex.RexShuttle;
  * JdbcScanPrel#getPhysicalOperator} builds the Calcite subtree starting from a leaf with the
  * <em>full</em> table row type. Storing full-table indices avoids incorrect column references.
  *
+ * <p>Only conditions that pass the {@link PushdownFunctionRegistry#isExpressionPushable} check
+ * are pushed; conditions containing non-whitelisted functions are left in Dremio's engine.
+ *
  * <p>At {@link JdbcScanPrel#getPhysicalOperator} time, the stored {@link RexNode} is passed
  * directly to {@code JdbcRules.JdbcFilter} and rendered to SQL by {@link DremioJdbcImplementor}.
  */
 public final class JdbcPushFilterIntoScan extends RelOptRule {
 
-  public static final RelOptRule INSTANCE = new JdbcPushFilterIntoScan();
+  private final PushdownFunctionRegistry registry;
 
-  private JdbcPushFilterIntoScan() {
+  /**
+   * Creates a WHERE filter pushdown rule using the given function registry.
+   *
+   * @param registry per-dialect whitelist controlling which functions are safe to push
+   */
+  public JdbcPushFilterIntoScan(PushdownFunctionRegistry registry) {
     super(
         RelOptHelper.some(FilterPrel.class, RelOptHelper.any(JdbcScanPrel.class)),
         "JdbcPushFilterIntoScan");
+    this.registry = registry;
   }
 
   @Override
   public boolean matches(RelOptRuleCall call) {
     JdbcScanPrel scan = call.rel(1);
     // Do not push a second filter if one is already present.
-    return !scan.hasFilter();
+    if (scan.hasFilter()) {
+      return false;
+    }
+    // Do not push a filter above an aggregated scan as WHERE.
+    // HAVING (post-aggregation filter) is handled by JdbcPushHavingIntoScan.
+    if (scan.hasAggregation()) {
+      return false;
+    }
+    return true;
   }
 
   @Override
@@ -74,6 +96,11 @@ public final class JdbcPushFilterIntoScan extends RelOptRule {
             scan.getProjectedColumns(),
             getFullTableRowType(scan),
             scan.getCluster().getRexBuilder());
+
+    // Validate all functions in the WHERE condition against the whitelist.
+    if (!registry.isExpressionPushable(normalizedCondition)) {
+      return;
+    }
 
     call.transformTo(scan.cloneWithFilter(normalizedCondition));
   }

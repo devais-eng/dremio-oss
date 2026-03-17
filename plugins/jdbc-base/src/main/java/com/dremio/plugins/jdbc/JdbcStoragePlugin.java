@@ -36,7 +36,9 @@ import com.dremio.plugins.jdbc.conf.BaseJdbcConf;
 import com.dremio.plugins.jdbc.conf.ProtocolMode;
 import com.dremio.plugins.jdbc.exec.JdbcSubScan;
 import com.dremio.plugins.jdbc.planning.JdbcRulesFactory;
+import com.dremio.plugins.jdbc.planning.PushdownFunctionRegistry;
 import com.dremio.plugins.jdbc.planning.SqlBuilder;
+import com.dremio.plugins.jdbc.planning.StandardPushdownFunctionRegistry;
 import com.dremio.plugins.jdbc.pool.AdbcConnectionFactory;
 import com.dremio.plugins.jdbc.pool.JdbcConnectionPool;
 import com.dremio.plugins.jdbc.reader.AdbcRecordReader;
@@ -154,6 +156,20 @@ public class JdbcStoragePlugin implements StoragePlugin, SupportsListingDatasets
    */
   public SqlBuilder createSqlBuilder() {
     return new SqlBuilder();
+  }
+
+  /**
+   * Returns the {@link PushdownFunctionRegistry} for this source.
+   *
+   * <p>The default implementation returns {@link StandardPushdownFunctionRegistry#INSTANCE}, which
+   * whitelists standard ANSI SQL functions valid for both PostgreSQL and Oracle. Connector subclasses
+   * can override this method to add dialect-specific functions (e.g. pgvector operators in a
+   * future PostgreSQL-specific registry).
+   *
+   * @return the {@link PushdownFunctionRegistry} for this source
+   */
+  public PushdownFunctionRegistry getPushdownFunctionRegistry() {
+    return StandardPushdownFunctionRegistry.INSTANCE;
   }
 
   /**

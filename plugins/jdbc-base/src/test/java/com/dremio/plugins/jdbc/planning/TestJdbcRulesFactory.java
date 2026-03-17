@@ -53,10 +53,14 @@ public class TestJdbcRulesFactory {
   @Test
   public void physicalPhaseReturnsSixRules() {
     Set<RelOptRule> rules = factory.getRules(null, PlannerPhase.PHYSICAL, (SourceType) null);
-    assertEquals("PHYSICAL phase should return exactly 7 rules", 7, rules.size());
+    // 8 rules: JdbcScanPrule, JdbcJoinScanPrule, JdbcPushFilterIntoScan,
+    //          JdbcPushHavingIntoScan, JdbcPushProjectIntoScan, JdbcPushAggIntoScan,
+    //          JdbcPushSortIntoScan, JdbcPushLimitIntoScan
+    assertEquals("PHYSICAL phase should return exactly 8 rules", 8, rules.size());
 
     boolean hasPrule = false;
     boolean hasFilter = false;
+    boolean hasHaving = false;
     boolean hasProject = false;
     boolean hasLimit = false;
     boolean hasSort = false;
@@ -67,6 +71,9 @@ public class TestJdbcRulesFactory {
       }
       if (rule instanceof JdbcPushFilterIntoScan) {
         hasFilter = true;
+      }
+      if (rule instanceof JdbcPushHavingIntoScan) {
+        hasHaving = true;
       }
       if (rule instanceof JdbcPushProjectIntoScan) {
         hasProject = true;
@@ -83,6 +90,7 @@ public class TestJdbcRulesFactory {
     }
     assertTrue("PHYSICAL should include JdbcScanPrule", hasPrule);
     assertTrue("PHYSICAL should include JdbcPushFilterIntoScan", hasFilter);
+    assertTrue("PHYSICAL should include JdbcPushHavingIntoScan", hasHaving);
     assertTrue("PHYSICAL should include JdbcPushProjectIntoScan", hasProject);
     assertTrue("PHYSICAL should include JdbcPushLimitIntoScan", hasLimit);
     assertTrue("PHYSICAL should include JdbcPushSortIntoScan", hasSort);

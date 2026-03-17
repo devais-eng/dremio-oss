@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Enterprise-grade enhancements for Dremio OSS. v1.0 delivered deny-by-default RBAC for views and UDFs. v1.1 enabled the Iceberg REST Catalog source type, allowing Dremio OSS to connect to external Iceberg REST catalog servers (Lakekeeper, Nessie, Polaris) and query tables through standard SQL. v1.2 added GitHub Actions CI/CD to build Docker images of the custom fork and push them to GitHub Container Registry (GHCR) on release tags. v1.3 shipped privilege context switching (definer rights for VDS and UDF), SELECT grants on physical tables, container visibility filtering, VDS lifecycle privileges, metadata safety checks, and file browse/promote admin restrictions — completing deny-by-default enforcement across every access path. v1.4 hardened the RBAC system by closing all 17 verified issues: UI permission gates, backend API authorization holes, a TOCTOU vulnerability, information disclosure, and backend logic gaps — making RBAC production-ready.
+Enterprise-grade enhancements for Dremio OSS. v1.0–v1.4 delivered production-ready deny-by-default RBAC. v1.1 enabled Iceberg REST Catalog connectivity. v1.2 added GitHub Actions CI/CD to GHCR. v1.5 introduces an open-source JDBC storage plugin for connecting to external relational databases (PostgreSQL, Oracle), replacing dependency on the closed-source CE JDBC plugin.
 
 ## Core Value
 
@@ -62,7 +62,14 @@ Make Dremio OSS a production-capable data lakehouse query engine by closing crit
 
 <!-- Current scope. Building toward these. -->
 
-(No active milestone — use `/gsd:new-milestone` to start next)
+## Current Milestone: v1.5 Open-Source RDBMS JDBC Plugin
+
+**Goal:** Introduce a fully open-source JDBC storage plugin into the Dremio OSS codebase, supporting PostgreSQL and Oracle, with basic pushdown, Testcontainers integration tests, and UI source creation — eliminating dependency on the closed-source CE JDBC plugin.
+
+**Target features:**
+- Base JDBC framework: HikariCP pooling, schema discovery, JDBC→Arrow type mapping, batch conversion, basic pushdown (WHERE + projection + LIMIT)
+- PostgreSQL connector (POSTGRES_DB): full type mapping, SSL/TLS, UI form, Testcontainers tests
+- Oracle connector (ORACLE_DB): full type mapping, NUMBER handling, SSL/TLS, UI form, Testcontainers tests
 
 ### Out of Scope
 

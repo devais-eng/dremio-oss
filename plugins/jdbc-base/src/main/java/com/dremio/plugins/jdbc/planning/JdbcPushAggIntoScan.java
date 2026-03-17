@@ -48,8 +48,10 @@ import org.apache.calcite.util.ImmutableBitSet;
  * Two-phase distributed aggregates ({@code PHASE_1of2} and {@code PHASE_2of2}) are rejected because
  * pushing a partial aggregate to a single JDBC source would produce incorrect results.
  *
- * <p>Supported aggregate functions: COUNT, SUM, SUM0, MIN, MAX, AVG. DISTINCT aggregates are not
- * supported in v1 and cause the rule to decline.
+ * <p>Supported aggregate functions: COUNT, SUM, SUM0, MIN, MAX, AVG. {@code COUNT(DISTINCT col)}
+ * is supported; other DISTINCT aggregates ({@code SUM(DISTINCT)}, {@code AVG(DISTINCT)}) are
+ * rejected because they are not standard SQL and may produce incorrect results across dialects.
+ * Aggregates with a {@code FILTER (WHERE ...)} clause are also rejected (not universally supported).
  *
  * <p>Registered in the {@code PHYSICAL} planner phase via {@link JdbcRulesFactory}. Not registered
  * in {@code PHYSICAL_HEP} because aggregation is a structural transformation that changes the
@@ -81,10 +83,18 @@ public final class JdbcPushAggIntoScan extends RelOptRule {
       return false;
     }
 
-    // Reject DISTINCT aggregates (not supported in v1).
+    // Allow COUNT(DISTINCT col) but reject DISTINCT for other aggregate kinds.
+    // Also reject any aggregate with a FILTER (WHERE ...) clause (filterArg >= 0)
+    // because FILTER on aggregates is not universally supported across JDBC dialects.
     for (AggregateCall aggCall : agg.getAggCallList()) {
+      if (aggCall.filterArg >= 0) {
+        return false; // FILTER (WHERE ...) on aggregate — not supported
+      }
       if (aggCall.isDistinct()) {
-        return false;
+        // Only COUNT(DISTINCT) is supported; SUM(DISTINCT), AVG(DISTINCT) etc. are not.
+        if (aggCall.getAggregation().getKind() != SqlKind.COUNT) {
+          return false;
+        }
       }
     }
 

@@ -448,6 +448,100 @@ public class TestOraclePushdown {
   }
 
   // ---------------------------------------------------------------------------
+  // Phase 37: Function expression, HAVING, COUNT(DISTINCT) integration tests
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verifies HAVING pushdown against Oracle: GROUP BY NAME HAVING COUNT(*) >= 1.
+   * All 5 names are unique so each group has count=1, which is >= 1. Expects 5 rows.
+   */
+  @Test
+  public void testHavingPushdownExecutesAgainstOracle() throws Exception {
+    String sql = "SELECT \"NAME\", COUNT(*) AS cnt FROM \"TEST_USER\".\"PUSHDOWN_TEST\""
+        + " GROUP BY \"NAME\" HAVING COUNT(*) >= 1";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        count++;
+      }
+      assertEquals("HAVING COUNT(*) >= 1 should return all 5 groups", 5, count);
+    }
+  }
+
+  /**
+   * Verifies COUNT(DISTINCT NAME) against Oracle container. Expected: 5 distinct names.
+   */
+  @Test
+  public void testCountDistinctExecutesAgainstOracle() throws Exception {
+    String sql = "SELECT COUNT(DISTINCT \"NAME\") FROM \"TEST_USER\".\"PUSHDOWN_TEST\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have a result row", rs.next());
+      long count = rs.getLong(1);
+      assertEquals("COUNT(DISTINCT NAME) should return 5", 5L, count);
+    }
+  }
+
+  /**
+   * Verifies ORDER BY UPPER(NAME) against Oracle container.
+   * Alphabetical order: Alice, Bob, Charlie, Dave, Eve.
+   */
+  @Test
+  public void testOrderByUpperExecutesAgainstOracle() throws Exception {
+    String sql = "SELECT \"NAME\" FROM \"TEST_USER\".\"PUSHDOWN_TEST\" ORDER BY UPPER(\"NAME\") ASC";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have rows", rs.next());
+      assertEquals("First row should be 'Alice'", "Alice", rs.getString("NAME"));
+      // Advance to last row
+      String lastRow = rs.getString("NAME");
+      while (rs.next()) {
+        lastRow = rs.getString("NAME");
+      }
+      assertEquals("Last row should be 'Eve'", "Eve", lastRow);
+    }
+  }
+
+  /**
+   * Verifies CAST(AGE AS VARCHAR2(10)) in SELECT against Oracle container.
+   * Must return a string result.
+   */
+  @Test
+  public void testCastInSelectExecutesAgainstOracle() throws Exception {
+    String sql = "SELECT CAST(\"AGE\" AS VARCHAR2(10)) FROM \"TEST_USER\".\"PUSHDOWN_TEST\""
+        + " FETCH FIRST 1 ROWS ONLY";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have at least one row", rs.next());
+      String ageStr = rs.getString(1);
+      assertNotNull("CAST result should not be null", ageStr);
+      int parsed = Integer.parseInt(ageStr);
+      assertTrue("Parsed AGE should be positive", parsed > 0);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Aggregation pushdown SQL generation tests
   // ---------------------------------------------------------------------------
 

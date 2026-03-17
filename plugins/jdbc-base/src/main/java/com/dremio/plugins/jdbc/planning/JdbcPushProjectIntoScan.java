@@ -27,28 +27,41 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
 
 /**
- * Pushdown rule that converts a {@link ProjectPrel} above a {@link JdbcScanPrel} into a narrowed
- * SELECT list carried by the scan node itself (BASE-06).
+ * Pushdown rule that converts a {@link ProjectPrel} above a {@link JdbcScanPrel} into a SELECT
+ * list carried by the scan node itself.
  *
- * <p>Only simple column references ({@link RexInputRef}) are eligible for pushdown. If any project
- * expression is non-trivial (e.g. a function call or arithmetic expression), the rule declines so
- * Dremio evaluates the expression after fetching the full rows.
+ * <p>Two paths:
+ * <ol>
+ *   <li><strong>Simple column-ref path (existing):</strong> If all project expressions are
+ *       {@link RexInputRef} nodes, the rule converts them to {@link SchemaPath}-based projected
+ *       columns via {@link JdbcScanPrel#cloneWithProject(List)}.</li>
+ *   <li><strong>Function expression path (new in Phase 37):</strong> If any expression is a
+ *       non-trivial but whitelisted function call (UPPER, CAST, ROUND, etc.), the full
+ *       {@link RexNode} list is stored via
+ *       {@link JdbcScanPrel#cloneWithProjectExpressions(List, List)}. Non-whitelisted functions
+ *       cause the rule to decline so Dremio evaluates them after fetching rows.</li>
+ * </ol>
+ *
+ * <p>Constructor requires a {@link PushdownFunctionRegistry} for whitelist validation.
+ * {@code INSTANCE} singleton is removed; the rule is instantiated in {@link JdbcRulesFactory}
+ * with the appropriate registry.
  */
 public final class JdbcPushProjectIntoScan extends RelOptRule {
 
-  public static final RelOptRule INSTANCE = new JdbcPushProjectIntoScan();
+  private final PushdownFunctionRegistry registry;
 
-  private JdbcPushProjectIntoScan() {
+  public JdbcPushProjectIntoScan(PushdownFunctionRegistry registry) {
     super(
         RelOptHelper.some(ProjectPrel.class, RelOptHelper.any(JdbcScanPrel.class)),
         "JdbcPushProjectIntoScan");
+    this.registry = registry;
   }
 
   @Override
   public boolean matches(RelOptRuleCall call) {
     JdbcScanPrel scan = call.rel(1);
     // Don't push projection into a scan that already has aggregation pushed down.
-    // The aggregated scan's SELECT list is driven by selectExprs, not projectedColumns.
+    // The aggregated scan's SELECT list is driven by JdbcAggregate, not projectedColumns.
     return !scan.hasAggregation();
   }
 
@@ -60,22 +73,39 @@ public final class JdbcPushProjectIntoScan extends RelOptRule {
     List<RexNode> projects = project.getProjects();
     List<RelDataTypeField> scanFields = scan.getRowType().getFieldList();
 
-    // Collect projected column names. Bail out if any expression is not a plain column ref.
-    List<SchemaPath> projectedColumns = new ArrayList<>(projects.size());
+    boolean hasFunctionExpression = false;
+
+    // First pass: validate all expressions.
     for (RexNode expr : projects) {
-      if (!(expr instanceof RexInputRef)) {
-        // Non-trivial expression — cannot push down to SQL SELECT list.
+      if (expr instanceof RexInputRef) {
+        // Simple column ref — always OK.
+        continue;
+      }
+      // Non-trivial expression: check whitelist.
+      if (!registry.isExpressionPushable(expr)) {
+        // Non-whitelisted expression — decline pushdown entirely.
         return;
       }
-      int index = ((RexInputRef) expr).getIndex();
-      if (index < 0 || index >= scanFields.size()) {
-        return;
-      }
-      projectedColumns.add(SchemaPath.getSimplePath(scanFields.get(index).getName()));
+      hasFunctionExpression = true;
     }
 
-    // All projections are simple refs — push them into the scan.
-    JdbcScanPrel newScan = scan.cloneWithProject(projectedColumns);
-    call.transformTo(newScan);
+    if (hasFunctionExpression) {
+      // --- Function expression path ---
+      // Store the full RexNode list and output names for getPhysicalOperator() step 7a.
+      List<String> outputNames = project.getRowType().getFieldNames();
+      call.transformTo(scan.cloneWithProjectExpressions(projects, outputNames));
+    } else {
+      // --- Simple column-ref path ---
+      // Convert each RexInputRef to a SchemaPath (existing behavior).
+      List<SchemaPath> projectedColumns = new ArrayList<>(projects.size());
+      for (RexNode expr : projects) {
+        int index = ((RexInputRef) expr).getIndex();
+        if (index < 0 || index >= scanFields.size()) {
+          return;
+        }
+        projectedColumns.add(SchemaPath.getSimplePath(scanFields.get(index).getName()));
+      }
+      call.transformTo(scan.cloneWithProject(projectedColumns));
+    }
   }
 }

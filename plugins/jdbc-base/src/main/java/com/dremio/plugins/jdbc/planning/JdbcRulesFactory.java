@@ -73,20 +73,29 @@ public class JdbcRulesFactory extends StoragePluginTypeRulesFactory {
       case PHYSICAL:
         // Convert logical JDBC scan to physical, then apply pushdown optimisations.
         // JdbcJoinScanPrule converts JdbcJoinScanDrel -> JdbcJoinScanPrel (Drel->Prel).
+        // Use StandardPushdownFunctionRegistry for all JDBC sources. Per-dialect subclasses
+        // can override JdbcStoragePlugin.getPushdownFunctionRegistry() when needed.
+        PushdownFunctionRegistry registry = StandardPushdownFunctionRegistry.INSTANCE;
         return ImmutableSet.<RelOptRule>of(
             JdbcScanPrule.INSTANCE,
             JdbcPushJoinIntoScan.JdbcJoinScanPrule.INSTANCE,
-            JdbcPushFilterIntoScan.INSTANCE,
-            JdbcPushProjectIntoScan.INSTANCE,
+            new JdbcPushFilterIntoScan(registry),
+            new JdbcPushHavingIntoScan(registry),
+            new JdbcPushProjectIntoScan(registry),
             JdbcPushAggIntoScan.INSTANCE,
             JdbcPushSortIntoScan.INSTANCE,
             JdbcPushLimitIntoScan.INSTANCE);
 
       case PHYSICAL_HEP:
         // After Volcano, concrete physical nodes exist. Absorb sort/topn/limit into scans.
+        // JdbcPushSortWithExpressionsHep and JdbcPushTopNWithExpressionsHep handle the case
+        // where ORDER BY sort keys are function expressions (e.g. ORDER BY UPPER(name)).
+        PushdownFunctionRegistry hepRegistry = StandardPushdownFunctionRegistry.INSTANCE;
         return ImmutableSet.<RelOptRule>of(
             JdbcPushSortIntoScanHep.INSTANCE,
             JdbcPushTopNIntoScanHep.INSTANCE,
+            new JdbcPushSortWithExpressionsHep(hepRegistry),
+            new JdbcPushTopNWithExpressionsHep(hepRegistry),
             JdbcPushLimitIntoScan.INSTANCE);
 
       default:

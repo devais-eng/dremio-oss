@@ -472,6 +472,186 @@ public class TestPostgresPushdown {
   }
 
   // ---------------------------------------------------------------------------
+  // Phase 37: Function expression, HAVING, COUNT(DISTINCT) integration tests
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verifies HAVING pushdown against PostgreSQL: GROUP BY name HAVING COUNT(*) > 0.
+   * All 5 names are unique so each group has count=1, which is > 0. Expects 5 rows.
+   * Then test HAVING COUNT(*) > 1 — expects 0 rows.
+   */
+  @Test
+  public void testHavingPushdownExecutesAgainstPostgres() throws Exception {
+    String sql = "SELECT \"name\", COUNT(*) AS cnt FROM \"public\".\"pushdown_test\""
+        + " GROUP BY \"name\" HAVING COUNT(*) > 0";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        count++;
+      }
+      assertEquals("HAVING COUNT(*) > 0 should return all 5 groups", 5, count);
+    }
+
+    // With a higher threshold — all counts are 1, so HAVING COUNT(*) > 1 returns nothing
+    String sql2 = "SELECT \"name\", COUNT(*) AS cnt FROM \"public\".\"pushdown_test\""
+        + " GROUP BY \"name\" HAVING COUNT(*) > 1";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql2)) {
+      int count = 0;
+      while (rs.next()) {
+        count++;
+      }
+      assertEquals("HAVING COUNT(*) > 1 should return 0 rows (all counts are 1)", 0, count);
+    }
+  }
+
+  /**
+   * Verifies COUNT(DISTINCT name) against PostgreSQL container. Expected: 5 distinct names.
+   */
+  @Test
+  public void testCountDistinctExecutesAgainstPostgres() throws Exception {
+    String sql = "SELECT COUNT(DISTINCT \"name\") FROM \"public\".\"pushdown_test\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have a result row", rs.next());
+      long count = rs.getLong(1);
+      assertEquals("COUNT(DISTINCT name) should return 5", 5L, count);
+    }
+  }
+
+  /**
+   * Verifies ORDER BY UPPER(name) against PostgreSQL container.
+   * Alphabetical order by uppercase name: Alice, Bob, Charlie, Dave, Eve.
+   */
+  @Test
+  public void testOrderByUpperExecutesAgainstPostgres() throws Exception {
+    String sql = "SELECT \"name\" FROM \"public\".\"pushdown_test\" ORDER BY UPPER(\"name\") ASC";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have rows", rs.next());
+      assertEquals("First row should be 'Alice'", "Alice", rs.getString("name"));
+      // Advance to last row
+      String lastRow = rs.getString("name");
+      while (rs.next()) {
+        lastRow = rs.getString("name");
+      }
+      assertEquals("Last row should be 'Eve'", "Eve", lastRow);
+    }
+  }
+
+  /**
+   * Verifies ORDER BY UPPER(name) LIMIT 2 against PostgreSQL container.
+   * Alphabetical top-2: Alice, Bob.
+   */
+  @Test
+  public void testOrderByUpperWithLimitExecutesAgainstPostgres() throws Exception {
+    String sql = "SELECT \"name\" FROM \"public\".\"pushdown_test\" ORDER BY UPPER(\"name\") ASC LIMIT 2";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have first row", rs.next());
+      assertEquals("First row should be 'Alice'", "Alice", rs.getString("name"));
+      assertTrue("Must have second row", rs.next());
+      assertEquals("Second row should be 'Bob'", "Bob", rs.getString("name"));
+      assertFalse("Should return exactly 2 rows", rs.next());
+    }
+  }
+
+  /**
+   * Verifies CAST(age AS VARCHAR) in SELECT against PostgreSQL container.
+   * Returns a string result for the age column.
+   */
+  @Test
+  public void testCastInSelectExecutesAgainstPostgres() throws Exception {
+    String sql = "SELECT CAST(\"age\" AS VARCHAR) FROM \"public\".\"pushdown_test\" LIMIT 1";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have at least one row", rs.next());
+      String ageStr = rs.getString(1);
+      assertNotNull("CAST result should not be null", ageStr);
+      // Verify it's a number string
+      int parsed = Integer.parseInt(ageStr);
+      assertTrue("Parsed age should be positive", parsed > 0);
+    }
+  }
+
+  /**
+   * Verifies function composition UPPER(TRIM(name)) with a WHERE filter against PostgreSQL.
+   * Only 'Alice' has UPPER(name) = 'ALICE'. Expects exactly 1 row with UPPER(TRIM(name)) = 'ALICE'.
+   */
+  @Test
+  public void testFunctionCompositionExecutesAgainstPostgres() throws Exception {
+    String sql = "SELECT UPPER(TRIM(\"name\")) AS upper_name FROM \"public\".\"pushdown_test\""
+        + " WHERE UPPER(\"name\") = 'ALICE'";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have exactly one row for ALICE", rs.next());
+      String result = rs.getString("upper_name");
+      assertEquals("UPPER(TRIM(name)) for Alice should be 'ALICE'", "ALICE", result);
+      assertFalse("Should be exactly 1 row", rs.next());
+    }
+  }
+
+  /**
+   * Verifies GROUP BY with function expression HAVING against PostgreSQL.
+   * GROUP BY UPPER(name) HAVING COUNT(*) >= 1 ORDER BY UPPER(name). Expects 5 rows.
+   */
+  @Test
+  public void testHavingWithFunctionExecutesAgainstPostgres() throws Exception {
+    String sql = "SELECT UPPER(\"name\") AS upper_name, COUNT(*) AS cnt"
+        + " FROM \"public\".\"pushdown_test\""
+        + " GROUP BY UPPER(\"name\") HAVING COUNT(*) >= 1 ORDER BY UPPER(\"name\")";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        count++;
+      }
+      assertEquals("GROUP BY UPPER(name) HAVING COUNT(*) >= 1 should return 5 rows", 5, count);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Aggregation container-based execution tests
   // ---------------------------------------------------------------------------
 
