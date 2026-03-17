@@ -66,12 +66,13 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
 
   private static final Logger logger = LoggerFactory.getLogger(JdbcPushJoinIntoScan.class);
 
-  public static final RelOptRule INSTANCE = new JdbcPushJoinIntoScan();
+  private final PushdownFunctionRegistry registry;
 
-  private JdbcPushJoinIntoScan() {
+  public JdbcPushJoinIntoScan(PushdownFunctionRegistry registry) {
     super(
         operand(LogicalJoin.class, RelOptRule.any()),
         "JdbcPushJoinIntoScan");
+    this.registry = registry;
   }
 
   /**
@@ -87,8 +88,8 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
   @Override
   public boolean matches(RelOptRuleCall call) {
     LogicalJoin join = call.rel(0);
-    ScanRelBase left = findJdbcScan(join.getLeft());
-    ScanRelBase right = findJdbcScan(join.getRight());
+    ScanRelBase left = findJdbcScan(join.getLeft(), registry);
+    ScanRelBase right = findJdbcScan(join.getRight(), registry);
     if (left == null || right == null) {
       return false;
     }
@@ -98,8 +99,8 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
   @Override
   public void onMatch(RelOptRuleCall call) {
     LogicalJoin join = call.rel(0);
-    ScanRelBase leftScan = findJdbcScan(join.getLeft());
-    ScanRelBase rightScan = findJdbcScan(join.getRight());
+    ScanRelBase leftScan = findJdbcScan(join.getLeft(), registry);
+    ScanRelBase rightScan = findJdbcScan(join.getRight(), registry);
     if (leftScan == null || rightScan == null) {
       return;
     }
@@ -244,14 +245,25 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
    * Walks down the RelNode tree to find a JDBC scan leaf (JdbcScanDrel or ScanCrel with a JDBC
    * plugin). Returns the found ScanRelBase or null if not found. Traverses through single-input
    * intermediate nodes (Project, Filter, Aggregate, etc.).
+   *
+   * <p>When an intermediate {@link LogicalProject} is encountered, its expressions are validated
+   * against the {@code registry} whitelist. Simple column refs ({@link RexInputRef}) are always
+   * allowed. Whitelisted function expressions (e.g. {@code CAST(col AS type)}) are also allowed
+   * since {@link PushdownFunctionRegistry#isExpressionPushable} returns true for them.
+   * Non-whitelisted expressions (e.g. custom UDFs) cause the traversal to return null, declining
+   * the join pushdown safely.
+   *
+   * @param node the current RelNode to inspect
+   * @param registry the pushdown function whitelist registry
+   * @return the JDBC scan leaf, or null if not found or a non-whitelisted expression blocks traversal
    */
-  private static ScanRelBase findJdbcScan(RelNode node) {
+  static ScanRelBase findJdbcScan(RelNode node, PushdownFunctionRegistry registry) {
     // Unwrap Volcano's RelSubset to get the best/original rel
     if (node instanceof org.apache.calcite.plan.volcano.RelSubset) {
       org.apache.calcite.plan.volcano.RelSubset subset =
           (org.apache.calcite.plan.volcano.RelSubset) node;
       for (RelNode rel : subset.getRelList()) {
-        ScanRelBase found = findJdbcScan(rel);
+        ScanRelBase found = findJdbcScan(rel, registry);
         if (found != null) {
           return found;
         }
@@ -264,30 +276,67 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
     if (node instanceof ScanCrel) {
       return (ScanCrel) node;
     }
-    // Decline pushdown when an intermediate Project contains non-trivial expressions
-    // (e.g. CAST). This happens when the planner inserts type-coercion projects between
-    // a LogicalJoin and the scan (e.g. cross-source Oracle + Iceberg queries). Pushing
-    // the join would use the project's output rowType (with columns like EXPR$0) to build
-    // SQL against the source table, causing "Fail to convert to internal representation".
-    // Declining is safe — the query still works with separate scans and in-engine join.
+    // Validate intermediate LogicalProject expressions against the registry whitelist.
+    // Simple column refs (RexInputRef) are always allowed.
+    // Whitelisted function expressions (e.g. CAST) are also allowed — Gap 2 fix.
+    // Non-whitelisted expressions (e.g. custom UDFs) decline the pushdown safely.
     if (node instanceof LogicalProject) {
       LogicalProject project = (LogicalProject) node;
       for (RexNode expr : project.getProjects()) {
-        if (!(expr instanceof RexInputRef)) {
+        if (!(expr instanceof RexInputRef) && !registry.isExpressionPushable(expr)) {
           logger.debug(
-              "[JOIN-PUSH] Declining pushdown: intermediate Project has non-trivial expression: {}",
+              "[JOIN-PUSH] Declining pushdown: intermediate Project has non-whitelisted expression: {}",
               expr);
           return null;
         }
       }
-      // All projections are simple column refs — safe to walk through
-      return findJdbcScan(project.getInput());
+      // All projections are simple column refs or whitelisted expressions — safe to walk through
+      return findJdbcScan(project.getInput(), registry);
     }
     // Walk through single-input nodes (Filter, Aggregate, etc.)
     if (node.getInputs().size() == 1) {
-      return findJdbcScan(node.getInput(0));
+      return findJdbcScan(node.getInput(0), registry);
     }
     return null;
+  }
+
+  /**
+   * Returns true if there is an intermediate {@link LogicalProject} with at least one non-trivial
+   * (non-{@link RexInputRef}) expression on the path from {@code node} to the JDBC scan leaf.
+   *
+   * <p>Used in {@code onMatch()} to determine whether to derive projected columns from the scan's
+   * row type (instead of the join input row type) when the path contains function expressions.
+   *
+   * @param node the RelNode to start walking from
+   * @return true if any intermediate LogicalProject has a non-RexInputRef expression
+   */
+  private static boolean hasNonTrivialProject(RelNode node) {
+    if (node instanceof org.apache.calcite.plan.volcano.RelSubset) {
+      org.apache.calcite.plan.volcano.RelSubset subset =
+          (org.apache.calcite.plan.volcano.RelSubset) node;
+      for (RelNode rel : subset.getRelList()) {
+        if (hasNonTrivialProject(rel)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (node instanceof JdbcScanDrel || node instanceof ScanCrel) {
+      return false;
+    }
+    if (node instanceof LogicalProject) {
+      LogicalProject project = (LogicalProject) node;
+      for (RexNode expr : project.getProjects()) {
+        if (!(expr instanceof RexInputRef)) {
+          return true;
+        }
+      }
+      return hasNonTrivialProject(project.getInput());
+    }
+    if (node.getInputs().size() == 1) {
+      return hasNonTrivialProject(node.getInput(0));
+    }
+    return false;
   }
 
   /** Derives a column list from the row type field names. */

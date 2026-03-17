@@ -19,6 +19,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.google.common.collect.ImmutableList;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -49,8 +50,9 @@ import org.junit.Test;
 
 /**
  * Unit tests documenting {@link SqlDialect} behavior that the Calcite JDBC convention migration
- * (Phase 36) depends on, plus Phase 37 SQL rendering tests for HAVING, COUNT(DISTINCT),
- * CAST/UPPER function expressions in SELECT, and ORDER BY function expressions.
+ * (Phase 36) depends on, plus Phase 37 and Phase 38 SQL rendering tests for HAVING, COUNT(DISTINCT),
+ * CAST/UPPER function expressions in SELECT, ORDER BY function expressions, and GROUP BY / AGG
+ * operand expression rendering.
  *
  * <p>These tests do NOT invoke {@code allowsAs()} directly because it is a protected method.
  * Instead they verify the public quoting behavior and document that the protected {@code allowsAs()}
@@ -60,6 +62,10 @@ import org.junit.Test;
  * <p>Phase 37 tests directly construct Calcite JdbcRel subtrees and render SQL via
  * {@link DremioJdbcImplementor}, verifying that HAVING, COUNT(DISTINCT), CAST, UPPER,
  * and ORDER BY expression patterns produce correct SQL.
+ *
+ * <p>Phase 38 tests verify that GROUP BY with function expressions (e.g. EXTRACT), aggregate
+ * operand expressions (e.g. SUM(salary * 1.1)), and bare aggregates (no GROUP BY) produce
+ * correct SQL via the extend/aggregate/trim pattern.
  */
 public class TestCalciteDialectSql {
 
@@ -399,5 +405,180 @@ public class TestCalciteDialectSql {
 
     assertTrue("SQL should contain ORDER BY: " + sql, sql.toUpperCase().contains("ORDER BY"));
     assertTrue("SQL should contain UPPER( in ORDER BY: " + sql, sql.toUpperCase().contains("UPPER("));
+  }
+
+  // =========================================================================
+  // Phase 38: GROUP BY expression, AGG operand expression, bare aggregate rendering
+  // =========================================================================
+
+  /** Helper: build a JdbcCalciteLeaf with (hire_date DATE, salary DOUBLE) row type. */
+  private JdbcCalciteLeaf makeLeafWithSalary(String schema, String table) {
+    RelDataType rowType =
+        typeFactory
+            .builder()
+            .add("hire_date", SqlTypeName.DATE)
+            .add("salary", SqlTypeName.DOUBLE)
+            .build();
+    return new JdbcCalciteLeaf(cluster, jdbcTraitSet, rowType, schema, table);
+  }
+
+  /**
+   * Verifies that GROUP BY with a function expression renders correct SQL.
+   *
+   * <p>Tree: JdbcProject(extend: [hire_date, salary, EXTRACT(YEAR FROM hire_date)])
+   *          -> JdbcAggregate(groupSet={2}, SUM($1))
+   *          -> JdbcProject(trim/rename)
+   *
+   * <p>This mirrors the extend/aggregate/trim pattern that JdbcScanPrel.getPhysicalOperator()
+   * step 8a builds when groupKeyExpressions is non-null.
+   */
+  @Test
+  public void testGroupByExpressionRendering() throws Exception {
+    JdbcCalciteLeaf leaf = makeLeafWithSalary("public", "employees");
+
+    RelDataType hireDateType = leaf.getRowType().getFieldList().get(0).getType();
+    RelDataType salaryType = leaf.getRowType().getFieldList().get(1).getType();
+    RelDataType intType = typeFactory.createSqlType(SqlTypeName.INTEGER);
+
+    // EXTRACT(YEAR FROM hire_date) — index 0 is hire_date
+    RexNode extractExpr = rex.makeCall(
+        SqlStdOperatorTable.EXTRACT,
+        rex.makeFlag(org.apache.calcite.avatica.util.TimeUnitRange.YEAR),
+        rex.makeInputRef(hireDateType, 0));
+
+    // Extended project: [hire_date(0), salary(1), EXTRACT(YEAR FROM hire_date)(2=_group_key_0)]
+    List<RexNode> extProjects = Arrays.asList(
+        rex.makeInputRef(hireDateType, 0),
+        rex.makeInputRef(salaryType, 1),
+        extractExpr);
+    List<String> extNames = Arrays.asList("hire_date", "salary", "_group_key_0");
+    RelDataType extType = typeFactory.createStructType(
+        Arrays.asList(hireDateType, salaryType, extractExpr.getType()),
+        extNames);
+    RelNode extProj = new JdbcRules.JdbcProject(cluster, jdbcTraitSet, leaf, extProjects, extType);
+
+    // Aggregate: GROUP BY _group_key_0 (index 2), SUM(salary) (index 1)
+    ImmutableBitSet groupSet = ImmutableBitSet.of(2);
+    AggregateCall sumSalary =
+        AggregateCall.create(
+            SqlStdOperatorTable.SUM,
+            false, false,
+            ImmutableList.of(1),
+            -1,
+            org.apache.calcite.rel.RelCollations.EMPTY,
+            1,
+            extProj,
+            null,
+            "total_salary");
+    RelNode agg = new JdbcRules.JdbcAggregate(
+        cluster, jdbcTraitSet, extProj, groupSet, null, ImmutableList.of(sumSalary));
+
+    // Trim project: back to [_group_key_0 (as "hire_year"), total_salary]
+    List<RexNode> trimProjects = Arrays.asList(
+        rex.makeInputRef(agg.getRowType().getFieldList().get(0).getType(), 0),
+        rex.makeInputRef(agg.getRowType().getFieldList().get(1).getType(), 1));
+    List<String> trimNames = Arrays.asList("hire_year", "total_salary");
+    RelDataType trimType = typeFactory.createStructType(
+        Arrays.asList(
+            agg.getRowType().getFieldList().get(0).getType(),
+            agg.getRowType().getFieldList().get(1).getType()),
+        trimNames);
+    RelNode trimProj = new JdbcRules.JdbcProject(cluster, jdbcTraitSet, agg, trimProjects, trimType);
+
+    String sql = renderSql(trimProj, pgDialect);
+
+    assertTrue("SQL should contain GROUP BY: " + sql, sql.toUpperCase().contains("GROUP BY"));
+    assertTrue("SQL should contain EXTRACT(: " + sql, sql.toUpperCase().contains("EXTRACT("));
+    assertTrue("SQL should contain SUM(: " + sql, sql.toUpperCase().contains("SUM("));
+  }
+
+  /**
+   * Verifies that an aggregate operand with an arithmetic expression (SUM(salary * 1.1)) renders
+   * correct SQL.
+   *
+   * <p>Tree: JdbcProject(extend: [hire_date, salary, salary * 1.1])
+   *          -> JdbcAggregate(groupSet={}, SUM($2=_agg_operand_0))
+   *          -> JdbcProject(trim/rename)
+   */
+  @Test
+  public void testAggOperandExpressionRendering() throws Exception {
+    JdbcCalciteLeaf leaf = makeLeafWithSalary("public", "employees");
+
+    RelDataType hireDateType = leaf.getRowType().getFieldList().get(0).getType();
+    RelDataType salaryType = leaf.getRowType().getFieldList().get(1).getType();
+    RelDataType doubleType = typeFactory.createSqlType(SqlTypeName.DOUBLE);
+
+    // salary * 1.1 — salary is index 1
+    RexNode multiplyExpr = rex.makeCall(
+        SqlStdOperatorTable.MULTIPLY,
+        rex.makeInputRef(salaryType, 1),
+        rex.makeApproxLiteral(new java.math.BigDecimal("1.1")));
+
+    // Extended project: [hire_date(0), salary(1), salary * 1.1 (2=_agg_operand_0)]
+    List<RexNode> extProjects = Arrays.asList(
+        rex.makeInputRef(hireDateType, 0),
+        rex.makeInputRef(salaryType, 1),
+        multiplyExpr);
+    List<String> extNames = Arrays.asList("hire_date", "salary", "_agg_operand_0");
+    RelDataType extType = typeFactory.createStructType(
+        Arrays.asList(hireDateType, salaryType, doubleType),
+        extNames);
+    RelNode extProj = new JdbcRules.JdbcProject(cluster, jdbcTraitSet, leaf, extProjects, extType);
+
+    // Aggregate: groupSet={} (bare aggregate), SUM(salary * 1.1) (arg index 2)
+    ImmutableBitSet groupSet = ImmutableBitSet.of();
+    AggregateCall sumExpr =
+        AggregateCall.create(
+            SqlStdOperatorTable.SUM,
+            false, false,
+            ImmutableList.of(2),
+            -1,
+            org.apache.calcite.rel.RelCollations.EMPTY,
+            0,
+            extProj,
+            null,
+            "total_adjusted");
+    RelNode agg = new JdbcRules.JdbcAggregate(
+        cluster, jdbcTraitSet, extProj, groupSet, null, ImmutableList.of(sumExpr));
+
+    String sql = renderSql(agg, pgDialect);
+
+    assertTrue("SQL should contain SUM(: " + sql, sql.toUpperCase().contains("SUM("));
+    assertTrue("SQL should contain multiplication *: " + sql, sql.contains("*"));
+    assertTrue("SQL should contain 1.1 literal: " + sql, sql.contains("1.1"));
+  }
+
+  /**
+   * Verifies that a bare aggregate (no GROUP BY) renders correct SQL without a GROUP BY clause.
+   *
+   * <p>Tree: JdbcCalciteLeaf -> JdbcAggregate(groupSet={}, SUM(salary)).
+   */
+  @Test
+  public void testBareAggregateRendering() throws Exception {
+    JdbcCalciteLeaf leaf = makeLeafWithSalary("public", "employees");
+
+    RelDataType salaryType = leaf.getRowType().getFieldList().get(1).getType();
+
+    // Bare aggregate: SUM(salary) with no GROUP BY
+    ImmutableBitSet groupSet = ImmutableBitSet.of();
+    AggregateCall sumSalary =
+        AggregateCall.create(
+            SqlStdOperatorTable.SUM,
+            false, false,
+            ImmutableList.of(1), // salary = index 1
+            -1,
+            org.apache.calcite.rel.RelCollations.EMPTY,
+            0,
+            leaf,
+            null,
+            "total_salary");
+    RelNode agg = new JdbcRules.JdbcAggregate(
+        cluster, jdbcTraitSet, leaf, groupSet, null, ImmutableList.of(sumSalary));
+
+    String sql = renderSql(agg, pgDialect);
+
+    assertTrue("SQL should contain SUM(: " + sql, sql.toUpperCase().contains("SUM("));
+    assertFalse("Bare aggregate SQL should NOT contain GROUP BY: " + sql,
+        sql.toUpperCase().contains("GROUP BY"));
   }
 }
