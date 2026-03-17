@@ -41,7 +41,8 @@ public class JdbcJoinRulesFactory implements RulesFactory {
   @Override
   public Collection<RelOptRule> getRules(PlannerPhase phase, OptionManager options) {
     if (phase == PlannerPhase.LOGICAL) {
-      return Collections.singletonList(JdbcPushJoinIntoScan.INSTANCE);
+      return Collections.singletonList(
+          new JdbcPushJoinIntoScan(StandardPushdownFunctionRegistry.INSTANCE));
     }
     return Collections.emptyList();
   }

@@ -48,6 +48,12 @@ import org.slf4j.LoggerFactory;
  *   <dt>PHYSICAL_HEP
  *   <dd>{@link JdbcPushSortIntoScanHep} — absorbs concrete {@code SortPrel} into the scan, enabling
  *       combined WHERE + ORDER BY pushdown after filter pushdown in Volcano.
+ *   <dd>{@link JdbcPushSortWithExpressionsHep} — absorbs {@code SortPrel(ProjectPrel(JdbcScanPrel))}
+ *       when ORDER BY keys are function expressions (e.g. {@code ORDER BY UPPER(name)}).
+ *   <dd>{@link JdbcPushTopNWithExpressionsHep} — same as above for TopNPrel.
+ *   <dd>{@link JdbcPushAggWithExpressionsHep} — absorbs {@code AggregatePrel(ProjectPrel(JdbcScanPrel))}
+ *       when GROUP BY keys or aggregate operands are function expressions (e.g.
+ *       {@code GROUP BY EXTRACT(YEAR FROM hire_date)}, {@code SUM(salary * 1.1)}).
  *   <dd>{@link JdbcPushLimitIntoScan} — absorbs any remaining {@code LimitPrel}.
  * </dl>
  *
@@ -96,6 +102,7 @@ public class JdbcRulesFactory extends StoragePluginTypeRulesFactory {
             JdbcPushTopNIntoScanHep.INSTANCE,
             new JdbcPushSortWithExpressionsHep(hepRegistry),
             new JdbcPushTopNWithExpressionsHep(hepRegistry),
+            new JdbcPushAggWithExpressionsHep(hepRegistry),
             JdbcPushLimitIntoScan.INSTANCE);
 
       default:

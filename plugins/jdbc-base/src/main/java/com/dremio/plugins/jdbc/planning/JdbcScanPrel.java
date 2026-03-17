@@ -99,6 +99,21 @@ public class JdbcScanPrel extends ScanPrelBase {
    */
   private final List<RexNode> sortKeyExpressions;
 
+  /**
+   * GROUP BY function expressions for expression-based aggregation (e.g.
+   * {@code EXTRACT(YEAR FROM hire_date)}). Non-null only when a GROUP BY key is a function
+   * expression, pushed by {@link JdbcPushAggWithExpressionsHep}. Simple column-ref GROUP BY
+   * keys are handled by the existing {@code groupSet} without this field.
+   */
+  private final List<RexNode> groupKeyExpressions;
+
+  /**
+   * Aggregate operand function expressions for expression-based aggregation (e.g.
+   * {@code SUM(salary * 1.1)}). Non-null only when an aggregate function's operand is a function
+   * expression, pushed by {@link JdbcPushAggWithExpressionsHep}.
+   */
+  private final List<RexNode> aggOperandExpressions;
+
   // -------------------------------------------------------------------------
   // Full constructor
   // -------------------------------------------------------------------------
@@ -114,6 +129,8 @@ public class JdbcScanPrel extends ScanPrelBase {
    * @param overrideRowType when non-null, overrides the derived row type for aggregated output
    * @param havingRex post-aggregation filter (HAVING clause); null when not pushed
    * @param sortKeyExpressions sort key function expressions for ORDER BY; null for simple column-ref sorts
+   * @param groupKeyExpressions GROUP BY function expressions (e.g. EXTRACT(YEAR FROM col)); null for simple column-ref GROUP BY
+   * @param aggOperandExpressions aggregate operand function expressions (e.g. salary * 1.1); null for simple column-ref operands
    */
   public JdbcScanPrel(
       RelOptCluster cluster,
@@ -134,7 +151,9 @@ public class JdbcScanPrel extends ScanPrelBase {
       List<AggregateCall> aggCalls,
       RelDataType overrideRowType,
       RexNode havingRex,
-      List<RexNode> sortKeyExpressions) {
+      List<RexNode> sortKeyExpressions,
+      List<RexNode> groupKeyExpressions,
+      List<RexNode> aggOperandExpressions) {
     super(
         cluster,
         traitSet,
@@ -155,6 +174,8 @@ public class JdbcScanPrel extends ScanPrelBase {
     this.overrideRowType = overrideRowType;
     this.havingRex = havingRex;
     this.sortKeyExpressions = sortKeyExpressions != null ? ImmutableList.copyOf(sortKeyExpressions) : null;
+    this.groupKeyExpressions = groupKeyExpressions != null ? ImmutableList.copyOf(groupKeyExpressions) : null;
+    this.aggOperandExpressions = aggOperandExpressions != null ? ImmutableList.copyOf(aggOperandExpressions) : null;
     // Force the cached rowType in AbstractRelNode so Volcano sees the aggregated schema.
     if (overrideRowType != null) {
       this.rowType = overrideRowType;
@@ -195,7 +216,9 @@ public class JdbcScanPrel extends ScanPrelBase {
         null,  // aggCalls
         null,  // overrideRowType
         null,  // havingRex
-        null); // sortKeyExpressions
+        null,  // sortKeyExpressions
+        null,  // groupKeyExpressions
+        null); // aggOperandExpressions
   }
 
   // -------------------------------------------------------------------------
@@ -224,7 +247,9 @@ public class JdbcScanPrel extends ScanPrelBase {
         aggCalls,
         overrideRowType,
         havingRex,
-        sortKeyExpressions);
+        sortKeyExpressions,
+        groupKeyExpressions,
+        aggOperandExpressions);
   }
 
   /**
@@ -252,7 +277,9 @@ public class JdbcScanPrel extends ScanPrelBase {
         aggCalls,
         overrideRowType,
         havingRex,
-        sortKeyExpressions);
+        sortKeyExpressions,
+        groupKeyExpressions,
+        aggOperandExpressions);
   }
 
   /** Returns a new JdbcScanPrel with an updated LIMIT, preserving all other pushdown state. */
@@ -276,7 +303,9 @@ public class JdbcScanPrel extends ScanPrelBase {
         aggCalls,
         overrideRowType,
         havingRex,
-        sortKeyExpressions);
+        sortKeyExpressions,
+        groupKeyExpressions,
+        aggOperandExpressions);
   }
 
   /**
@@ -304,7 +333,9 @@ public class JdbcScanPrel extends ScanPrelBase {
         aggCalls,
         overrideRowType,
         havingRex,
-        sortKeyExpressions);
+        sortKeyExpressions,
+        groupKeyExpressions,
+        aggOperandExpressions);
   }
 
   /**
@@ -340,7 +371,55 @@ public class JdbcScanPrel extends ScanPrelBase {
         newAggCalls,
         newRowType,
         havingRex,
-        sortKeyExpressions);
+        sortKeyExpressions,
+        null, // groupKeyExpressions: not used by simple column-ref aggregation
+        null); // aggOperandExpressions: not used by simple column-ref aggregation
+  }
+
+  /**
+   * Returns a new JdbcScanPrel with expression-based aggregation pushed down.
+   *
+   * <p>Used by {@link JdbcPushAggWithExpressionsHep} when GROUP BY keys or aggregate operands
+   * are function expressions (e.g. {@code GROUP BY EXTRACT(YEAR FROM hire_date)} or
+   * {@code SUM(salary * 1.1)}). The {@code groupKeyExpressions} and {@code aggOperandExpressions}
+   * lists are stored alongside the remapped {@code newGroupSet} and {@code newAggCalls} (which
+   * reference extended column indices). At {@link #getPhysicalOperator} time, the
+   * extend/aggregate/trim pattern is used to materialize these expressions.
+   *
+   * @param newGroupSet remapped GROUP BY indices (extended column positions for function exprs)
+   * @param newAggCalls remapped aggregate calls (extended column positions for function operands)
+   * @param newRowType the aggregated output row type
+   * @param newGroupKeyExpressions GROUP BY function expressions; null if all keys are column refs
+   * @param newAggOperandExpressions aggregate operand function expressions; null if all operands are column refs
+   */
+  public JdbcScanPrel cloneWithAggregationExpressions(
+      ImmutableBitSet newGroupSet,
+      List<AggregateCall> newAggCalls,
+      RelDataType newRowType,
+      List<RexNode> newGroupKeyExpressions,
+      List<RexNode> newAggOperandExpressions) {
+    return new JdbcScanPrel(
+        getCluster(),
+        getTraitSet(),
+        getTable(),
+        getPluginId(),
+        getTableMetadata(),
+        null, // aggregation drives the SELECT list; individual column projection is irrelevant
+        getCostAdjustmentFactor(),
+        getHintsAsList(),
+        getRuntimeFilters(),
+        schemaName,
+        tableName,
+        filterRex,
+        collation,
+        limit,
+        newGroupSet,
+        newAggCalls,
+        newRowType,
+        havingRex,
+        sortKeyExpressions,
+        newGroupKeyExpressions,
+        newAggOperandExpressions);
   }
 
   /**
@@ -371,7 +450,9 @@ public class JdbcScanPrel extends ScanPrelBase {
         aggCalls,
         overrideRowType,
         newHavingRex,
-        sortKeyExpressions);
+        sortKeyExpressions,
+        groupKeyExpressions,
+        aggOperandExpressions);
   }
 
   /**
@@ -404,7 +485,9 @@ public class JdbcScanPrel extends ScanPrelBase {
         aggCalls,
         overrideRowType,
         havingRex,
-        sortExprs);
+        sortExprs,
+        groupKeyExpressions,
+        aggOperandExpressions);
   }
 
   // -------------------------------------------------------------------------
@@ -475,7 +558,9 @@ public class JdbcScanPrel extends ScanPrelBase {
         aggCalls,
         overrideRowType,
         havingRex,
-        sortKeyExpressions);
+        sortKeyExpressions,
+        groupKeyExpressions,
+        aggOperandExpressions);
   }
 
   @Override
@@ -488,6 +573,8 @@ public class JdbcScanPrel extends ScanPrelBase {
     pw.itemIf("sortKeyExpressions", sortKeyExpressions, sortKeyExpressions != null);
     pw.itemIf("groupSet", groupSet, groupSet != null);
     pw.itemIf("aggCalls", aggCalls, aggCalls != null && !aggCalls.isEmpty());
+    pw.itemIf("groupKeyExpressions", groupKeyExpressions, groupKeyExpressions != null);
+    pw.itemIf("aggOperandExpressions", aggOperandExpressions, aggOperandExpressions != null);
     pw.itemIf("having", havingRex, havingRex != null);
     pw.itemIf("limit", limit, limit != null);
     return pw;
@@ -610,52 +697,156 @@ public class JdbcScanPrel extends ScanPrelBase {
     // groupSet and aggCalls indices are already normalized to full-table positions
     // by JdbcPushAggIntoScan at push time. No remapping needed here.
     if (hasAggregation()) {
-      try {
-        root =
-            new JdbcRules.JdbcAggregate(
-                cluster, jdbcTraitSet, root, groupSet, null, aggCalls);
-      } catch (org.apache.calcite.rel.InvalidRelException e) {
-        throw new IOException("Invalid aggregation for JDBC pushdown: " + e.getMessage(), e);
-      }
+      boolean hasExpressionAgg = (groupKeyExpressions != null && !groupKeyExpressions.isEmpty())
+          || (aggOperandExpressions != null && !aggOperandExpressions.isEmpty());
 
-      // Wrap JdbcAggregate with a JdbcProject that gives every output column an explicit
-      // SQL alias matching the expected Dremio output column names (from overrideRowType).
-      //
-      // Without this, Calcite renders aggregate functions without aliases
-      // (e.g. "COUNT(*)" instead of "COUNT(*) AS \"EXPR$1\""). The JDBC driver then returns
-      // the column under the database's own default name ("count" in PostgreSQL, "COUNT(*)" in
-      // Oracle), which JdbcRecordReader cannot match to the expected "EXPR$1" field name.
-      //
-      // The JdbcProject identity-projects each aggregate output field while assigning the
-      // correct alias, generating "SELECT ... COUNT(*) AS \"EXPR$1\" ..." in the final SQL.
-      //
-      // For AVG, Calcite decomposes the aggregate into SUM/COUNT internally. If the
-      // JdbcAggregate has more fields than overrideRowType (e.g. decomposed AVG → 2 cols but
-      // Dremio expects 1 col), skip the rename and fall back to Dremio's own AVG handling.
-      if (overrideRowType != null) {
-        RelNode aggRoot = root;
-        java.util.List<org.apache.calcite.rel.type.RelDataTypeField> aggFields =
-            aggRoot.getRowType().getFieldList();
-        java.util.List<org.apache.calcite.rel.type.RelDataTypeField> expectedFields =
-            overrideRowType.getFieldList();
+      if (hasExpressionAgg) {
+        // --- 8a. Expression-based aggregation: extend/aggregate/trim pattern ---
+        //
+        // groupKeyExpressions and aggOperandExpressions contain RexNode trees extracted from
+        // the ProjectPrel at push time. These trees reference the scan's projected column indices
+        // (not full-table indices). We build:
+        //
+        //   JdbcProject (trim: back to agg output width)
+        //     JdbcAggregate (groupSet/aggCalls reference extended column indices)
+        //       JdbcProject (extend: [identity refs for full table cols] + [group key exprs] + [agg operand exprs])
+        //         JdbcFilter (if filter pushed)
+        //           JdbcCalciteLeaf
 
-        if (aggFields.size() == expectedFields.size()) {
-          RexBuilder rexBuilder = cluster.getRexBuilder();
-          java.util.List<RexNode> renameProjects = new ArrayList<>();
-          java.util.List<String> renameNames = new ArrayList<>();
-          for (int i = 0; i < aggFields.size(); i++) {
-            org.apache.calcite.rel.type.RelDataTypeField f = aggFields.get(i);
-            renameProjects.add(rexBuilder.makeInputRef(f.getType(), i));
-            renameNames.add(expectedFields.get(i).getName());
+        RexBuilder rexBuilder = cluster.getRexBuilder();
+        final int fullTableWidth = fullTableRowType.getFieldCount();
+
+        // Step 8a.1: Build extended JdbcProject:
+        //   [identity refs for all full-table columns] + [group key exprs] + [agg operand exprs]
+        // Group key and agg operand expressions reference projected column indices at push time.
+        // We remap them to full-table indices using projToFull (computed in step 5).
+        List<RexNode> extendedProjects = new ArrayList<>();
+        List<String> extendedNames = new ArrayList<>();
+        List<org.apache.calcite.rel.type.RelDataTypeField> fullFields = fullTableRowType.getFieldList();
+        for (int i = 0; i < fullTableWidth; i++) {
+          org.apache.calcite.rel.type.RelDataTypeField f = fullFields.get(i);
+          extendedProjects.add(rexBuilder.makeInputRef(f.getType(), i));
+          extendedNames.add(f.getName());
+        }
+
+        // Remap RexInputRef indices in expressions from projected-column space to full-table space.
+        final int[] finalProjToFull = projToFull;
+        final int finalFullTableWidth = fullTableWidth;
+        org.apache.calcite.rex.RexShuttle remapShuttle = new RexShuttle() {
+          @Override
+          public RexNode visitInputRef(RexInputRef ref) {
+            int idx = ref.getIndex();
+            int fullIdx = (finalProjToFull != null && idx < finalProjToFull.length)
+                ? finalProjToFull[idx] : idx;
+            if (fullIdx >= 0 && fullIdx < finalFullTableWidth) {
+              return rexBuilder.makeInputRef(
+                  fullFields.get(fullIdx).getType(), fullIdx);
+            }
+            return ref;
           }
-          RelDataType renameRowType =
-              cluster
-                  .getTypeFactory()
-                  .createStructType(
-                      renameProjects.stream().map(RexNode::getType).collect(Collectors.toList()),
-                      renameNames);
+        };
+
+        if (groupKeyExpressions != null) {
+          for (int k = 0; k < groupKeyExpressions.size(); k++) {
+            RexNode remapped = groupKeyExpressions.get(k).accept(remapShuttle);
+            extendedProjects.add(remapped);
+            extendedNames.add("_group_key_" + k);
+          }
+        }
+        if (aggOperandExpressions != null) {
+          for (int k = 0; k < aggOperandExpressions.size(); k++) {
+            RexNode remapped = aggOperandExpressions.get(k).accept(remapShuttle);
+            extendedProjects.add(remapped);
+            extendedNames.add("_agg_operand_" + k);
+          }
+        }
+        RelDataType extendedRowType = cluster.getTypeFactory().createStructType(
+            extendedProjects.stream().map(RexNode::getType).collect(Collectors.toList()),
+            extendedNames);
+        RelNode extendedRoot = new JdbcRules.JdbcProject(
+            cluster, jdbcTraitSet, root, extendedProjects, extendedRowType);
+
+        // Step 8a.2: Build JdbcAggregate with the stored groupSet and aggCalls.
+        // These already reference the extended column indices (assigned in JdbcPushAggWithExpressionsHep).
+        try {
+          root = new JdbcRules.JdbcAggregate(
+              cluster, jdbcTraitSet, extendedRoot, groupSet, null, aggCalls);
+        } catch (org.apache.calcite.rel.InvalidRelException e) {
+          throw new IOException("Invalid expression-based aggregation for JDBC pushdown: " + e.getMessage(), e);
+        }
+
+        // Step 8a.3: Trim back to agg output width with a rename JdbcProject.
+        // This assigns the correct Dremio output column names (from overrideRowType).
+        if (overrideRowType != null) {
+          RelNode aggRoot = root;
+          java.util.List<org.apache.calcite.rel.type.RelDataTypeField> aggFields =
+              aggRoot.getRowType().getFieldList();
+          java.util.List<org.apache.calcite.rel.type.RelDataTypeField> expectedFields =
+              overrideRowType.getFieldList();
+
+          if (aggFields.size() == expectedFields.size()) {
+            java.util.List<RexNode> renameProjects = new ArrayList<>();
+            java.util.List<String> renameNames = new ArrayList<>();
+            for (int i = 0; i < aggFields.size(); i++) {
+              org.apache.calcite.rel.type.RelDataTypeField f = aggFields.get(i);
+              renameProjects.add(rexBuilder.makeInputRef(f.getType(), i));
+              renameNames.add(expectedFields.get(i).getName());
+            }
+            RelDataType renameRowType = cluster.getTypeFactory().createStructType(
+                renameProjects.stream().map(RexNode::getType).collect(Collectors.toList()),
+                renameNames);
+            root = new JdbcRules.JdbcProject(cluster, jdbcTraitSet, aggRoot, renameProjects, renameRowType);
+          }
+        }
+      } else {
+        // --- 8b. Simple column-ref aggregation (existing behavior) ---
+        try {
           root =
-              new JdbcRules.JdbcProject(cluster, jdbcTraitSet, aggRoot, renameProjects, renameRowType);
+              new JdbcRules.JdbcAggregate(
+                  cluster, jdbcTraitSet, root, groupSet, null, aggCalls);
+        } catch (org.apache.calcite.rel.InvalidRelException e) {
+          throw new IOException("Invalid aggregation for JDBC pushdown: " + e.getMessage(), e);
+        }
+
+        // Wrap JdbcAggregate with a JdbcProject that gives every output column an explicit
+        // SQL alias matching the expected Dremio output column names (from overrideRowType).
+        //
+        // Without this, Calcite renders aggregate functions without aliases
+        // (e.g. "COUNT(*)" instead of "COUNT(*) AS \"EXPR$1\""). The JDBC driver then returns
+        // the column under the database's own default name ("count" in PostgreSQL, "COUNT(*)" in
+        // Oracle), which JdbcRecordReader cannot match to the expected "EXPR$1" field name.
+        //
+        // The JdbcProject identity-projects each aggregate output field while assigning the
+        // correct alias, generating "SELECT ... COUNT(*) AS \"EXPR$1\" ..." in the final SQL.
+        //
+        // For AVG, Calcite decomposes the aggregate into SUM/COUNT internally. If the
+        // JdbcAggregate has more fields than overrideRowType (e.g. decomposed AVG → 2 cols but
+        // Dremio expects 1 col), skip the rename and fall back to Dremio's own AVG handling.
+        if (overrideRowType != null) {
+          RelNode aggRoot = root;
+          java.util.List<org.apache.calcite.rel.type.RelDataTypeField> aggFields =
+              aggRoot.getRowType().getFieldList();
+          java.util.List<org.apache.calcite.rel.type.RelDataTypeField> expectedFields =
+              overrideRowType.getFieldList();
+
+          if (aggFields.size() == expectedFields.size()) {
+            RexBuilder rexBuilder = cluster.getRexBuilder();
+            java.util.List<RexNode> renameProjects = new ArrayList<>();
+            java.util.List<String> renameNames = new ArrayList<>();
+            for (int i = 0; i < aggFields.size(); i++) {
+              org.apache.calcite.rel.type.RelDataTypeField f = aggFields.get(i);
+              renameProjects.add(rexBuilder.makeInputRef(f.getType(), i));
+              renameNames.add(expectedFields.get(i).getName());
+            }
+            RelDataType renameRowType =
+                cluster
+                    .getTypeFactory()
+                    .createStructType(
+                        renameProjects.stream().map(RexNode::getType).collect(Collectors.toList()),
+                        renameNames);
+            root =
+                new JdbcRules.JdbcProject(cluster, jdbcTraitSet, aggRoot, renameProjects, renameRowType);
+          }
         }
       }
     }
@@ -888,5 +1079,21 @@ public class JdbcScanPrel extends ScanPrelBase {
    */
   public List<RexNode> getSortKeyExpressions() {
     return sortKeyExpressions;
+  }
+
+  /**
+   * Returns the GROUP BY function expressions, or null if all GROUP BY keys are plain column refs
+   * (or no aggregation is pushed).
+   */
+  public List<RexNode> getGroupKeyExpressions() {
+    return groupKeyExpressions;
+  }
+
+  /**
+   * Returns the aggregate operand function expressions, or null if all aggregate operands are
+   * plain column refs (or no aggregation is pushed).
+   */
+  public List<RexNode> getAggOperandExpressions() {
+    return aggOperandExpressions;
   }
 }
