@@ -690,29 +690,27 @@ public class JdbcScanPrel extends ScanPrelBase {
         //   Step 9b: Build JdbcSort referencing the extended column indices
         //   Step 9c: Trim back to original output width with an outer JdbcProject
 
-        final int[] normMap = projToFull;
-        int existingOutputWidth = root.getRowType().getFieldCount();
+        final int existingOutputWidth = root.getRowType().getFieldCount();
+        final RelNode currentRoot = root;
 
-        // Remap sort key expression RexInputRef indices to full-table positions.
+        // Sort key expressions reference projected-column indices (matching root's output).
+        // No remapping through projToFull is needed because the extended project is built
+        // on top of root (which is already in projected-column space), not the full table.
         List<RexNode> remappedSortExprs = new ArrayList<>(sortKeyExpressions.size());
         for (RexNode sortExpr : sortKeyExpressions) {
-          if (normMap != null) {
-            RexNode remapped = sortExpr.accept(new RexShuttle() {
-              @Override
-              public RexNode visitInputRef(RexInputRef ref) {
-                int projIdx = ref.getIndex();
-                int fullIdx = (projIdx >= 0 && projIdx < normMap.length) ? normMap[projIdx] : projIdx;
-                if (fullIdx < fullTableRowType.getFieldCount()) {
-                  return rexBuilder.makeInputRef(
-                      fullTableRowType.getFieldList().get(fullIdx).getType(), fullIdx);
-                }
-                return ref;
+          // Retype RexInputRef nodes to match root's output field types.
+          RexNode retyped = sortExpr.accept(new RexShuttle() {
+            @Override
+            public RexNode visitInputRef(RexInputRef ref) {
+              int idx = ref.getIndex();
+              if (idx >= 0 && idx < existingOutputWidth) {
+                return rexBuilder.makeInputRef(
+                    currentRoot.getRowType().getFieldList().get(idx).getType(), idx);
               }
-            });
-            remappedSortExprs.add(remapped);
-          } else {
-            remappedSortExprs.add(sortExpr);
-          }
+              return ref;
+            }
+          });
+          remappedSortExprs.add(retyped);
         }
 
         // Step 9a: Build extended JdbcProject: [identity refs for existing output] + [sort key exprs]

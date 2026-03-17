@@ -133,6 +133,17 @@ public final class JdbcPushTopNWithExpressionsHep extends RelOptRule {
     // Store sort key expressions + collation, then limit.
     JdbcScanPrel withSort = scan.cloneWithSortKeyExpressions(topN.getCollation(), sortKeyExprs);
     JdbcScanPrel withSortAndLimit = withSort.cloneWithLimit(topN.getLimit());
-    call.transformTo(withSortAndLimit);
+
+    // The replacement must have the same row type as the TopNPrel being replaced.
+    // TopNPrel's row type matches the ProjectPrel's (e.g. [name, UPPER(name)]),
+    // but the JdbcScanPrel only has base columns (e.g. [name]).
+    // Wrap in a ProjectPrel with the original project expressions to match.
+    ProjectPrel wrapper = ProjectPrel.create(
+        withSortAndLimit.getCluster(),
+        withSortAndLimit.getTraitSet(),
+        withSortAndLimit,
+        projectPrel.getProjects(),
+        projectPrel.getRowType());
+    call.transformTo(wrapper);
   }
 }

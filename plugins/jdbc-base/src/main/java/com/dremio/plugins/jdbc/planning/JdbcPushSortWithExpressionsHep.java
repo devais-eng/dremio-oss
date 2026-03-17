@@ -170,6 +170,17 @@ public final class JdbcPushSortWithExpressionsHep extends RelOptRule {
 
     // Store both the collation and the sort key expressions on the scan.
     JdbcScanPrel newScan = scan.cloneWithSortKeyExpressions(sort.getCollation(), sortKeyExprs);
-    call.transformTo(newScan);
+
+    // The replacement must have the same row type as the SortPrel being replaced.
+    // SortPrel's row type matches the ProjectPrel's (e.g. [name, UPPER(name)]),
+    // but the JdbcScanPrel only has base columns (e.g. [name]).
+    // Wrap in a ProjectPrel with the original project expressions to match.
+    ProjectPrel wrapper = ProjectPrel.create(
+        newScan.getCluster(),
+        newScan.getTraitSet(),
+        newScan,
+        projectPrel.getProjects(),
+        projectPrel.getRowType());
+    call.transformTo(wrapper);
   }
 }

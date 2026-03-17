@@ -115,7 +115,9 @@ public final class JdbcPushSortIntoScan extends RelOptRule {
             null,           // limit
             null,           // groupSet
             null,           // aggCalls
-            null);          // overrideRowType
+            null,           // overrideRowType
+            null,           // havingRex
+            null);          // sortKeyExpressions
 
     call.transformTo(physicalScan);
   }
