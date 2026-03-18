@@ -284,6 +284,11 @@ public class PostgresConf extends BaseJdbcConf<PostgresConf, JdbcStoragePlugin> 
       public SqlDialect createDialect() {
         return DremioPostgresDialect.INSTANCE;
       }
+
+      @Override
+      public Class<? extends com.dremio.exec.store.StoragePluginRulesFactory> getRulesFactoryClass() {
+        return PostgresRulesFactory.class;
+      }
     };
   }
 }

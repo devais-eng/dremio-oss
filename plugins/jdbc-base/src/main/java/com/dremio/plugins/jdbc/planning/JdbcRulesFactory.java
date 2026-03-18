@@ -103,10 +103,12 @@ public class JdbcRulesFactory extends StoragePluginTypeRulesFactory {
             new JdbcPushSortWithExpressionsHep(hepRegistry),
             new JdbcPushTopNWithExpressionsHep(hepRegistry),
             new JdbcPushAggWithExpressionsHep(hepRegistry),
-            JdbcPushLimitIntoScan.INSTANCE);
+            JdbcPushLimitIntoScan.INSTANCE,
+            PgvectorKnnPushdownRule.INSTANCE);
 
       default:
         return ImmutableSet.of();
     }
   }
+
 }
