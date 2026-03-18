@@ -342,10 +342,10 @@ Plans:
 
 **Goal:** Add `l2_distance`, `cosine_distance`, `inner_product` to the PushdownFunctionRegistry (PostgreSQL-specific dialect registry). When the Volcano planner pushes these to PG, DremioJdbcImplementor translates them to pgvector's infix operators (`<->` for L2, `<=>` for cosine, `<#>` for inner product). The `ORDER BY l2_distance(...) LIMIT K` pattern pushes as `ORDER BY col <-> '[...]' LIMIT K` — enabling HNSW index-accelerated nearest-neighbor search at the source. Includes SqlDialect customization for operator rendering.
 **Depends on:** Phase 41
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 42 to break down)
+- [ ] 42-01-PLAN.md — DremioPostgresDialect (unparseCall for <-> <=> <#>) + whitelist additions + dialect wiring + unit/integration tests
 
 ### Phase 43: pgvector UAT and integration tests — semantic search pushdown verification with index usage via EXPLAIN ANALYZE
 
