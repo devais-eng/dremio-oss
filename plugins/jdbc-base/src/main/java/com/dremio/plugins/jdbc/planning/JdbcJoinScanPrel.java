@@ -29,6 +29,7 @@ import com.dremio.exec.record.BatchSchema.SelectionVectorMode;
 import com.dremio.exec.store.StoragePlugin;
 import com.dremio.plugins.jdbc.JdbcStoragePlugin;
 import com.dremio.plugins.jdbc.exec.JdbcGroupScan;
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -121,6 +122,18 @@ public class JdbcJoinScanPrel extends AbstractRelNode implements LeafPrel {
   private final List<AggregateCall> rightAggCalls;
 
   /**
+   * LogicalProject expressions for the left join input. Non-null when a non-trivial
+   * LogicalProject (e.g. with CAST) sits between the join and the left scan.
+   */
+  private final List<RexNode> leftProjectExprs;
+
+  /**
+   * LogicalProject expressions for the right join input. Same as leftProjectExprs but
+   * for the right side.
+   */
+  private final List<RexNode> rightProjectExprs;
+
+  /**
    * Creates a new physical join scan node.
    *
    * @param cluster the rel opt cluster
@@ -143,6 +156,8 @@ public class JdbcJoinScanPrel extends AbstractRelNode implements LeafPrel {
    * @param leftAggCalls aggregate calls for left input (null = no aggregate)
    * @param rightAggGroupSet aggregate group set for right input (null = no aggregate)
    * @param rightAggCalls aggregate calls for right input (null = no aggregate)
+   * @param leftProjectExprs LogicalProject expressions for left input (null = no project)
+   * @param rightProjectExprs LogicalProject expressions for right input (null = no project)
    */
   public JdbcJoinScanPrel(
       RelOptCluster cluster,
@@ -164,7 +179,9 @@ public class JdbcJoinScanPrel extends AbstractRelNode implements LeafPrel {
       ImmutableBitSet leftAggGroupSet,
       List<AggregateCall> leftAggCalls,
       ImmutableBitSet rightAggGroupSet,
-      List<AggregateCall> rightAggCalls) {
+      List<AggregateCall> rightAggCalls,
+      List<RexNode> leftProjectExprs,
+      List<RexNode> rightProjectExprs) {
     super(cluster, traitSet);
     this.pluginId = pluginId;
     this.leftSchema = leftSchema;
@@ -184,6 +201,8 @@ public class JdbcJoinScanPrel extends AbstractRelNode implements LeafPrel {
     this.leftAggCalls = leftAggCalls;
     this.rightAggGroupSet = rightAggGroupSet;
     this.rightAggCalls = rightAggCalls;
+    this.leftProjectExprs = leftProjectExprs != null ? ImmutableList.copyOf(leftProjectExprs) : null;
+    this.rightProjectExprs = rightProjectExprs != null ? ImmutableList.copyOf(rightProjectExprs) : null;
     // Eagerly set the rowType field (same pattern as JdbcScanPrel with overrideRowType).
     this.rowType = outputRowType;
   }
@@ -275,7 +294,9 @@ public class JdbcJoinScanPrel extends AbstractRelNode implements LeafPrel {
         leftAggGroupSet,
         leftAggCalls,
         rightAggGroupSet,
-        rightAggCalls);
+        rightAggCalls,
+        leftProjectExprs,
+        rightProjectExprs);
   }
 
   @Override
@@ -380,6 +401,19 @@ public class JdbcJoinScanPrel extends AbstractRelNode implements LeafPrel {
       }
     } else {
       rightInput = rightLeaf;
+    }
+
+    // ---- 4b. Wrap with JdbcProject if intermediate function expressions present ---
+    // When a LogicalProject with CAST/function expressions sat between the join and scan,
+    // the project expressions are stored. Build a JdbcProject that transforms the leaf's
+    // real column row type into the leftInputRowType expected by conditionRex.
+    if (leftProjectExprs != null && !leftProjectExprs.isEmpty()) {
+      leftInput = new JdbcRules.JdbcProject(
+          cluster, jdbcTraitSet, leftInput, leftProjectExprs, leftInputRowType);
+    }
+    if (rightProjectExprs != null && !rightProjectExprs.isEmpty()) {
+      rightInput = new JdbcRules.JdbcProject(
+          cluster, jdbcTraitSet, rightInput, rightProjectExprs, rightInputRowType);
     }
 
     // ---- 5. Build JdbcJoin -------------------------------------------------
@@ -560,5 +594,15 @@ public class JdbcJoinScanPrel extends AbstractRelNode implements LeafPrel {
 
   public List<AggregateCall> getRightAggCalls() {
     return rightAggCalls;
+  }
+
+  /** Returns the LogicalProject expressions for the left input, or null if no intermediate project. */
+  public List<RexNode> getLeftProjectExprs() {
+    return leftProjectExprs;
+  }
+
+  /** Returns the LogicalProject expressions for the right input, or null if no intermediate project. */
+  public List<RexNode> getRightProjectExprs() {
+    return rightProjectExprs;
   }
 }

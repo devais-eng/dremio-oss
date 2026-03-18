@@ -134,10 +134,10 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
 
     // Determine projected columns for each side.
     //
-    // IMPORTANT: Use join.getLeft().getRowType() (not leftScan.getProjectedColumns()) to derive
-    // the column list. The join left/right input row types represent ALL columns that the JOIN
-    // needs to produce — including columns required for WHERE filters above the join that are not
-    // in the SELECT list (e.g. SALARY in "SELECT e.NAME, d.BUDGET ... WHERE e.SALARY > 100000").
+    // IMPORTANT: Always use join.getLeft().getRowType() (not leftScan.getProjectedColumns()) to
+    // derive the column list. The join left/right input row types represent ALL columns that the
+    // JOIN needs to produce — including columns required for WHERE filters above the join that
+    // are not in the SELECT list (e.g. SALARY in "SELECT e.NAME, d.BUDGET ... WHERE e.SALARY > 100000").
     //
     // Using leftScan.getProjectedColumns() can omit such columns, creating a mismatch between:
     //   (a) the JdbcProject SQL (which selects only leftColumns + rightColumns), and
@@ -149,33 +149,14 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
     // exactly matches the left portion of outputRowType = join.getRowType(), so the SQL
     // projection order aligns with the schema field order.
     //
-    // Gap 2 Fix: When an intermediate LogicalProject with function expressions (e.g. CAST) exists
-    // between the join and the scan, the join input row type has synthetic names (EXPR$0, EXPR$1)
-    // that do not correspond to actual table columns. In that case, derive the projected columns
-    // from the scan's row type (which has the real column names).
-    //
-    // The hasNonTrivialProject() helper detects intermediate projects with non-RexInputRef
-    // expressions. When present, we use the scan's row type for column derivation.
-    // When absent (pure column renames or no project at all), the join input row type is
-    // correct and we use it as before — it includes extra columns needed for WHERE filters
-    // above the join (see comment above about leftScan.getProjectedColumns() pitfall).
-    List<SchemaPath> leftProjectedCols;
-    if (hasNonTrivialProject(join.getLeft())) {
-      logger.info("[JOIN-PUSH] Left input has non-trivial project (e.g. CAST); "
-          + "deriving columns from scan row type instead of join input row type");
-      leftProjectedCols = deriveColumnsFromRowType(leftScan.getRowType());
-    } else {
-      leftProjectedCols = deriveColumnsFromRowType(join.getLeft().getRowType());
-    }
-
-    List<SchemaPath> rightProjectedCols;
-    if (hasNonTrivialProject(join.getRight())) {
-      logger.info("[JOIN-PUSH] Right input has non-trivial project (e.g. CAST); "
-          + "deriving columns from scan row type instead of join input row type");
-      rightProjectedCols = deriveColumnsFromRowType(rightScan.getRowType());
-    } else {
-      rightProjectedCols = deriveColumnsFromRowType(join.getRight().getRowType());
-    }
+    // When an intermediate LogicalProject with function expressions (e.g. CAST) exists between
+    // the join and the scan, the join input row type has synthetic names (EXPR$0). The outer
+    // SELECT project (step 6 in getPhysicalOperator) expects names from the project output,
+    // so we still use join.getLeft().getRowType() here. The fix for correct column aliasing
+    // is handled in getPhysicalOperator() by wrapping the leaf in a JdbcProject with the
+    // stored project expressions.
+    List<SchemaPath> leftProjectedCols = deriveColumnsFromRowType(join.getLeft().getRowType());
+    List<SchemaPath> rightProjectedCols = deriveColumnsFromRowType(join.getRight().getRowType());
 
     // Detect intermediate Aggregate nodes between the join and the scans.
     // MinusToJoin (EXCEPT) wraps each input in Aggregate(GROUP BY all fields, COUNT(*)).
@@ -208,6 +189,39 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
           rightAggGroupSet, rightAggCalls);
     }
 
+    // Detect intermediate LogicalProject nodes with non-trivial expressions (e.g. CAST).
+    // When present, extract the project expressions so that getPhysicalOperator() can wrap
+    // the leaf in a JdbcProject that transforms real scan columns into the leftInputRowType
+    // expected by conditionRex. Also set the scanRowType to the real table row type so the
+    // leaf is built with real column names (not synthetic EXPR$0 names).
+    List<RexNode> leftProjectExprs = null;
+    if (hasNonTrivialProject(join.getLeft())) {
+      LogicalProject leftProj = findLogicalProject(join.getLeft());
+      if (leftProj != null) {
+        leftProjectExprs = leftProj.getProjects();
+        if (leftScanRowType == null) {
+          leftScanRowType = leftScan.getRowType();
+        }
+        logger.info("[JOIN-PUSH] Left input has non-trivial project (e.g. CAST); "
+            + "storing {} project expressions, scanRowType={}",
+            leftProjectExprs.size(), leftScanRowType);
+      }
+    }
+
+    List<RexNode> rightProjectExprs = null;
+    if (hasNonTrivialProject(join.getRight())) {
+      LogicalProject rightProj = findLogicalProject(join.getRight());
+      if (rightProj != null) {
+        rightProjectExprs = rightProj.getProjects();
+        if (rightScanRowType == null) {
+          rightScanRowType = rightScan.getRowType();
+        }
+        logger.info("[JOIN-PUSH] Right input has non-trivial project (e.g. CAST); "
+            + "storing {} project expressions, scanRowType={}",
+            rightProjectExprs.size(), rightScanRowType);
+      }
+    }
+
     // Produce a logical JdbcJoinScanDrel at the LOGICAL phase.
     // The PHYSICAL phase will convert it to JdbcJoinScanPrel via JdbcJoinScanPrule
     // (registered in JdbcRulesFactory PHYSICAL).
@@ -235,7 +249,9 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
             leftAggGroupSet,
             leftAggCalls,
             rightAggGroupSet,
-            rightAggCalls);
+            rightAggCalls,
+            leftProjectExprs,
+            rightProjectExprs);
 
     logger.info(
         "[JOIN-PUSH] Pushing JOIN to source '{}': {}.{} {} {}.{} ON {}",
@@ -365,6 +381,45 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
     return false;
   }
 
+  /**
+   * Walks down the RelNode tree to find the first {@link LogicalProject} with at least one
+   * non-trivial (non-{@link RexInputRef}) expression. Traverses through RelSubset and single-input
+   * nodes. Returns the LogicalProject or null if not found.
+   *
+   * @param node the RelNode to start walking from
+   * @return the first non-trivial LogicalProject, or null
+   */
+  private static LogicalProject findLogicalProject(RelNode node) {
+    if (node instanceof org.apache.calcite.plan.volcano.RelSubset) {
+      org.apache.calcite.plan.volcano.RelSubset subset =
+          (org.apache.calcite.plan.volcano.RelSubset) node;
+      for (RelNode rel : subset.getRelList()) {
+        LogicalProject found = findLogicalProject(rel);
+        if (found != null) {
+          return found;
+        }
+      }
+      return null;
+    }
+    if (node instanceof JdbcScanDrel || node instanceof org.apache.calcite.rel.core.TableScan) {
+      return null;
+    }
+    if (node instanceof LogicalProject) {
+      LogicalProject project = (LogicalProject) node;
+      for (RexNode expr : project.getProjects()) {
+        if (!(expr instanceof RexInputRef)) {
+          return project;
+        }
+      }
+      // All trivial — keep walking
+      return findLogicalProject(project.getInput());
+    }
+    if (node.getInputs().size() == 1) {
+      return findLogicalProject(node.getInput(0));
+    }
+    return null;
+  }
+
   /** Derives a column list from the row type field names. */
   private static List<SchemaPath> deriveColumnsFromRowType(
       org.apache.calcite.rel.type.RelDataType rowType) {
@@ -418,7 +473,9 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
               logical.getLeftAggGroupSet(),
               logical.getLeftAggCalls(),
               logical.getRightAggGroupSet(),
-              logical.getRightAggCalls());
+              logical.getRightAggCalls(),
+              logical.getLeftProjectExprs(),
+              logical.getRightProjectExprs());
       call.transformTo(physical);
     }
   }
