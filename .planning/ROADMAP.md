@@ -253,6 +253,16 @@ Plans:
 - [ ] 38-02-PLAN.md — PostgreSQL and Oracle integration tests for all 4 gaps
 - [ ] 38-03-PLAN.md — Gap 2 JOIN ON CAST column aliasing fix + regression-grade integration tests (PG JDBC + Oracle JDBC + PG ADBC)
 
+### Phase 39: Docker-Based Planner Integration Tests — Full Pushdown Verification with ADBC
+**Goal**: Build a Tier 2 integration test infrastructure that spins up a custom Dremio Docker container (with our JDBC plugin JARs, ADBC native driver, no CE) via Testcontainers, creates PG and Oracle sources via REST API, executes queries through Dremio's full planner pipeline, and verifies pushdown via PG container logs and Oracle V$SQL. Tests cover all 32 UAT regression patterns (WHERE, LIMIT, ORDER BY, AGG, JOIN, HAVING, ORDER BY expr, TopN, JOIN ON CAST) plus ADBC protocol path verification. This is the permanent regression firewall before pgvector development.
+**Requirements**: TEST-01
+**Depends on:** Phase 38
+
+**Plans:** 1 plan
+
+Plans:
+- [ ] 39-01-PLAN.md — Tier 2 integration test class: container infrastructure, REST helpers, 32 pushdown patterns + ADBC
+
 ## Quick Tasks
 
 Ad-hoc tasks outside the milestone phase structure. See `.planning/quick/` for details.
