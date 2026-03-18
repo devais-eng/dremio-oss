@@ -78,6 +78,47 @@ public class TestOraclePushdown {
             + "  INTO pushdown_test VALUES (4, 'Dave', 28)\n"
             + "  INTO pushdown_test VALUES (5, 'Eve', 40)\n"
             + "SELECT 1 FROM DUAL");
+
+    // Phase 38: expression pushdown gap test tables
+    // PUSHDOWN_EXPR_TEST may already exist from a previous run — skip if ORA-00955
+    try {
+      OracleTestContainer.executeSql(
+          "CREATE TABLE PUSHDOWN_EXPR_TEST ("
+              + "ID NUMBER(10), NAME VARCHAR2(50), DEPARTMENT VARCHAR2(50),"
+              + " SALARY NUMBER(10,2), HIRE_DATE DATE)");
+      OracleTestContainer.executeSql(
+          "INSERT ALL"
+              + " INTO PUSHDOWN_EXPR_TEST VALUES (1, 'Alice', 'Engineering', 80000.00,"
+              + " TO_DATE('2020-03-15','YYYY-MM-DD'))"
+              + " INTO PUSHDOWN_EXPR_TEST VALUES (2, 'Bob', 'Engineering', 95000.00,"
+              + " TO_DATE('2021-07-22','YYYY-MM-DD'))"
+              + " INTO PUSHDOWN_EXPR_TEST VALUES (3, 'Carol', 'Marketing', 72000.00,"
+              + " TO_DATE('2020-11-01','YYYY-MM-DD'))"
+              + " INTO PUSHDOWN_EXPR_TEST VALUES (4, 'Dave', 'Marketing', 68000.00,"
+              + " TO_DATE('2022-01-10','YYYY-MM-DD'))"
+              + " INTO PUSHDOWN_EXPR_TEST VALUES (5, 'Eve', 'Engineering', 105000.00,"
+              + " TO_DATE('2023-06-30','YYYY-MM-DD'))"
+              + " SELECT 1 FROM DUAL");
+    } catch (java.sql.SQLException e) {
+      if (!e.getMessage().contains("ORA-00955") && !e.getMessage().contains("name is already used")) {
+        throw e;
+      }
+    }
+
+    // DEPARTMENTS_EXPR_TEST may already exist from a previous run — skip if ORA-00955
+    try {
+      OracleTestContainer.executeSql(
+          "CREATE TABLE DEPARTMENTS_EXPR_TEST (DEPT_ID NUMBER(10), DEPT_NAME VARCHAR2(50))");
+      OracleTestContainer.executeSql(
+          "INSERT ALL"
+              + " INTO DEPARTMENTS_EXPR_TEST VALUES (1, 'Engineering')"
+              + " INTO DEPARTMENTS_EXPR_TEST VALUES (2, 'Marketing')"
+              + " SELECT 1 FROM DUAL");
+    } catch (java.sql.SQLException e) {
+      if (!e.getMessage().contains("ORA-00955") && !e.getMessage().contains("name is already used")) {
+        throw e;
+      }
+    }
   }
 
   @AfterClass
@@ -722,35 +763,10 @@ public class TestOraclePushdown {
    * Gap 1: GROUP BY with function expression EXTRACT(YEAR FROM HIRE_DATE).
    * Expected 4 rows for years 2020-2023 with correct SUM(SALARY) values.
    * Oracle EXTRACT returns NUMBER; column names are UPPERCASE.
+   * Tables are created in setUpClass().
    */
   @Test
   public void testGroupByExpressionExtractYear() throws Exception {
-    // Ensure test data table exists (idempotent: skip if already present from a prior run)
-    try {
-      OracleTestContainer.executeSql(
-          "CREATE TABLE PUSHDOWN_EXPR_TEST ("
-              + "ID NUMBER(10), NAME VARCHAR2(50), DEPARTMENT VARCHAR2(50),"
-              + " SALARY NUMBER(10,2), HIRE_DATE DATE)");
-      OracleTestContainer.executeSql(
-          "INSERT ALL"
-              + " INTO PUSHDOWN_EXPR_TEST VALUES (1, 'Alice', 'Engineering', 80000.00,"
-              + " TO_DATE('2020-03-15','YYYY-MM-DD'))"
-              + " INTO PUSHDOWN_EXPR_TEST VALUES (2, 'Bob', 'Engineering', 95000.00,"
-              + " TO_DATE('2021-07-22','YYYY-MM-DD'))"
-              + " INTO PUSHDOWN_EXPR_TEST VALUES (3, 'Carol', 'Marketing', 72000.00,"
-              + " TO_DATE('2020-11-01','YYYY-MM-DD'))"
-              + " INTO PUSHDOWN_EXPR_TEST VALUES (4, 'Dave', 'Marketing', 68000.00,"
-              + " TO_DATE('2022-01-10','YYYY-MM-DD'))"
-              + " INTO PUSHDOWN_EXPR_TEST VALUES (5, 'Eve', 'Engineering', 105000.00,"
-              + " TO_DATE('2023-06-30','YYYY-MM-DD'))"
-              + " SELECT 1 FROM DUAL");
-    } catch (java.sql.SQLException e) {
-      // Table already exists — ignore ORA-00955
-      if (!e.getMessage().contains("ORA-00955") && !e.getMessage().contains("name is already used")) {
-        throw e;
-      }
-    }
-
     String sql =
         "SELECT EXTRACT(YEAR FROM \"HIRE_DATE\") AS HIRE_YEAR, SUM(\"SALARY\") AS TOTAL_SALARY"
             + " FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\""
@@ -842,24 +858,10 @@ public class TestOraclePushdown {
    * Gap 2: JOIN with CAST condition. Joins employees to departments on DEPARTMENT = CAST(DEPT_NAME
    * AS VARCHAR2(50)). All 5 employees should match their department.
    * Oracle requires a length for CAST to VARCHAR2/CHAR types.
+   * Tables are created in setUpClass().
    */
   @Test
   public void testJoinWithCastCondition() throws Exception {
-    // Ensure departments table exists (idempotent)
-    try {
-      OracleTestContainer.executeSql(
-          "CREATE TABLE DEPARTMENTS_EXPR_TEST (DEPT_ID NUMBER(10), DEPT_NAME VARCHAR2(50))");
-      OracleTestContainer.executeSql(
-          "INSERT ALL"
-              + " INTO DEPARTMENTS_EXPR_TEST VALUES (1, 'Engineering')"
-              + " INTO DEPARTMENTS_EXPR_TEST VALUES (2, 'Marketing')"
-              + " SELECT 1 FROM DUAL");
-    } catch (java.sql.SQLException e) {
-      if (!e.getMessage().contains("ORA-00955") && !e.getMessage().contains("name is already used")) {
-        throw e;
-      }
-    }
-
     String sql =
         "SELECT e.\"NAME\", d.\"DEPT_NAME\""
             + " FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\" e"
@@ -886,6 +888,335 @@ public class TestOraclePushdown {
         count++;
       }
       assertEquals("All 5 employees matched via CAST JOIN", 5, count);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 38-03: Regression-grade pushdown coverage — Oracle
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Regression: WHERE IS NOT NULL — all 5 employees have non-null DEPARTMENT.
+   */
+  @Test
+  public void testWhereIsNotNull() throws Exception {
+    String sql = "SELECT \"NAME\" FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\""
+        + " WHERE \"DEPARTMENT\" IS NOT NULL";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        count++;
+      }
+      assertEquals("All 5 employees have non-null DEPARTMENT", 5, count);
+    }
+  }
+
+  /**
+   * Regression: WHERE with AND — Engineering AND SALARY > 90000 matches Bob(95000) and Eve(105000).
+   */
+  @Test
+  public void testWhereWithAnd() throws Exception {
+    String sql = "SELECT \"NAME\" FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\""
+        + " WHERE \"DEPARTMENT\" = 'Engineering' AND \"SALARY\" > 90000";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        String name = rs.getString("NAME");
+        assertTrue("Should be Bob or Eve", "Bob".equals(name) || "Eve".equals(name));
+        count++;
+      }
+      assertEquals("WHERE Engineering AND SALARY > 90000 returns 2 rows", 2, count);
+    }
+  }
+
+  /**
+   * Regression: WHERE with OR — Engineering OR Marketing covers all 5 employees.
+   */
+  @Test
+  public void testWhereWithOr() throws Exception {
+    String sql = "SELECT \"NAME\" FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\""
+        + " WHERE \"DEPARTMENT\" = 'Engineering' OR \"DEPARTMENT\" = 'Marketing'";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        count++;
+      }
+      assertEquals("Engineering OR Marketing covers all 5 employees", 5, count);
+    }
+  }
+
+  /**
+   * Regression: ORDER BY multiple columns — DEPARTMENT ASC, SALARY DESC.
+   * First row: Eve (Engineering, 105000 highest); last row: Dave (Marketing, 68000 lowest).
+   */
+  @Test
+  public void testOrderByMultipleColumns() throws Exception {
+    String sql = "SELECT \"NAME\", \"SALARY\" FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\""
+        + " ORDER BY \"DEPARTMENT\" ASC, \"SALARY\" DESC";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have first row", rs.next());
+      assertEquals("First row should be Eve (Engineering, highest salary)", "Eve", rs.getString("NAME"));
+      String lastName = null;
+      while (rs.next()) {
+        lastName = rs.getString("NAME");
+      }
+      assertEquals("Last row should be Dave (Marketing, lowest salary)", "Dave", lastName);
+    }
+  }
+
+  /**
+   * Regression: TopN with WHERE — Engineering employees, top 2 by SALARY DESC.
+   * Expects Eve (105000) and Bob (95000). Oracle uses FETCH FIRST.
+   */
+  @Test
+  public void testTopNWithWhere() throws Exception {
+    String sql = "SELECT \"NAME\", \"SALARY\" FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\""
+        + " WHERE \"DEPARTMENT\" = 'Engineering' ORDER BY \"SALARY\" DESC FETCH FIRST 2 ROWS ONLY";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have first row", rs.next());
+      assertEquals("First row should be Eve (105000)", "Eve", rs.getString("NAME"));
+      assertTrue("Must have second row", rs.next());
+      assertEquals("Second row should be Bob (95000)", "Bob", rs.getString("NAME"));
+      assertFalse("Should be exactly 2 rows", rs.next());
+    }
+  }
+
+  /**
+   * Regression: GROUP BY with HAVING and ORDER BY.
+   * Departments with 3+ employees: Engineering (3). Marketing has 2.
+   */
+  @Test
+  public void testGroupByWithHavingAndOrderBy() throws Exception {
+    String sql = "SELECT \"DEPARTMENT\", COUNT(*) AS CNT"
+        + " FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\""
+        + " GROUP BY \"DEPARTMENT\" HAVING COUNT(*) >= 3 ORDER BY \"DEPARTMENT\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have exactly one row", rs.next());
+      assertEquals("Engineering has 3 employees", "Engineering", rs.getString("DEPARTMENT"));
+      assertEquals("Count should be 3", 3L, rs.getLong("CNT"));
+      assertFalse("Only Engineering has >= 3 employees", rs.next());
+    }
+  }
+
+  /**
+   * Regression: COUNT(DISTINCT DEPARTMENT) — expects 2 (Engineering and Marketing).
+   */
+  @Test
+  public void testCountDistinctDepartment() throws Exception {
+    String sql = "SELECT COUNT(DISTINCT \"DEPARTMENT\") AS DEPT_COUNT"
+        + " FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have a result row", rs.next());
+      assertEquals("COUNT(DISTINCT DEPARTMENT) = 2", 2L, rs.getLong("DEPT_COUNT"));
+    }
+  }
+
+  /**
+   * Regression: INNER JOIN correctness — all 5 employees match their department.
+   */
+  @Test
+  public void testJoinInnerCorrectness() throws Exception {
+    String sql = "SELECT e.\"NAME\", d.\"DEPT_NAME\""
+        + " FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\" e"
+        + " INNER JOIN \"TEST_USER\".\"DEPARTMENTS_EXPR_TEST\" d"
+        + "   ON e.\"DEPARTMENT\" = d.\"DEPT_NAME\""
+        + " ORDER BY e.\"NAME\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        assertNotNull("NAME must not be null", rs.getString("NAME"));
+        String dept = rs.getString("DEPT_NAME");
+        assertTrue("DEPT must be Engineering or Marketing",
+            "Engineering".equals(dept) || "Marketing".equals(dept));
+        count++;
+      }
+      assertEquals("All 5 employees match in INNER JOIN", 5, count);
+    }
+  }
+
+  /**
+   * Regression: LEFT JOIN correctness — all 5 employees appear (all have matching departments).
+   */
+  @Test
+  public void testJoinLeftCorrectness() throws Exception {
+    String sql = "SELECT e.\"NAME\", d.\"DEPT_NAME\""
+        + " FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\" e"
+        + " LEFT JOIN \"TEST_USER\".\"DEPARTMENTS_EXPR_TEST\" d"
+        + "   ON e.\"DEPARTMENT\" = d.\"DEPT_NAME\""
+        + " ORDER BY e.\"NAME\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        count++;
+      }
+      assertEquals("All 5 employees appear in LEFT JOIN", 5, count);
+    }
+  }
+
+  /**
+   * Gap 2 regression gate: JOIN with CAST in ON condition AND WHERE filter.
+   * Oracle: CAST(DEPT_NAME AS VARCHAR2(50)) join + SALARY > 90000 filter = Bob and Eve.
+   */
+  @Test
+  public void testJoinWithCastAndWhereFilter() throws Exception {
+    String sql = "SELECT e.\"NAME\", d.\"DEPT_NAME\""
+        + " FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\" e"
+        + " JOIN \"TEST_USER\".\"DEPARTMENTS_EXPR_TEST\" d"
+        + "   ON e.\"DEPARTMENT\" = CAST(d.\"DEPT_NAME\" AS VARCHAR2(50))"
+        + " WHERE e.\"SALARY\" > 90000 ORDER BY e.\"NAME\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have first row", rs.next());
+      assertEquals("First row should be Bob", "Bob", rs.getString("NAME"));
+      assertEquals("Bob's dept should be Engineering", "Engineering", rs.getString("DEPT_NAME"));
+      assertTrue("Must have second row", rs.next());
+      assertEquals("Second row should be Eve", "Eve", rs.getString("NAME"));
+      assertEquals("Eve's dept should be Engineering", "Engineering", rs.getString("DEPT_NAME"));
+      assertFalse("Exactly 2 rows", rs.next());
+    }
+  }
+
+  /**
+   * Regression: ORDER BY expression ROUND(SALARY, -3) DESC FETCH FIRST 3 ROWS ONLY.
+   * Returns top 3 rows ordered by rounded salary descending.
+   */
+  @Test
+  public void testOrderByExpressionRoundSalary() throws Exception {
+    String sql = "SELECT \"NAME\", ROUND(\"SALARY\", -3) AS ROUNDED"
+        + " FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\""
+        + " ORDER BY ROUND(\"SALARY\", -3) DESC FETCH FIRST 3 ROWS ONLY";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      double prevRounded = Double.MAX_VALUE;
+      while (rs.next()) {
+        double rounded = rs.getDouble("ROUNDED");
+        assertTrue("Results should be in descending order of ROUND(SALARY,-3)", rounded <= prevRounded);
+        prevRounded = rounded;
+        count++;
+      }
+      assertEquals("FETCH FIRST 3 ROWS should return exactly 3 rows", 3, count);
+    }
+  }
+
+  /**
+   * Regression: AGG with expression GROUP BY EXTRACT and HAVING.
+   * GROUP BY year with SUM(SALARY) > 100000. Years 2020 (152000) and 2023 (105000) qualify.
+   */
+  @Test
+  public void testAggWithExpressionGroupByExtractAndHaving() throws Exception {
+    String sql = "SELECT EXTRACT(YEAR FROM \"HIRE_DATE\") AS YR, SUM(\"SALARY\") AS TOTAL"
+        + " FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\""
+        + " GROUP BY EXTRACT(YEAR FROM \"HIRE_DATE\")"
+        + " HAVING SUM(\"SALARY\") > 100000 ORDER BY YR";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      // Year 2020: Alice 80000 + Carol 72000 = 152000 > 100000
+      assertTrue("Must have row for 2020", rs.next());
+      assertEquals("Year 2020", 2020.0, rs.getDouble("YR"), 0.01);
+      assertEquals("SUM 2020 = 152000", 152000.00, rs.getDouble("TOTAL"), 0.01);
+      // Year 2023: Eve 105000 > 100000
+      assertTrue("Must have row for 2023", rs.next());
+      assertEquals("Year 2023", 2023.0, rs.getDouble("YR"), 0.01);
+      assertEquals("SUM 2023 = 105000", 105000.00, rs.getDouble("TOTAL"), 0.01);
+      assertFalse("Exactly 2 years qualify with SUM > 100000", rs.next());
+    }
+  }
+
+  /**
+   * Regression: SUM(SALARY * 1.15) GROUP BY DEPARTMENT.
+   * Engineering: (80000+95000+105000)*1.15 = 322000; Marketing: (72000+68000)*1.15 = 161000.
+   */
+  @Test
+  public void testSumSalaryTimesMultiplierGroupBy() throws Exception {
+    String sql = "SELECT \"DEPARTMENT\", SUM(\"SALARY\" * 1.15) AS BOOSTED"
+        + " FROM \"TEST_USER\".\"PUSHDOWN_EXPR_TEST\""
+        + " GROUP BY \"DEPARTMENT\" ORDER BY \"DEPARTMENT\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      // Engineering first alphabetically
+      assertTrue("Must have row for Engineering", rs.next());
+      assertEquals("Engineering", rs.getString("DEPARTMENT"));
+      assertEquals("Engineering SUM * 1.15 = 322000", 322000.00, rs.getDouble("BOOSTED"), 1.0);
+      // Marketing
+      assertTrue("Must have row for Marketing", rs.next());
+      assertEquals("Marketing", rs.getString("DEPARTMENT"));
+      assertEquals("Marketing SUM * 1.15 = 161000", 161000.00, rs.getDouble("BOOSTED"), 1.0);
+      assertFalse("Exactly 2 departments", rs.next());
     }
   }
 }

@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: completed
-stopped_at: Completed 38-02-PLAN.md — PostgreSQL and Oracle integration tests for all 4 expression pushdown gaps
-last_updated: "2026-03-17T19:01:48.910Z"
-last_activity: 2026-03-17 — Completed 37-02 (JdbcScanPrel projectExpressions/sortKeyExpressions, JdbcPushProjectIntoScan function expression support, JdbcPushSortWithExpressionsHep, JdbcPushTopNWithExpressionsHep, extended sort-trim pattern in getPhysicalOperator)
+stopped_at: Completed 38-03-PLAN.md — Gap 2 JOIN ON CAST fix + regression-grade integration tests (52 PG + 48 Oracle)
+last_updated: "2026-03-18T11:04:00Z"
+last_activity: 2026-03-18 — Completed 38-03 (JdbcPushJoinIntoScan Gap 2 fix: hasNonTrivialProject() guard for scan row type derivation; 52 PG + 48 Oracle regression tests; Phase 38 COMPLETE)
 progress:
   total_phases: 9
   completed_phases: 8
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 
 ## Current Position
 
-Phase: 37 of 37 (Expression pushdown for functions, HAVING, and ORDER BY expressions)
-Plan: 2 of 2 complete — PHASE COMPLETE
+Phase: 38 of 38 (Expression pushdown gap closure — AGG with expressions, JOIN with functions, PG + Oracle)
+Plan: 3 of 3 complete — PHASE COMPLETE
 Status: COMPLETE
-Last activity: 2026-03-17 — Completed 37-02 (JdbcScanPrel projectExpressions/sortKeyExpressions, JdbcPushProjectIntoScan function expression support, JdbcPushSortWithExpressionsHep, JdbcPushTopNWithExpressionsHep, extended sort-trim pattern in getPhysicalOperator)
+Last activity: 2026-03-18 — Completed 38-03 (JdbcPushJoinIntoScan Gap 2 fix: hasNonTrivialProject() guard; 52 PG + 48 Oracle regression tests)
 
-Progress: [██████████] 100% (20 of 20 plans complete)
+Progress: [██████████] 100% (23 of 23 plans complete)
 
 ## Performance Metrics
 
@@ -72,6 +72,7 @@ Progress: [██████████] 100% (20 of 20 plans complete)
 *Updated after each plan completion*
 | Phase 38-expression-pushdown P01 | 45 | 2 tasks | 7 files |
 | Phase 38 P02 | 18 | 2 tasks | 2 files |
+| Phase 38 P03 | 3 | 2 tasks | 4 files |
 
 ## Shipped Milestones
 
@@ -152,6 +153,9 @@ Progress: [██████████] 100% (20 of 20 plans complete)
 - [Phase 38-expression-pushdown P01]: LOGICAL case in JdbcRulesFactory kept with only JdbcScanDrule — JOIN rule stays in JdbcJoinRulesFactory to avoid duplicate registration
 - [Phase 38-02]: Oracle CAST(x AS VARCHAR) rejected — must use VARCHAR2(n) with explicit length; test uses VARCHAR2(50) for DEPT_NAME join condition
 - [Phase 38-02]: Docker Engine 29+ / Testcontainers 1.20.4 API version incompatibility fixed via -Dapi.version=1.46 system property (shaded dockerjava defaults to 1.32, Docker 29 requires min 1.40)
+- [Phase 38-03]: Gap 2 fix: leftProjectedCols/rightProjectedCols use scan row type when hasNonTrivialProject() detects intermediate CAST/function expressions — leftInputRowType/rightInputRowType stay as join input row type for conditionRex RexInputRef index alignment
+- [Phase 38-03]: Regression tests execute direct JDBC SQL against Testcontainer (not via Dremio planner) — validates SQL correctness at plugin level; Docker UAT validates full planner pipeline separately
+- [Phase 38-03]: testJoinWithCastAndWhereFilter is the definitive Gap 2 regression gate: CAST in ON condition combined with WHERE salary filter, passes on both PG (52 tests) and Oracle (48 tests)
 
 ### Pending Todos
 
@@ -172,6 +176,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-17T19:01:48.905Z
-Stopped at: Completed 38-02-PLAN.md — PostgreSQL and Oracle integration tests for all 4 expression pushdown gaps
+Last session: 2026-03-18T11:04:00Z
+Stopped at: Completed 38-03-PLAN.md — Gap 2 JOIN ON CAST fix + regression-grade integration tests (Phase 38 COMPLETE)
 Resume file: None

@@ -148,8 +148,34 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
     // By deriving leftColumns from join.getLeft().getRowType(), we ensure that leftColumns
     // exactly matches the left portion of outputRowType = join.getRowType(), so the SQL
     // projection order aligns with the schema field order.
-    List<SchemaPath> leftProjectedCols = deriveColumnsFromRowType(join.getLeft().getRowType());
-    List<SchemaPath> rightProjectedCols = deriveColumnsFromRowType(join.getRight().getRowType());
+    //
+    // Gap 2 Fix: When an intermediate LogicalProject with function expressions (e.g. CAST) exists
+    // between the join and the scan, the join input row type has synthetic names (EXPR$0, EXPR$1)
+    // that do not correspond to actual table columns. In that case, derive the projected columns
+    // from the scan's row type (which has the real column names).
+    //
+    // The hasNonTrivialProject() helper detects intermediate projects with non-RexInputRef
+    // expressions. When present, we use the scan's row type for column derivation.
+    // When absent (pure column renames or no project at all), the join input row type is
+    // correct and we use it as before — it includes extra columns needed for WHERE filters
+    // above the join (see comment above about leftScan.getProjectedColumns() pitfall).
+    List<SchemaPath> leftProjectedCols;
+    if (hasNonTrivialProject(join.getLeft())) {
+      logger.info("[JOIN-PUSH] Left input has non-trivial project (e.g. CAST); "
+          + "deriving columns from scan row type instead of join input row type");
+      leftProjectedCols = deriveColumnsFromRowType(leftScan.getRowType());
+    } else {
+      leftProjectedCols = deriveColumnsFromRowType(join.getLeft().getRowType());
+    }
+
+    List<SchemaPath> rightProjectedCols;
+    if (hasNonTrivialProject(join.getRight())) {
+      logger.info("[JOIN-PUSH] Right input has non-trivial project (e.g. CAST); "
+          + "deriving columns from scan row type instead of join input row type");
+      rightProjectedCols = deriveColumnsFromRowType(rightScan.getRowType());
+    } else {
+      rightProjectedCols = deriveColumnsFromRowType(join.getRight().getRowType());
+    }
 
     // Detect intermediate Aggregate nodes between the join and the scans.
     // MinusToJoin (EXCEPT) wraps each input in Aggregate(GROUP BY all fields, COUNT(*)).

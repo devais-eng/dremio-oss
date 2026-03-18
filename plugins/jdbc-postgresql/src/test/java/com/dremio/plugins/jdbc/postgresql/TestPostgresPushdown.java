@@ -932,4 +932,333 @@ public class TestPostgresPushdown {
       assertEquals("All 5 employees matched via CAST JOIN", 5, count);
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Phase 38-03: Regression-grade pushdown coverage
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Regression: WHERE IS NOT NULL — all 5 employees have non-null department.
+   */
+  @Test
+  public void testWhereIsNotNull() throws Exception {
+    String sql = "SELECT \"name\" FROM \"public\".\"pushdown_expr_test\""
+        + " WHERE \"department\" IS NOT NULL";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        count++;
+      }
+      assertEquals("All 5 employees have non-null department", 5, count);
+    }
+  }
+
+  /**
+   * Regression: WHERE with AND — Engineering AND salary > 90000 matches Bob(95000) and Eve(105000).
+   */
+  @Test
+  public void testWhereWithAnd() throws Exception {
+    String sql = "SELECT \"name\" FROM \"public\".\"pushdown_expr_test\""
+        + " WHERE \"department\" = 'Engineering' AND \"salary\" > 90000";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        String name = rs.getString("name");
+        assertTrue("Should be Bob or Eve", "Bob".equals(name) || "Eve".equals(name));
+        count++;
+      }
+      assertEquals("WHERE Engineering AND salary > 90000 returns 2 rows", 2, count);
+    }
+  }
+
+  /**
+   * Regression: WHERE with OR — Engineering OR Marketing covers all 5 employees.
+   */
+  @Test
+  public void testWhereWithOr() throws Exception {
+    String sql = "SELECT \"name\" FROM \"public\".\"pushdown_expr_test\""
+        + " WHERE \"department\" = 'Engineering' OR \"department\" = 'Marketing'";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        count++;
+      }
+      assertEquals("Engineering OR Marketing covers all 5 employees", 5, count);
+    }
+  }
+
+  /**
+   * Regression: ORDER BY multiple columns — department ASC, salary DESC.
+   * First row: Eve (Engineering, 105000 highest); last row: Dave (Marketing, 68000 lowest).
+   */
+  @Test
+  public void testOrderByMultipleColumns() throws Exception {
+    String sql = "SELECT \"name\", \"salary\" FROM \"public\".\"pushdown_expr_test\""
+        + " ORDER BY \"department\" ASC, \"salary\" DESC";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have first row", rs.next());
+      assertEquals("First row should be Eve (Engineering, highest salary)", "Eve", rs.getString("name"));
+      String lastName = null;
+      while (rs.next()) {
+        lastName = rs.getString("name");
+      }
+      assertEquals("Last row should be Dave (Marketing, lowest salary)", "Dave", lastName);
+    }
+  }
+
+  /**
+   * Regression: TopN with WHERE — Engineering employees, top 2 by salary DESC.
+   * Expects Eve (105000) and Bob (95000).
+   */
+  @Test
+  public void testTopNWithWhere() throws Exception {
+    String sql = "SELECT \"name\", \"salary\" FROM \"public\".\"pushdown_expr_test\""
+        + " WHERE \"department\" = 'Engineering' ORDER BY \"salary\" DESC LIMIT 2";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have first row", rs.next());
+      assertEquals("First row should be Eve (105000)", "Eve", rs.getString("name"));
+      assertTrue("Must have second row", rs.next());
+      assertEquals("Second row should be Bob (95000)", "Bob", rs.getString("name"));
+      assertFalse("Should be exactly 2 rows", rs.next());
+    }
+  }
+
+  /**
+   * Regression: GROUP BY with HAVING and ORDER BY.
+   * Departments with 3+ employees: Engineering (3). Marketing has 2.
+   */
+  @Test
+  public void testGroupByWithHavingAndOrderBy() throws Exception {
+    String sql = "SELECT \"department\", COUNT(*) AS cnt"
+        + " FROM \"public\".\"pushdown_expr_test\""
+        + " GROUP BY \"department\" HAVING COUNT(*) >= 3 ORDER BY \"department\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have exactly one row", rs.next());
+      assertEquals("Engineering has 3 employees", "Engineering", rs.getString("department"));
+      assertEquals("Count should be 3", 3L, rs.getLong("cnt"));
+      assertFalse("Only Engineering has >= 3 employees", rs.next());
+    }
+  }
+
+  /**
+   * Regression: COUNT(DISTINCT department) — expects 2 (Engineering and Marketing).
+   */
+  @Test
+  public void testCountDistinctDepartment() throws Exception {
+    String sql = "SELECT COUNT(DISTINCT \"department\") AS dept_count"
+        + " FROM \"public\".\"pushdown_expr_test\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have a result row", rs.next());
+      assertEquals("COUNT(DISTINCT department) = 2", 2L, rs.getLong("dept_count"));
+    }
+  }
+
+  /**
+   * Regression: INNER JOIN correctness — all 5 employees match their department.
+   */
+  @Test
+  public void testJoinInnerCorrectness() throws Exception {
+    String sql = "SELECT e.\"name\", d.\"dept_name\""
+        + " FROM \"public\".\"pushdown_expr_test\" e"
+        + " INNER JOIN \"public\".\"departments_expr_test\" d ON e.\"department\" = d.\"dept_name\""
+        + " ORDER BY e.\"name\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        assertNotNull("name must not be null", rs.getString("name"));
+        String dept = rs.getString("dept_name");
+        assertTrue("dept must be Engineering or Marketing",
+            "Engineering".equals(dept) || "Marketing".equals(dept));
+        count++;
+      }
+      assertEquals("All 5 employees match in INNER JOIN", 5, count);
+    }
+  }
+
+  /**
+   * Regression: LEFT JOIN correctness — all 5 employees appear (all have matching departments).
+   */
+  @Test
+  public void testJoinLeftCorrectness() throws Exception {
+    String sql = "SELECT e.\"name\", d.\"dept_name\""
+        + " FROM \"public\".\"pushdown_expr_test\" e"
+        + " LEFT JOIN \"public\".\"departments_expr_test\" d ON e.\"department\" = d.\"dept_name\""
+        + " ORDER BY e.\"name\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        count++;
+      }
+      assertEquals("All 5 employees appear in LEFT JOIN", 5, count);
+    }
+  }
+
+  /**
+   * Gap 2 regression gate: JOIN with CAST in ON condition AND WHERE filter.
+   * CAST(dept_name AS VARCHAR) join + salary > 90000 filter = Bob (Engineering) and Eve (Engineering).
+   */
+  @Test
+  public void testJoinWithCastAndWhereFilter() throws Exception {
+    String sql = "SELECT e.\"name\", d.\"dept_name\""
+        + " FROM \"public\".\"pushdown_expr_test\" e"
+        + " JOIN \"public\".\"departments_expr_test\" d"
+        + "   ON e.\"department\" = CAST(d.\"dept_name\" AS VARCHAR)"
+        + " WHERE e.\"salary\" > 90000 ORDER BY e.\"name\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have first row", rs.next());
+      assertEquals("First row should be Bob", "Bob", rs.getString("name"));
+      assertEquals("Bob's dept should be Engineering", "Engineering", rs.getString("dept_name"));
+      assertTrue("Must have second row", rs.next());
+      assertEquals("Second row should be Eve", "Eve", rs.getString("name"));
+      assertEquals("Eve's dept should be Engineering", "Engineering", rs.getString("dept_name"));
+      assertFalse("Exactly 2 rows", rs.next());
+    }
+  }
+
+  /**
+   * Regression: ORDER BY expression ROUND(salary, -3) DESC LIMIT 3.
+   * Returns top 3 rows ordered by rounded salary descending.
+   */
+  @Test
+  public void testOrderByExpressionRoundSalary() throws Exception {
+    String sql = "SELECT \"name\", ROUND(\"salary\", -3) AS rounded"
+        + " FROM \"public\".\"pushdown_expr_test\""
+        + " ORDER BY ROUND(\"salary\", -3) DESC LIMIT 3";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      double prevRounded = Double.MAX_VALUE;
+      while (rs.next()) {
+        double rounded = rs.getDouble("rounded");
+        assertTrue("Results should be in descending order of ROUND(salary,-3)", rounded <= prevRounded);
+        prevRounded = rounded;
+        count++;
+      }
+      assertEquals("LIMIT 3 should return exactly 3 rows", 3, count);
+    }
+  }
+
+  /**
+   * Regression: AGG with expression GROUP BY EXTRACT and HAVING.
+   * GROUP BY year with SUM(salary) > 100000. Years 2020 (152000) and 2023 (105000) qualify.
+   */
+  @Test
+  public void testAggWithExpressionGroupByExtractAndHaving() throws Exception {
+    String sql = "SELECT EXTRACT(YEAR FROM \"hire_date\") AS yr, SUM(\"salary\") AS total"
+        + " FROM \"public\".\"pushdown_expr_test\""
+        + " GROUP BY EXTRACT(YEAR FROM \"hire_date\")"
+        + " HAVING SUM(\"salary\") > 100000 ORDER BY yr";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      // Year 2020: Alice 80000 + Carol 72000 = 152000 > 100000
+      assertTrue("Must have row for 2020", rs.next());
+      assertEquals("Year 2020", 2020.0, rs.getDouble("yr"), 0.01);
+      assertEquals("SUM 2020 = 152000", 152000.00, rs.getDouble("total"), 0.01);
+      // Year 2021: Bob 95000 < 100000 (excluded)
+      // Year 2022: Dave 68000 < 100000 (excluded)
+      // Year 2023: Eve 105000 > 100000
+      assertTrue("Must have row for 2023", rs.next());
+      assertEquals("Year 2023", 2023.0, rs.getDouble("yr"), 0.01);
+      assertEquals("SUM 2023 = 105000", 105000.00, rs.getDouble("total"), 0.01);
+      assertFalse("Exactly 2 years qualify with SUM > 100000", rs.next());
+    }
+  }
+
+  /**
+   * Regression: SUM(salary * 1.15) GROUP BY department.
+   * Engineering: (80000+95000+105000)*1.15 = 322000; Marketing: (72000+68000)*1.15 = 161000.
+   */
+  @Test
+  public void testSumSalaryTimesMultiplierGroupBy() throws Exception {
+    String sql = "SELECT \"department\", SUM(\"salary\" * 1.15) AS boosted"
+        + " FROM \"public\".\"pushdown_expr_test\""
+        + " GROUP BY \"department\" ORDER BY \"department\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      // Engineering first alphabetically
+      assertTrue("Must have row for Engineering", rs.next());
+      assertEquals("Engineering", rs.getString("department"));
+      assertEquals("Engineering SUM * 1.15 = 322000", 322000.00, rs.getDouble("boosted"), 1.0);
+      // Marketing
+      assertTrue("Must have row for Marketing", rs.next());
+      assertEquals("Marketing", rs.getString("department"));
+      assertEquals("Marketing SUM * 1.15 = 161000", 161000.00, rs.getDouble("boosted"), 1.0);
+      assertFalse("Exactly 2 departments", rs.next());
+    }
+  }
 }
