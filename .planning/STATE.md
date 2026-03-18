@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: completed
-stopped_at: Completed 38-03-PLAN.md — Gap 2 JOIN ON CAST fix + regression-grade integration tests (52 PG + 48 Oracle)
-last_updated: "2026-03-18T11:04:00Z"
-last_activity: 2026-03-18 — Completed 38-03 (JdbcPushJoinIntoScan Gap 2 fix: hasNonTrivialProject() guard for scan row type derivation; 52 PG + 48 Oracle regression tests; Phase 38 COMPLETE)
+stopped_at: Completed 39-01-PLAN.md — Tier 2 Docker integration tests (35 tests, all pushdown patterns verified via PG logs + Oracle V$SQL)
+last_updated: "2026-03-18T13:10:29Z"
+last_activity: 2026-03-18 — Completed 39-01 (Tier 2 integration test suite: 35 tests, DremioJdbcContainer + PG/Oracle/ADBC pushdown verification via live Dremio planner stack)
 progress:
   total_phases: 9
-  completed_phases: 8
-  total_plans: 23
-  completed_plans: 22
+  completed_phases: 9
+  total_plans: 24
+  completed_plans: 24
   percent: 100
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** Phase 37 — Expression pushdown for functions, HAVING, and ORDER BY expressions (pgvector foundation)
+**Current focus:** Phase 39 — Docker-based planner integration tests (COMPLETE)
 
 ## Current Position
 
-Phase: 38 of 38 (Expression pushdown gap closure — AGG with expressions, JOIN with functions, PG + Oracle)
-Plan: 3 of 3 complete — PHASE COMPLETE
+Phase: 39 of 39 (Docker-based planner integration tests — full pushdown verification with ADBC)
+Plan: 1 of 1 complete — PHASE COMPLETE
 Status: COMPLETE
-Last activity: 2026-03-18 — Completed 38-03 (JdbcPushJoinIntoScan Gap 2 fix: hasNonTrivialProject() guard; 52 PG + 48 Oracle regression tests)
+Last activity: 2026-03-18 — Completed 39-01 (Tier 2 Docker integration tests: 35 pushdown verification tests via live Dremio planner + PG logs + Oracle V$SQL)
 
-Progress: [██████████] 100% (23 of 23 plans complete)
+Progress: [██████████] 100% (24 of 24 plans complete)
 
 ## Performance Metrics
 
@@ -73,6 +73,7 @@ Progress: [██████████] 100% (23 of 23 plans complete)
 | Phase 38-expression-pushdown P01 | 45 | 2 tasks | 7 files |
 | Phase 38 P02 | 18 | 2 tasks | 2 files |
 | Phase 38 P03 | 3 | 2 tasks | 4 files |
+| Phase 39-docker-integration-tests P01 | 25 | 2 tasks | 5 files |
 
 ## Shipped Milestones
 
@@ -156,6 +157,10 @@ Progress: [██████████] 100% (23 of 23 plans complete)
 - [Phase 38-03]: Gap 2 fix: leftProjectedCols/rightProjectedCols use scan row type when hasNonTrivialProject() detects intermediate CAST/function expressions — leftInputRowType/rightInputRowType stay as join input row type for conditionRex RexInputRef index alignment
 - [Phase 38-03]: Regression tests execute direct JDBC SQL against Testcontainer (not via Dremio planner) — validates SQL correctness at plugin level; Docker UAT validates full planner pipeline separately
 - [Phase 38-03]: testJoinWithCastAndWhereFilter is the definitive Gap 2 regression gate: CAST in ON condition combined with WHERE salary filter, passes on both PG (52 tests) and Oracle (48 tests)
+- [Phase 39-01]: OracleContainer.withNetwork/withNetworkAliases return OracleContainer type (not subclass) — configure in static block after field construction, then assign to @ClassRule field
+- [Phase 39-01]: ORACLE_PASSWORD in testcontainers gvenzl/oracle-xe == ORACLE.getPassword() (OracleContainer.configure() sets ORACLE_PASSWORD = password field) — do not hardcode "orapass"
+- [Phase 39-01]: Oracle sqlplus V$SQL queries written to /tmp/*.sql via echo >> chains inside sh -c — avoids $ shell expansion of v$sql reference in execInContainer strings
+- [Phase 39-01]: PG JDBC driver + ojdbc11 needed as test-scoped deps in jdbc-base/pom.xml for local seeding before Dremio source creation
 
 ### Pending Todos
 
@@ -169,6 +174,7 @@ None.
 - Phase 36 added: Calcite JDBC convention migration for SQL generation
 - Phase 37 added: Expression pushdown for functions, HAVING, and ORDER BY expressions (pgvector foundation)
 - Phase 38 added: Expression pushdown gap closure — AGG with expressions, JOIN with functions (PG + Oracle)
+- Phase 39 added: Docker-based planner integration tests — full pushdown verification with ADBC
 
 ### Blockers/Concerns
 
@@ -176,6 +182,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-18T11:04:00Z
-Stopped at: Completed 38-03-PLAN.md — Gap 2 JOIN ON CAST fix + regression-grade integration tests (Phase 38 COMPLETE)
+Last session: 2026-03-18T13:10:29Z
+Stopped at: Completed 39-01-PLAN.md — Tier 2 Docker integration tests (35 tests, PG logs + Oracle V$SQL pushdown verification)
 Resume file: None
