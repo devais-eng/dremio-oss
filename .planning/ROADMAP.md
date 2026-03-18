@@ -333,10 +333,10 @@ Plans:
 
 **Goal:** Register `l2_distance(LIST<FLOAT>, LIST<FLOAT>) → FLOAT`, `cosine_distance(...)`, `inner_product(...)` as real Dremio SQL functions with Java implementations that execute in-engine. These compute vector distance by iterating over the float arrays — they always work, even when pushdown doesn't happen (cross-source joins, non-whitelisted expressions). No clashes with existing Dremio operators. Registered via Dremio's function registry (@FunctionTemplate annotations in sabot/kernel).
 **Depends on:** Phase 40
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 41 to break down)
+- [ ] 41-01-PLAN.md — VectorDistanceFunctions.java (L2Distance, CosineDistance, InnerProduct @FunctionTemplate inner classes) + TestVectorDistanceFunctions.java unit tests
 
 ### Phase 42: pgvector operator pushdown — Volcano planner rules translate Dremio distance operators to pgvector <-> <#> <=> SQL operators
 
