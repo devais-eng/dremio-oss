@@ -319,3 +319,39 @@ Phases execute in numeric order: 30 → 31 → 32 → 33 → 34 → 35 → 36 �
 | 36. Calcite JDBC Convention Migration | v1.5 | 0/3 | Not started | - |
 | 37. Expression Pushdown (pgvector foundation) | v1.5 | 0/2 | Not started | - |
 | 38. Expression Pushdown Gap Closure | 2/3 | In Progress | - | - |
+
+### Phase 40: pgvector type support — embedding column types and schema discovery for vector REAL ARRAY mapping
+
+**Goal:** Map PostgreSQL pgvector extension vector(N) columns to LIST<FLOAT> (Arrow ListVector with Float4 child) in schema discovery and write parsed float values via JdbcRecordReader — so embedding columns are real typed arrays in Dremio, enabling distance functions in Phase 41 to execute in-engine without pushdown
+**Depends on:** Phase 39
+**Plans:** 1 plan
+
+Plans:
+- [ ] 40-01-PLAN.md — LIST<FLOAT4> type mapping (PostgresSchemaFetcher + getTableSchema override), ListVector parsing (JdbcRecordReader), pgvector container image upgrade, integration tests
+
+### Phase 41: pgvector SQL operators — l2_distance, inner_product, cosine_distance registered as Dremio SQL functions without clashing existing operators
+
+**Goal:** [To be planned]
+**Depends on:** Phase 40
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 41 to break down)
+
+### Phase 42: pgvector operator pushdown — Volcano planner rules translate Dremio distance operators to pgvector <-> <#> <=> SQL operators
+
+**Goal:** [To be planned]
+**Depends on:** Phase 41
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 42 to break down)
+
+### Phase 43: pgvector UAT and integration tests — semantic search pushdown verification with index usage via EXPLAIN ANALYZE
+
+**Goal:** [To be planned]
+**Depends on:** Phase 42
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 43 to break down)
