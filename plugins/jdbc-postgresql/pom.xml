@@ -78,6 +78,20 @@
   </dependencies>
 
   <build>
+    <!-- Include .java source files in JAR for Dremio's Janino code generation.
+         @FunctionTemplate classes (VectorDistanceFunctions) require the source
+         on the classpath at runtime — same pattern as sabot/kernel. -->
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+      </resource>
+      <resource>
+        <directory>src/main/java</directory>
+        <includes>
+          <include>**/*.java</include>
+        </includes>
+      </resource>
+    </resources>
     <plugins>
       <plugin>
         <artifactId>maven-checkstyle-plugin</artifactId>

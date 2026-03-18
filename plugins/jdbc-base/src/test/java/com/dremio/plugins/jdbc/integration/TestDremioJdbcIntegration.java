@@ -85,6 +85,8 @@ public class TestDremioJdbcIntegration {
   private static final String ORA_EMP   = "oracle_test.TESTUSER.EMPLOYEES";
   private static final String ORA_DEPT  = "oracle_test.TESTUSER.DEPARTMENTS";
   private static final String ADBC_EMP  = "pg_adbc_test.public.employees";
+  private static final String PG_VEC    = "pg_test.public.embeddings";
+  private static final String ADBC_VEC  = "pg_adbc_test.public.embeddings";
 
   // ── PG log filter patterns (same as test-regression.sh) ─────────────────
   private static final Pattern PG_INCLUDE =
@@ -166,6 +168,26 @@ public class TestDremioJdbcIntegration {
               + "('Marketing',200000,'Building B'),"
               + "('Sales',300000,'Building C'),"
               + "('HR',150000,'Building D')");
+      // pgvector: create extension + embeddings table with 200 rows and HNSW indexes
+      stmt.execute("CREATE EXTENSION IF NOT EXISTS vector");
+      stmt.execute("DROP TABLE IF EXISTS embeddings");
+      stmt.execute(
+          "CREATE TABLE embeddings ("
+              + "id INTEGER PRIMARY KEY, label TEXT, embedding vector(3))");
+      stmt.execute(
+          "INSERT INTO embeddings SELECT gs, 'item_' || gs, "
+              + "('[' || (gs * 0.01)::text || ',' || (gs * 0.02)::text "
+              + "|| ',' || (gs * 0.03)::text || ']')::vector "
+              + "FROM generate_series(1, 200) gs");
+      stmt.execute(
+          "CREATE INDEX IF NOT EXISTS embeddings_l2_idx "
+              + "ON embeddings USING hnsw (embedding vector_l2_ops)");
+      stmt.execute(
+          "CREATE INDEX IF NOT EXISTS embeddings_cos_idx "
+              + "ON embeddings USING hnsw (embedding vector_cosine_ops)");
+      stmt.execute(
+          "CREATE INDEX IF NOT EXISTS embeddings_ip_idx "
+              + "ON embeddings USING hnsw (embedding vector_ip_ops)");
     }
   }
 
@@ -840,6 +862,100 @@ public class TestDremioJdbcIntegration {
     assertTrue(
         "Expected Eve (highest salary 145000) as first row, got: " + firstRow,
         firstRow.contains("Eve") || firstRow.contains("145000"));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // SECTION 9: PGVECTOR PUSHDOWN TESTS (7 tests)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void testPgvectorL2Pushdown() throws Exception {
+    assertPgPushdown(
+        "SELECT id FROM " + PG_VEC
+            + " ORDER BY l2_distance(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 10",
+        "<->");
+  }
+
+  @Test
+  public void testPgvectorCosinePushdown() throws Exception {
+    assertPgPushdown(
+        "SELECT id FROM " + PG_VEC
+            + " ORDER BY cosine_distance(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 10",
+        "<=>");
+  }
+
+  @Test
+  public void testPgvectorInnerProductPushdown() throws Exception {
+    assertPgPushdown(
+        "SELECT id FROM " + PG_VEC
+            + " ORDER BY inner_product(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 10",
+        "<#>");
+  }
+
+  /**
+   * Verifies that ORDER BY embedding <-> '[...]' LIMIT 10 uses the HNSW index.
+   *
+   * <p>EXPLAIN ANALYZE is run directly against the PG container (not via Dremio — Dremio does
+   * not expose EXPLAIN). The SQL used is the PG-native equivalent of the pushed-down query:
+   * Dremio translates l2_distance(embedding, ARRAY[...]) to embedding <-> '[...]' and this
+   * is the form that reaches PostgreSQL.
+   */
+  @Test
+  public void testPgvectorL2IndexScan() throws Exception {
+    String explain = explainAnalyze(
+        "SELECT * FROM public.embeddings ORDER BY embedding <-> '[0.5,1.0,1.5]' LIMIT 10");
+    assertTrue(
+        "Expected HNSW index scan but got seq scan.\nEXPLAIN ANALYZE output:\n" + explain,
+        explain.contains("Index Scan") || explain.contains("Index Only Scan"));
+  }
+
+  @Test
+  public void testPgvectorL2Correctness() throws Exception {
+    assertCorrect(
+        "SELECT id, label FROM " + PG_VEC
+            + " ORDER BY l2_distance(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 5",
+        "item_");
+  }
+
+  @Test
+  public void testPgvectorAdbcL2() throws Exception {
+    List<String> rows = runSql(
+        "SELECT id, label FROM " + ADBC_VEC
+            + " ORDER BY l2_distance(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 5");
+    assertTrue("ADBC l2_distance returned no rows", !rows.isEmpty());
+    assertTrue(
+        "Expected 'item_' in ADBC results, got: " + rows,
+        rows.stream().anyMatch(r -> r.contains("item_")));
+  }
+
+  @Test
+  public void testPgvectorAdbcCosine() throws Exception {
+    List<String> rows = runSql(
+        "SELECT id, label FROM " + ADBC_VEC
+            + " ORDER BY cosine_distance(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 5");
+    assertTrue("ADBC cosine_distance returned no rows", !rows.isEmpty());
+    assertTrue(
+        "Expected 'item_' in ADBC results, got: " + rows,
+        rows.stream().anyMatch(r -> r.contains("item_")));
+  }
+
+  // ── explainAnalyze helper ─────────────────────────────────────────────────
+
+  /**
+   * Runs EXPLAIN ANALYZE directly against the PG container (bypassing Dremio) and returns
+   * the full output as a String. Used to verify index usage for pgvector ORDER BY + LIMIT queries.
+   */
+  private static String explainAnalyze(String sql) throws Exception {
+    try (Connection conn = DriverManager.getConnection(
+            PG.getJdbcUrl(), PG.getUsername(), PG.getPassword());
+         Statement stmt = conn.createStatement();
+         java.sql.ResultSet rs = stmt.executeQuery("EXPLAIN ANALYZE " + sql)) {
+      StringBuilder sb = new StringBuilder();
+      while (rs.next()) {
+        sb.append(rs.getString(1)).append("\n");
+      }
+      return sb.toString();
+    }
   }
 
 }

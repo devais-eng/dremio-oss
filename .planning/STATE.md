@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: in_progress
-stopped_at: Completed 42-01-PLAN.md — DremioPostgresDialect renders distance functions as pgvector infix operators; 317 tests pass
-last_updated: "2026-03-18T16:30:06Z"
-last_activity: 2026-03-18 — Completed 42-01 (DremioPostgresDialect.java new, StandardPushdownFunctionRegistry +3 functions, PostgresConf wired, 6 unit tests + 2 pgvector integration tests)
+stopped_at: Completed 43-01-PLAN.md — pgvector UAT (SECTION 8, 9 tests) + Testcontainers SECTION 9 (7 tests) + EXPLAIN ANALYZE index scan verification
+last_updated: "2026-03-18T16:49:30Z"
+last_activity: 2026-03-18 — Completed 43-01 (test-regression.sh SECTION 8, TestDremioJdbcIntegration SECTION 9, docker-compose + DremioJdbcPgContainer upgraded to pgvector/pgvector:pg16)
 progress:
   total_phases: 10
   completed_phases: 9
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** Phase 42 — pgvector operator pushdown — DremioPostgresDialect translates distance functions to <-> <=> <#> infix operators (COMPLETE)
+**Current focus:** Phase 43 — pgvector UAT and integration tests — end-to-end regression gate with HNSW index scan verification (COMPLETE)
 
 ## Current Position
 
-Phase: 42 of 43 (pgvector operator pushdown — Volcano planner translates distance operators to pgvector infix SQL)
+Phase: 43 of 43 (pgvector UAT and integration tests — end-to-end semantic search pushdown verification with HNSW index usage)
 Plan: 1 of 1 complete — PHASE COMPLETE
 Status: COMPLETE
-Last activity: 2026-03-18 — Completed 42-01 (DremioPostgresDialect.java unparseCall override, L2_DISTANCE/COSINE_DISTANCE/INNER_PRODUCT whitelist, PostgresConf wired, 6 unit + 2 integration tests pass)
+Last activity: 2026-03-18 — Completed 43-01 (test-regression.sh SECTION 8 9 tests, TestDremioJdbcIntegration SECTION 9 7 tests, pgvector/pgvector:pg16 image upgrade, EXPLAIN ANALYZE helper)
 
 Progress: [██████████] 100% (25 of 25 plans complete)
 
@@ -77,6 +77,7 @@ Progress: [██████████] 100% (25 of 25 plans complete)
 | Phase 40-pgvector-type-support P01 | 15 | 2 tasks | 5 files |
 | Phase 41-pgvector-sql-operators P01 | 9 | 2 tasks | 2 files |
 | Phase 42-pgvector-operator-pushdown P01 | 35 | 2 tasks | 5 files |
+| Phase 43-pgvector-uat-integration-tests P01 | 15 | 2 tasks | 4 files |
 
 ## Shipped Milestones
 
@@ -177,6 +178,9 @@ Progress: [██████████] 100% (25 of 25 plans complete)
 - [Phase 42-01]: toPlainString() on BigDecimal extracted from SqlNumericLiteral — pgvector rejects scientific notation (1E+2 not accepted; 100 accepted) in text vector literals
 - [Phase 42-01]: SqlKind.ARRAY_VALUE_CONSTRUCTOR kind check in renderVectorOperand — detects ARRAY[...] while falling through to operand.unparse() for column refs; avoids ClassCastException
 - [Phase 42-01]: L2_DISTANCE/COSINE_DISTANCE/INNER_PRODUCT added to StandardPushdownFunctionRegistry directly (not PG-specific subclass) — JdbcRulesFactory hardcodes StandardPushdownFunctionRegistry.INSTANCE; per-plugin registry subclasses not consulted at rule-firing time
+- [Phase 43-01]: pgvector/pgvector:pg16 used in both UAT docker-compose and Testcontainers — strict superset of postgres:16-alpine, fully drop-in compatible
+- [Phase 43-01]: EXPLAIN ANALYZE runs directly against PG container JDBC URL (not via Dremio) — Dremio does not expose EXPLAIN; PG-native SQL (embedding <-> '[...]') is the pushed-down equivalent
+- [Phase 43-01]: TestDremioJdbcIntegration @Test count is 42 (not 39 as plan stated) — plan had stale pre-existing count of 32; actual was 35; 7 new pgvector tests added = 42
 
 ### Pending Todos
 
@@ -202,6 +206,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-18T16:30:06Z
-Stopped at: Completed 42-01-PLAN.md — DremioPostgresDialect renders distance functions as pgvector infix operators; 317 tests pass
+Last session: 2026-03-18T16:49:30Z
+Stopped at: Completed 43-01-PLAN.md — pgvector UAT (SECTION 8, 9 tests) + Testcontainers SECTION 9 (7 tests) + EXPLAIN ANALYZE index scan verification; Phase 43 complete
 Resume file: None

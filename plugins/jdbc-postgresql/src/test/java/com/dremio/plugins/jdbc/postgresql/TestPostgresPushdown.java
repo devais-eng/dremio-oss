@@ -1374,7 +1374,7 @@ public class TestPostgresPushdown {
    */
   @Test
   public void testPgvectorAllThreeOperators() throws Exception {
-    final double EPSILON = 0.001;
+    final double epsilon = 0.001;
 
     // L2 distance of identical vectors: sqrt((1-1)^2 + (2-2)^2 + (3-3)^2) = 0.0
     String sqlL2 = "SELECT embedding <-> '[1.0,2.0,3.0]' AS d"
@@ -1390,7 +1390,7 @@ public class TestPostgresPushdown {
       double d = rs.getDouble("d");
       assertTrue(
           "L2 distance of [1,2,3] vs [1,2,3] must be 0.0, got: " + d,
-          Math.abs(d) < EPSILON);
+          Math.abs(d) < epsilon);
     }
 
     // Cosine distance of identical vectors: 0.0
@@ -1407,7 +1407,7 @@ public class TestPostgresPushdown {
       double d = rs.getDouble("d");
       assertTrue(
           "Cosine distance of [1,2,3] vs [1,2,3] must be 0.0, got: " + d,
-          Math.abs(d) < EPSILON);
+          Math.abs(d) < epsilon);
     }
 
     // Inner product (pgvector <#> convention): -(1*1 + 2*2 + 3*3) = -(1+4+9) = -14.0
@@ -1424,7 +1424,7 @@ public class TestPostgresPushdown {
       double d = rs.getDouble("d");
       assertTrue(
           "Inner product of [1,2,3] <#> [1,2,3] must be -14.0 (pgvector convention), got: " + d,
-          Math.abs(d - (-14.0)) < EPSILON);
+          Math.abs(d - (-14.0)) < epsilon);
     }
   }
 }

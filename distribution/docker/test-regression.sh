@@ -353,6 +353,72 @@ test_correct "ORA: JOIN returns correct data" \
 echo ""
 
 # ═══════════════════════════════════════════════════════════════════════
+# SECTION 8: PGVECTOR PUSHDOWN TESTS
+# ═══════════════════════════════════════════════════════════════════════
+echo -e "${BOLD}── SECTION 8: PGVECTOR PUSHDOWN TESTS ──${NC}"
+
+PG_VEC="pg_test.public.embeddings"
+ADBC_VEC="pg_adbc_test.public.embeddings"
+
+# Seed pgvector table (idempotent)
+docker exec -i "$PG_CONTAINER" psql -U pguser -d testdb -q <<'EOSQL'
+CREATE EXTENSION IF NOT EXISTS vector;
+DROP TABLE IF EXISTS embeddings;
+CREATE TABLE embeddings (id INTEGER PRIMARY KEY, label TEXT, embedding vector(3));
+INSERT INTO embeddings SELECT
+  gs, 'item_' || gs,
+  ('[' || (gs * 0.01)::text || ',' || (gs * 0.02)::text || ',' || (gs * 0.03)::text || ']')::vector
+FROM generate_series(1, 200) gs;
+CREATE INDEX IF NOT EXISTS embeddings_embedding_l2_idx ON embeddings USING hnsw (embedding vector_l2_ops);
+CREATE INDEX IF NOT EXISTS embeddings_embedding_cos_idx ON embeddings USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS embeddings_embedding_ip_idx  ON embeddings USING hnsw (embedding vector_ip_ops);
+EOSQL
+
+echo -e "${GREEN}pgvector data seeded.${NC}"
+sleep 5
+
+# Pushdown verification: confirm pgvector operators reach PG log
+test_pushdown "PG: l2_distance pushdown (<->)" pg \
+  "SELECT id FROM $PG_VEC ORDER BY l2_distance(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 10" \
+  "<->"
+
+test_pushdown "PG: cosine_distance pushdown (<=>)" pg \
+  "SELECT id FROM $PG_VEC ORDER BY cosine_distance(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 10" \
+  "<=>"
+
+test_pushdown "PG: inner_product pushdown (<#>)" pg \
+  "SELECT id FROM $PG_VEC ORDER BY inner_product(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 10" \
+  "<#>"
+
+# Correctness checks: verify result rows are returned and look sane
+test_correct "PG: l2_distance returns rows" \
+  "SELECT id, label FROM $PG_VEC ORDER BY l2_distance(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 5" \
+  "item_"
+
+test_correct "PG: cosine_distance returns rows" \
+  "SELECT id, label FROM $PG_VEC ORDER BY cosine_distance(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 5" \
+  "item_"
+
+test_correct "PG: inner_product returns rows" \
+  "SELECT id, label FROM $PG_VEC ORDER BY inner_product(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 5" \
+  "item_"
+
+# ADBC path correctness: same queries via pg_adbc_test source
+test_correct "ADBC: l2_distance returns rows" \
+  "SELECT id, label FROM $ADBC_VEC ORDER BY l2_distance(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 5" \
+  "item_"
+
+test_correct "ADBC: cosine_distance returns rows" \
+  "SELECT id, label FROM $ADBC_VEC ORDER BY cosine_distance(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 5" \
+  "item_"
+
+test_correct "ADBC: inner_product returns rows" \
+  "SELECT id, label FROM $ADBC_VEC ORDER BY inner_product(embedding, ARRAY[0.5, 1.0, 1.5]) LIMIT 5" \
+  "item_"
+
+echo ""
+
+# ═══════════════════════════════════════════════════════════════════════
 echo -e "${BOLD}============================================================${NC}"
 echo -e "${BOLD}  REGRESSION SUMMARY                                        ${NC}"
 echo -e "${BOLD}  ${GREEN}$PASS_COUNT passed${NC}${BOLD}, ${RED}$FAIL_COUNT failed${NC}${BOLD}                         ${NC}"

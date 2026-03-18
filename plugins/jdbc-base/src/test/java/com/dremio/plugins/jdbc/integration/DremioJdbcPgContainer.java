@@ -28,7 +28,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 public final class DremioJdbcPgContainer extends PostgreSQLContainer<DremioJdbcPgContainer>
     implements DremioContainer {
 
-  private static final String IMAGE = "postgres:16-alpine";
+  private static final String IMAGE = "pgvector/pgvector:pg16";
 
   /** Creates a new PostgreSQL container with test credentials and statement logging enabled. */
   public DremioJdbcPgContainer() {

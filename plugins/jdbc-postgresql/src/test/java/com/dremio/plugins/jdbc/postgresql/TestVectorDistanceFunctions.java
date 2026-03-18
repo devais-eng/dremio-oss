@@ -446,6 +446,7 @@ public class TestVectorDistanceFunctions {
   /**
    * Sets a private field on the function instance via reflection.
    */
+  @com.dremio.common.SuppressForbidden // Reflection needed to inject @Param/@Output/@Inject fields into SimpleFunction for unit testing
   private static void injectField(Object target, String fieldName, Object value)
       throws NoSuchFieldException, IllegalAccessException {
     // Walk class hierarchy to handle inner-class field declarations.
