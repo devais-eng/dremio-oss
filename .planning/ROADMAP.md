@@ -351,7 +351,7 @@ Plans:
 
 **Goal:** End-to-end verification that semantic search queries push down to PostgreSQL with pgvector and use HNSW indexes. Docker UAT + Tier 2 integration tests: create table with vector column + HNSW index, insert embeddings, run `SELECT * FROM t ORDER BY l2_distance(embedding, '[query]') LIMIT 10`, verify pushed SQL contains `<->` operator, verify EXPLAIN ANALYZE shows index scan (not seq scan). Test all three distance functions on both JDBC and ADBC paths.
 **Depends on:** Phase 42
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 43 to break down)
+- [ ] 43-01-PLAN.md — upgrade postgres to pgvector image, add pgvector UAT section (test-regression.sh) and Tier 2 @Test methods (TestDremioJdbcIntegration.java)
