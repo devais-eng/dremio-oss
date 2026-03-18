@@ -15,11 +15,21 @@
  */
 package com.dremio.plugins.jdbc.postgresql;
 
+import com.dremio.exec.record.BatchSchema;
 import com.dremio.plugins.jdbc.pool.JdbcConnectionPool;
 import com.dremio.plugins.jdbc.schema.JdbcSchemaFetcher;
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Types;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import org.apache.arrow.vector.types.FloatingPointPrecision;
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 
 /**
  * PostgreSQL-specific schema fetcher that overrides JDBC type mapping to correctly handle
@@ -32,6 +42,7 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
  *   <li>HSTORE, TSVECTOR, TSQUERY → VARCHAR
  *   <li>Array types (prefix {@code _} or {@link Types#ARRAY}) → VARCHAR
  *   <li>Unconstrained NUMERIC (precision = 0) → DOUBLE
+ *   <li>vector(N) (pgvector) → LIST&lt;FLOAT4&gt;
  * </ul>
  *
  * <p>System schemas excluded beyond the base class defaults include {@code pg_internal}.
@@ -80,6 +91,8 @@ public class PostgresSchemaFetcher extends JdbcSchemaFetcher {
         case "tsvector":
         case "tsquery":
           return new ArrowType.Utf8();
+        case "vector": // pgvector extension: vector(N) — mapped to LIST<FLOAT4>
+          return ArrowType.List.INSTANCE;
         default:
           break;
       }
@@ -97,6 +110,61 @@ public class PostgresSchemaFetcher extends JdbcSchemaFetcher {
       return new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
     }
     return super.mapJdbcType(jdbcType, typeName, precision, scale);
+  }
+
+  /**
+   * Builds the Arrow {@link BatchSchema} for the given table, intercepting the
+   * {@link ArrowType#List} sentinel returned by {@link #mapJdbcType} for {@code vector} columns
+   * and constructing a proper {@code LIST<FLOAT4>} field with the required child.
+   *
+   * <p>The base class creates {@code new Field(columnName, fieldType, null)} for every column. For
+   * {@code ArrowType.List} we must pass a non-null children list — a single {@code $data$} child
+   * field of type {@code FloatingPoint(SINGLE)}. This override handles that case and falls back to
+   * the base-class logic for all other column types.
+   *
+   * @param schemaName schema containing the table
+   * @param tableName table whose column types to read
+   * @return the Arrow schema for the table
+   * @throws SQLException if the remote database reports an error
+   */
+  @Override
+  public BatchSchema getTableSchema(String schemaName, String tableName) throws SQLException {
+    List<Field> fields = new ArrayList<>();
+    try (Connection conn = getPool().getConnection()) {
+      DatabaseMetaData meta = conn.getMetaData();
+      try (ResultSet rs = meta.getColumns(null, schemaName, tableName, "%")) {
+        while (rs.next()) {
+          String columnName = rs.getString("COLUMN_NAME");
+          int jdbcType = rs.getInt("DATA_TYPE");
+          String typeName = rs.getString("TYPE_NAME");
+          int precision = rs.getInt("COLUMN_SIZE");
+          int scale = rs.getInt("DECIMAL_DIGITS");
+          boolean nullable = "YES".equalsIgnoreCase(rs.getString("IS_NULLABLE"));
+
+          ArrowType arrowType = mapJdbcType(jdbcType, typeName, precision, scale);
+
+          Field field;
+          if (arrowType == ArrowType.List.INSTANCE) {
+            // pgvector: build LIST<FLOAT4> with the required child field
+            Field float4Child =
+                new Field(
+                    "$data$",
+                    FieldType.nullable(
+                        new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)),
+                    null);
+            field =
+                new Field(
+                    columnName,
+                    new FieldType(nullable, ArrowType.List.INSTANCE, null),
+                    Collections.singletonList(float4Child));
+          } else {
+            field = new Field(columnName, new FieldType(nullable, arrowType, null), null);
+          }
+          fields.add(field);
+        }
+      }
+    }
+    return new BatchSchema(fields);
   }
 
   /**

@@ -53,6 +53,7 @@ import org.apache.arrow.vector.TimeStampMilliVector;
 import org.apache.arrow.vector.ValueVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
+import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.slf4j.Logger;
@@ -529,6 +530,29 @@ public class JdbcRecordReader extends AbstractRecordReader {
         int[] dayMs = parseIntervalDayMillis(val);
         ((IntervalDayVector) vec).setSafe(index, dayMs[0], dayMs[1]);
       }
+    } else if (vec instanceof ListVector) {
+      // pgvector: parse pgjdbc vector text format "[x1,x2,...,xN]" into ListVector<Float4>.
+      String val = rs.getString(colPosition);
+      if (!rs.wasNull() && val != null) {
+        ListVector lv = (ListVector) vec;
+        // Strip surrounding brackets
+        String trimmed = val.trim();
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+          trimmed = trimmed.substring(1, trimmed.length() - 1);
+        }
+        String[] parts = trimmed.isEmpty() ? new String[0] : trimmed.split(",");
+        // The child of the ListVector is a Float4Vector.
+        // Each offset slot is 4 bytes (INT32) — Arrow ListVector offset buffer layout.
+        Float4Vector childVec = (Float4Vector) lv.getDataVector();
+        int startOffset = lv.getOffsetBuffer().getInt((long) index * 4);
+        for (int i = 0; i < parts.length; i++) {
+          float f = Float.parseFloat(parts[i].trim());
+          childVec.setSafe(startOffset + i, f);
+        }
+        lv.getOffsetBuffer().setInt((long) (index + 1) * 4, startOffset + parts.length);
+        lv.setNotNull(index);
+      }
+      // If null: ListVector slot stays null (validity bit 0 by default from allocateNew)
     } else {
       // Fallback: attempt to read as string and store as UTF-8 bytes (best-effort).
       String val = rs.getString(colPosition);

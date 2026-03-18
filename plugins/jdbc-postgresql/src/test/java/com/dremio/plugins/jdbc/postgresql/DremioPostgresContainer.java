@@ -25,15 +25,16 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * error-prone check, which requires that all {@code GenericContainer} subclasses also implement the
  * {@code DremioContainer} marker interface.
  *
- * <p>Wraps {@link PostgreSQLContainer} with a fixed {@code postgres:16-alpine} image and
- * pre-configured test credentials used by the JDBC PostgreSQL connector integration tests.
+ * <p>Wraps {@link PostgreSQLContainer} with the {@code pgvector/pgvector:pg16} image — a drop-in
+ * PostgreSQL 16 image with the pgvector extension pre-installed. This image is a strict superset of
+ * {@code postgres:16-alpine} and is backward compatible with all existing integration tests.
  */
 public final class DremioPostgresContainer extends PostgreSQLContainer<DremioPostgresContainer>
     implements DremioContainer {
 
-  private static final String IMAGE = "postgres:16-alpine";
+  private static final String IMAGE = "pgvector/pgvector:pg16";
 
-  /** Creates a new container using {@code postgres:16-alpine}. */
+  /** Creates a new container using {@code pgvector/pgvector:pg16}. */
   public DremioPostgresContainer() {
     super(IMAGE);
   }

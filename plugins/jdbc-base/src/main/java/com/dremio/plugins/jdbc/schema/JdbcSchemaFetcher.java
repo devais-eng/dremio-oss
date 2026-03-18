@@ -55,6 +55,18 @@ public class JdbcSchemaFetcher {
   }
 
   /**
+   * Returns the connection pool used by this fetcher.
+   *
+   * <p>Exposed as a protected getter so subclasses can acquire connections when overriding methods
+   * such as {@link #getTableSchema(String, String)}.
+   *
+   * @return the backing connection pool
+   */
+  protected JdbcConnectionPool getPool() {
+    return pool;
+  }
+
+  /**
    * Returns the names of all non-system schemas in the remote database.
    *
    * @return list of schema names; never null

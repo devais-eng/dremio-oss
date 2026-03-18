@@ -331,7 +331,7 @@ Plans:
 
 ### Phase 41: pgvector SQL operators — l2_distance, inner_product, cosine_distance registered as Dremio SQL functions without clashing existing operators
 
-**Goal:** [To be planned]
+**Goal:** Register `l2_distance(LIST<FLOAT>, LIST<FLOAT>) → FLOAT`, `cosine_distance(...)`, `inner_product(...)` as real Dremio SQL functions with Java implementations that execute in-engine. These compute vector distance by iterating over the float arrays — they always work, even when pushdown doesn't happen (cross-source joins, non-whitelisted expressions). No clashes with existing Dremio operators. Registered via Dremio's function registry (@FunctionTemplate annotations in sabot/kernel).
 **Depends on:** Phase 40
 **Plans:** 0 plans
 
@@ -340,7 +340,7 @@ Plans:
 
 ### Phase 42: pgvector operator pushdown — Volcano planner rules translate Dremio distance operators to pgvector <-> <#> <=> SQL operators
 
-**Goal:** [To be planned]
+**Goal:** Add `l2_distance`, `cosine_distance`, `inner_product` to the PushdownFunctionRegistry (PostgreSQL-specific dialect registry). When the Volcano planner pushes these to PG, DremioJdbcImplementor translates them to pgvector's infix operators (`<->` for L2, `<=>` for cosine, `<#>` for inner product). The `ORDER BY l2_distance(...) LIMIT K` pattern pushes as `ORDER BY col <-> '[...]' LIMIT K` — enabling HNSW index-accelerated nearest-neighbor search at the source. Includes SqlDialect customization for operator rendering.
 **Depends on:** Phase 41
 **Plans:** 0 plans
 
@@ -349,7 +349,7 @@ Plans:
 
 ### Phase 43: pgvector UAT and integration tests — semantic search pushdown verification with index usage via EXPLAIN ANALYZE
 
-**Goal:** [To be planned]
+**Goal:** End-to-end verification that semantic search queries push down to PostgreSQL with pgvector and use HNSW indexes. Docker UAT + Tier 2 integration tests: create table with vector column + HNSW index, insert embeddings, run `SELECT * FROM t ORDER BY l2_distance(embedding, '[query]') LIMIT 10`, verify pushed SQL contains `<->` operator, verify EXPLAIN ANALYZE shows index scan (not seq scan). Test all three distance functions on both JDBC and ADBC paths.
 **Depends on:** Phase 42
 **Plans:** 0 plans
 

@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
-status: completed
-stopped_at: Completed 39-01-PLAN.md — Tier 2 Docker integration tests (35 tests, all pushdown patterns verified via PG logs + Oracle V$SQL)
-last_updated: "2026-03-18T13:10:29Z"
-last_activity: 2026-03-18 — Completed 39-01 (Tier 2 integration test suite: 35 tests, DremioJdbcContainer + PG/Oracle/ADBC pushdown verification via live Dremio planner stack)
+status: in_progress
+stopped_at: Completed 40-01-PLAN.md — pgvector LIST<FLOAT4> type mapping + ListVector write branch + integration tests
+last_updated: "2026-03-18T14:52:55Z"
+last_activity: 2026-03-18 — Completed 40-01 (pgvector vector(N) -> LIST<FLOAT4> schema discovery, ListVector write in JdbcRecordReader, 3 integration tests all pass)
 progress:
-  total_phases: 9
+  total_phases: 10
   completed_phases: 9
-  total_plans: 24
-  completed_plans: 24
+  total_plans: 25
+  completed_plans: 25
   percent: 100
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** Phase 39 — Docker-based planner integration tests (COMPLETE)
+**Current focus:** Phase 40 — pgvector type support — embedding column types and schema discovery (COMPLETE)
 
 ## Current Position
 
-Phase: 39 of 39 (Docker-based planner integration tests — full pushdown verification with ADBC)
+Phase: 40 of 40 (pgvector type support — embedding column types and schema discovery)
 Plan: 1 of 1 complete — PHASE COMPLETE
 Status: COMPLETE
-Last activity: 2026-03-18 — Completed 39-01 (Tier 2 Docker integration tests: 35 pushdown verification tests via live Dremio planner + PG logs + Oracle V$SQL)
+Last activity: 2026-03-18 — Completed 40-01 (pgvector vector(N) -> LIST<FLOAT4> schema discovery, ListVector write branch in JdbcRecordReader, 6 integration tests pass)
 
-Progress: [██████████] 100% (24 of 24 plans complete)
+Progress: [██████████] 100% (25 of 25 plans complete)
 
 ## Performance Metrics
 
@@ -74,6 +74,7 @@ Progress: [██████████] 100% (24 of 24 plans complete)
 | Phase 38 P02 | 18 | 2 tasks | 2 files |
 | Phase 38 P03 | 3 | 2 tasks | 4 files |
 | Phase 39-docker-integration-tests P01 | 25 | 2 tasks | 5 files |
+| Phase 40-pgvector-type-support P01 | 15 | 2 tasks | 5 files |
 
 ## Shipped Milestones
 
@@ -161,6 +162,10 @@ Progress: [██████████] 100% (24 of 24 plans complete)
 - [Phase 39-01]: ORACLE_PASSWORD in testcontainers gvenzl/oracle-xe == ORACLE.getPassword() (OracleContainer.configure() sets ORACLE_PASSWORD = password field) — do not hardcode "orapass"
 - [Phase 39-01]: Oracle sqlplus V$SQL queries written to /tmp/*.sql via echo >> chains inside sh -c — avoids $ shell expansion of v$sql reference in execInContainer strings
 - [Phase 39-01]: PG JDBC driver + ojdbc11 needed as test-scoped deps in jdbc-base/pom.xml for local seeding before Dremio source creation
+- [Phase 40-01]: ArrowType.List.INSTANCE used as sentinel in mapJdbcType() — identity comparison (==) in getTableSchema() override intercepts it to build proper LIST<FLOAT4> field with $data$ Float4 child
+- [Phase 40-01]: getPool() protected getter added to JdbcSchemaFetcher — avoids changing private field visibility while enabling PostgresSchemaFetcher to override getTableSchema()
+- [Phase 40-01]: ListVector offset buffer uses literal 4 (INT32 width) — OFFSET_WIDTH constant not available on ListVector class in Arrow 18.1.1-dremio
+- [Phase 40-01]: DremioPostgresContainer IMAGE changed from postgres:16-alpine to pgvector/pgvector:pg16 — all PG integration tests now use pgvector image (strict superset, fully backward compatible)
 
 ### Pending Todos
 
@@ -175,6 +180,10 @@ None.
 - Phase 37 added: Expression pushdown for functions, HAVING, and ORDER BY expressions (pgvector foundation)
 - Phase 38 added: Expression pushdown gap closure — AGG with expressions, JOIN with functions (PG + Oracle)
 - Phase 39 added: Docker-based planner integration tests — full pushdown verification with ADBC
+- Phase 40 added: pgvector type support — embedding column types and schema discovery
+- Phase 41 added: pgvector SQL operators — l2_distance, inner_product, cosine_distance
+- Phase 42 added: pgvector operator pushdown — Volcano planner translates to <-> <#> <=> operators
+- Phase 43 added: pgvector UAT and integration tests — semantic search pushdown with index usage
 
 ### Blockers/Concerns
 
@@ -182,6 +191,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-18T13:10:29Z
-Stopped at: Completed 39-01-PLAN.md — Tier 2 Docker integration tests (35 tests, PG logs + Oracle V$SQL pushdown verification)
+Last session: 2026-03-18T14:52:55Z
+Stopped at: Completed 40-01-PLAN.md — pgvector LIST<FLOAT4> type mapping + ListVector write branch + 6 integration tests passing
 Resume file: None
