@@ -119,6 +119,34 @@ public class TestOraclePushdown {
         throw e;
       }
     }
+
+    // Gap 2: tables for JOIN ON CAST(integer AS varchar) — real type mismatch
+    try {
+      OracleTestContainer.executeSql(
+          "CREATE TABLE PRODUCTS ("
+              + "ID NUMBER(10) PRIMARY KEY, NAME VARCHAR2(100) NOT NULL,"
+              + "CATEGORY_ID NUMBER(10) NOT NULL, PRICE NUMBER(10,2))");
+      OracleTestContainer.executeSql(
+          "INSERT ALL"
+              + " INTO PRODUCTS VALUES (1, 'Laptop', 1, 999.99)"
+              + " INTO PRODUCTS VALUES (2, 'Mouse', 1, 29.99)"
+              + " INTO PRODUCTS VALUES (3, 'Desk', 2, 450.00)"
+              + " INTO PRODUCTS VALUES (4, 'Chair', 2, 350.00)"
+              + " INTO PRODUCTS VALUES (5, 'Monitor', 1, 599.99)"
+              + " SELECT 1 FROM DUAL");
+      OracleTestContainer.executeSql(
+          "CREATE TABLE CATEGORIES ("
+              + "CODE VARCHAR2(10) PRIMARY KEY, LABEL VARCHAR2(100) NOT NULL)");
+      OracleTestContainer.executeSql(
+          "INSERT ALL"
+              + " INTO CATEGORIES VALUES ('1', 'Electronics')"
+              + " INTO CATEGORIES VALUES ('2', 'Furniture')"
+              + " SELECT 1 FROM DUAL");
+    } catch (java.sql.SQLException e) {
+      if (!e.getMessage().contains("ORA-00955") && !e.getMessage().contains("name is already used")) {
+        throw e;
+      }
+    }
   }
 
   @AfterClass
@@ -1132,6 +1160,37 @@ public class TestOraclePushdown {
       assertEquals("Second row should be Eve", "Eve", rs.getString("NAME"));
       assertEquals("Eve's dept should be Engineering", "Engineering", rs.getString("DEPT_NAME"));
       assertFalse("Exactly 2 rows", rs.next());
+    }
+  }
+
+  /**
+   * Gap 2 real type-mismatch test: JOIN ON CAST(NUMBER AS VARCHAR2).
+   * PRODUCTS.CATEGORY_ID (NUMBER) joined to CATEGORIES.CODE (VARCHAR2) via CAST.
+   * 3 Electronics + 2 Furniture = 5 total.
+   */
+  @Test
+  public void testJoinOnCastIntegerAsVarchar() throws Exception {
+    String sql = "SELECT p.\"NAME\", c.\"LABEL\""
+        + " FROM \"TEST_USER\".\"PRODUCTS\" p"
+        + " JOIN \"TEST_USER\".\"CATEGORIES\" c"
+        + "   ON CAST(p.\"CATEGORY_ID\" AS VARCHAR2(10)) = c.\"CODE\""
+        + " ORDER BY p.\"NAME\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                OracleTestContainer.getJdbcUrl(),
+                OracleTestContainer.getUsername(),
+                OracleTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        String name = rs.getString("NAME");
+        String label = rs.getString("LABEL");
+        assertNotNull("product name must not be null", name);
+        assertNotNull("category label must not be null", label);
+        count++;
+      }
+      assertEquals("5 products matched via CAST(NUMBER AS VARCHAR2) JOIN", 5, count);
     }
   }
 

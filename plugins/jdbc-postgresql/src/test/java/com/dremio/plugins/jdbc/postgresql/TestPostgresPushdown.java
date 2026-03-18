@@ -90,6 +90,23 @@ public class TestPostgresPushdown {
             + ")");
     PostgresTestContainer.executeSql(
         "INSERT INTO departments_expr_test VALUES (1, 'Engineering'), (2, 'Marketing')");
+
+    // Gap 2: tables for JOIN ON CAST(integer AS varchar) — real type mismatch
+    PostgresTestContainer.executeSql(
+        "CREATE TABLE IF NOT EXISTS products ("
+            + "  id INTEGER PRIMARY KEY, name VARCHAR(100) NOT NULL,"
+            + "  category_id INTEGER NOT NULL, price NUMERIC(10,2)"
+            + ")");
+    PostgresTestContainer.executeSql(
+        "INSERT INTO products VALUES "
+            + "(1, 'Laptop', 1, 999.99), (2, 'Mouse', 1, 29.99),"
+            + "(3, 'Desk', 2, 450.00), (4, 'Chair', 2, 350.00), (5, 'Monitor', 1, 599.99)");
+    PostgresTestContainer.executeSql(
+        "CREATE TABLE IF NOT EXISTS categories ("
+            + "  code VARCHAR(10) PRIMARY KEY, label VARCHAR(100) NOT NULL"
+            + ")");
+    PostgresTestContainer.executeSql(
+        "INSERT INTO categories VALUES ('1', 'Electronics'), ('2', 'Furniture')");
   }
 
   @AfterClass
@@ -1172,6 +1189,37 @@ public class TestPostgresPushdown {
       assertEquals("Second row should be Eve", "Eve", rs.getString("name"));
       assertEquals("Eve's dept should be Engineering", "Engineering", rs.getString("dept_name"));
       assertFalse("Exactly 2 rows", rs.next());
+    }
+  }
+
+  /**
+   * Gap 2 real type-mismatch test: JOIN ON CAST(integer AS VARCHAR).
+   * products.category_id (INTEGER) joined to categories.code (VARCHAR) via CAST.
+   * 3 Electronics products + 2 Furniture products = 5 total.
+   */
+  @Test
+  public void testJoinOnCastIntegerAsVarchar() throws Exception {
+    String sql = "SELECT p.\"name\", c.\"label\""
+        + " FROM \"public\".\"products\" p"
+        + " JOIN \"public\".\"categories\" c"
+        + "   ON CAST(p.\"category_id\" AS VARCHAR) = c.\"code\""
+        + " ORDER BY p.\"name\"";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      int count = 0;
+      while (rs.next()) {
+        String name = rs.getString("name");
+        String label = rs.getString("label");
+        assertNotNull("product name must not be null", name);
+        assertNotNull("category label must not be null", label);
+        count++;
+      }
+      assertEquals("5 products matched via CAST(integer AS VARCHAR) JOIN", 5, count);
     }
   }
 
