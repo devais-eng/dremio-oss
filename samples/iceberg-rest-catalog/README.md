@@ -1,6 +1,6 @@
 # Iceberg REST Catalog Demo
 
-Dremio OSS + Nessie (Iceberg REST Catalog) + MinIO (S3 storage) + Keycloak (OIDC auth).
+Dremio OSS + Nessie (Iceberg REST Catalog) + MinIO (S3 storage), with optional Keycloak SSO.
 
 ## Architecture
 
@@ -9,12 +9,14 @@ Dremio OSS + Nessie (Iceberg REST Catalog) + MinIO (S3 storage) + Keycloak (OIDC
  │  Dremio  │──REST─│  Nessie  │──S3──▶│ MinIO │
  │  :9047   │       │  :19120  │       │ :9000 │
  └──────────┘       └──────────┘       └───────┘
-                         │
-                    ┌──────────┐
-                    │ Keycloak │
-                    │  :8080   │
-                    └──────────┘
+      │
+ ┌──────────┐       ┌──────────┐
+ │ Keycloak │──LDAP─│ OpenLDAP │  (LDAP mode only)
+ │  :8080   │       │  :389    │
+ └──────────┘       └──────────┘
 ```
+
+(In base and SSO-only modes, OpenLDAP is not started. Keycloak is SSO mode only.)
 
 ## Prerequisites
 
@@ -24,55 +26,106 @@ Dremio OSS + Nessie (Iceberg REST Catalog) + MinIO (S3 storage) + Keycloak (OIDC
 
 ## Quick Start
 
-```bash
-# Start all services
-docker compose up -d
+### Internal auth (no Keycloak)
 
-# Wait ~90 seconds for all services to become healthy, then:
-bash scripts/seed.sh
+```bash
+docker compose up -d
 ```
 
-The seed script will:
-1. Bootstrap the Dremio admin user
-2. Create a `nessie_catalog` RESTCATALOG source pre-configured with OAuth2 and S3 credentials
-3. Seed sample tables (`demo.customers`, `demo.orders`) via PyIceberg
-4. Create spaces (`analytics`, `engineering`) with views
-5. Create roles (`analysts`, `engineers`) and users with RBAC grants
+Dremio uses its built-in user/password authentication. Nessie runs without auth.
 
-Open **http://localhost:9047** and navigate to the `nessie_catalog` source.
+### SSO with Keycloak
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.sso.yml --profile sso up -d
+```
+
+This starts everything including Keycloak, `keycloak-init`, and `dremio-init`:
+
+- **keycloak-init** creates client scopes, role mappers, audience mapper, and enables direct access grants
+- **dremio-init** bootstraps the admin user, creates a RESTCATALOG source, seeds sample data, creates views, roles, and RBAC grants
+
+> **Host access:** For browser-based SSO login (OIDC redirect flow), add to `/etc/hosts`:
+> ```
+> 127.0.0.1 keycloak
+> ```
+> This is needed because Keycloak tokens use `keycloak:8080` as the issuer,
+> and the browser must resolve this hostname for the authorization redirect.
+
+### SSO with Keycloak + LDAP
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.sso.yml \
+  -f docker-compose.ldap.yml --profile sso --profile ldap up -d
+```
+
+This extends the SSO setup with an OpenLDAP server and Keycloak LDAP federation:
+
+- **openldap** provides the directory with pre-seeded users and groups
+- **keycloak-ldap-init** federates LDAP into Keycloak (creates user storage provider, role mapper, triggers sync)
+- LDAP users authenticate via Keycloak SSO and inherit Dremio RBAC grants through role mapping
+
+> **Host access:** Same `/etc/hosts` entry as SSO mode is required: `127.0.0.1 keycloak`
+
+### Seed sample data (internal auth mode only)
+
+In SSO mode, `dremio-init` handles seeding automatically. For internal auth mode:
+
+```bash
+docker compose run --rm seed
+```
+
+The seed script creates a `demo` namespace with `demo.customers` (5 rows) and `demo.orders` (6 rows).
+
+In internal auth mode, open **http://localhost:9047** and create a Dremio admin user via the first-user form.
 
 ## Services
 
-| Service  | URL                        | Credentials            |
-|----------|----------------------------|------------------------|
-| Dremio   | http://localhost:9047       | admin / admin123       |
-| MinIO    | http://localhost:9090       | minioadmin / minioadmin|
-| Keycloak | http://localhost:8080/admin | admin / admin          |
-| Nessie   | http://localhost:19120      | OAuth2 via Keycloak    |
+| Service       | URL                        | Credentials            | Mode      |
+|---------------|----------------------------|------------------------|-----------|
+| Dremio        | http://localhost:9047       | (created at first run) | both      |
+| MinIO Console | http://localhost:9090       | minioadmin / minioadmin| both      |
+| Nessie        | http://localhost:19120      | (no auth / OAuth2)     | both      |
+| Keycloak      | http://localhost:8080/admin | admin / admin          | SSO       |
+| OpenLDAP      | (internal only, no host port) | cn=admin,dc=example,dc=org / admin | LDAP |
 
-## Users & RBAC
+> OpenLDAP is only accessible from the Docker network (no host port mapping).
 
-| User    | Password     | Role       | Access                                          |
-|---------|-------------|------------|--------------------------------------------------|
-| admin   | admin123    | (admin)    | Full access to everything                        |
-| alice   | alice123    | analysts   | SELECT on `analytics.*` views                    |
-| bob     | bob12345    | engineers  | SELECT on all views + CREATE_VIEW in engineering |
-| charlie | charlie123  | analysts   | SELECT on `analytics.*` views (same as alice)    |
+## Keycloak Users (SSO mode)
 
-### Spaces & Views
+| User     | Password  | Realm Role | Description                          |
+|----------|-----------|------------|--------------------------------------|
+| admin    | admin123  | ADMIN      | Maps to Dremio admin via role sync   |
+| testuser | testpass  | analysts   | Regular user, analyst role           |
+| alice    | alice123  | analysts   | Regular user, analyst role           |
 
-| Space         | View               | Description                    |
-|---------------|--------------------|--------------------------------|
-| analytics     | customer_overview  | id, name, city                 |
-| analytics     | order_summary      | order_id, customer, product    |
-| analytics     | revenue_by_city    | city, order_count, revenue     |
-| engineering   | raw_customers      | all customer columns           |
-| engineering   | raw_orders         | all order columns              |
+## LDAP Users (SSO + LDAP mode)
 
-### Testing RBAC
+| User           | Password     | LDAP Group | Keycloak Role | Dremio Access                 |
+|----------------|-------------|------------|---------------|-------------------------------|
+| ldap-engineer  | engineer123 | engineers  | engineers     | engineering + analytics views |
+| ldap-analyst   | analyst123  | analysts   | analysts      | analytics views only          |
 
-Login as `alice` — she can query `analytics.customer_overview` but NOT `engineering.raw_customers` (denied).
-Login as `bob` — he can query all views and create new views in the `engineering` space.
+LDAP users log in at http://localhost:9047 using the SSO button. Keycloak federates
+authentication to OpenLDAP and maps LDAP group membership to realm roles, which
+Dremio's role sync maps to RBAC grants.
+
+The `keycloak-init` service automatically:
+- Creates `catalog` and `sign` scopes (for Nessie OAuth2)
+- Creates a `roles` scope with a realm-role mapper (`realm_access.roles` claim)
+- Assigns scopes to the appropriate clients (`client1`, `dremio-web`)
+- Adds an audience mapper to `dremio-web` (required: Dremio validates `aud` contains `dremio-web`)
+- Enables direct access grants on `dremio-web` (allows password-grant token requests)
+
+The `dremio-init` service (SSO mode) automatically:
+- Creates the RESTCATALOG source with OAuth2 credentials for Nessie
+- Seeds sample Iceberg data via PyIceberg
+- Creates spaces (`analytics`, `engineering`), views, roles, and RBAC grants
+- Uses Keycloak JWT for all Dremio API calls
+
+> **Note:** In SSO mode, the first Dremio user is JIT-provisioned on first Keycloak
+> JWT login. The bootstrap endpoint is disabled when `auth.type: "keycloak"`. Users
+> with the `ADMIN` Keycloak role get Dremio admin privileges via role sync.
 
 ## Manual Source Creation (UI)
 
@@ -92,7 +145,7 @@ If you prefer to create the source through the Dremio web UI instead of the seed
    | fs.s3a.connection.ssl.enabled  | false                                                    |
    | dremio.s3.compat               | true                                                     |
    | fs.s3a.aws.credentials.provider| org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider     |
-5. In **Secret Credentials**, add:
+5. In **Secret Credentials**, add (SSO mode only):
    | Property           | Value                                                                        |
    |--------------------|------------------------------------------------------------------------------|
    | oauth2-server-uri  | http://keycloak:8080/realms/iceberg/protocol/openid-connect/token            |
@@ -105,7 +158,7 @@ If you prefer to create the source through the Dremio web UI instead of the seed
 Get a token and query the Nessie REST Catalog:
 
 ```bash
-# Obtain OAuth2 token from Keycloak
+# SSO mode — obtain OAuth2 token from Keycloak
 TOKEN=$(curl -s -X POST \
   http://localhost:8080/realms/iceberg/protocol/openid-connect/token \
   -d "grant_type=client_credentials&client_id=client1&client_secret=s3cr3t&scope=catalog sign" \
@@ -115,15 +168,28 @@ TOKEN=$(curl -s -X POST \
 curl -H "Authorization: Bearer $TOKEN" \
   http://localhost:19120/iceberg/v1/namespaces
 
-# Nessie API v2
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:19120/api/v2/trees
+# Internal auth mode — no token needed
+curl http://localhost:19120/iceberg/v1/namespaces
 ```
 
 ## Troubleshooting
 
-**Nessie returns 401 Unauthorized**
-Keycloak may still be starting. Check `docker compose logs keycloak` and wait for `Listening on: http://0.0.0.0:8080`.
+**Bearer JWT returns 401 on Dremio REST API**
+Check that the JWT `aud` claim contains `dremio-web`. The `keycloak-init` service adds
+an audience mapper for this. Verify: decode the JWT payload and check `aud`. Also ensure
+the `iss` claim matches Dremio's configured `issuer-url` (`http://keycloak:8080/realms/iceberg`).
+
+**Nessie returns 401 Unauthorized (SSO mode)**
+Nessie validates tokens via Keycloak introspection. Ensure `quarkus.oidc.credentials.secret`
+is set in the Nessie SSO config (docker-compose.sso.yml). Without it, Nessie can't
+authenticate to Keycloak's introspection endpoint. Also check that Keycloak is healthy:
+`docker compose logs keycloak`.
+
+**SQL queries fail with "Not authorized" on view expansion**
+This typically means Nessie is rejecting Dremio's metadata requests (Iceberg REST catalog
+layer), not a Dremio RBAC issue. Check `docker compose logs nessie` for 401 responses.
+Ensure the RESTCATALOG source has valid OAuth2 credentials (`oauth2-server-uri`,
+`credential`, `scope` in secretPropertyList).
 
 **Source shows BAD state in Dremio**
 Check `docker compose logs dremio` for connection errors. Verify Nessie is healthy:
@@ -135,10 +201,36 @@ Ensure the `demobucket` was created: `docker compose logs minio-init`. You can a
 **Why are S3 credentials in the source properties?**
 Dremio's `DremioFileIO` replaces the Iceberg SDK's `ResolvingFileIO`, so credential vending from Nessie does not automatically propagate to the Hadoop FileSystem used for Parquet reads. Static S3 credentials must be provided in the source catalog properties.
 
+**LDAP users don't appear in Keycloak**
+Check that `keycloak-ldap-init` completed successfully:
+```bash
+docker compose logs keycloak-ldap-init
+```
+Verify OpenLDAP is healthy: `docker compose logs openldap`. You can manually trigger
+a sync from the Keycloak admin console: Realm settings > User federation > ldap > Synchronize all users.
+
+**LDAP user login fails at Keycloak**
+Ensure the LDAP profile is active (`--profile ldap`). Check that the LDAP federation
+provider is configured: Keycloak admin > User federation. Verify the user exists in LDAP:
+```bash
+docker compose exec openldap ldapsearch -x -b "ou=people,dc=example,dc=org" "(uid=ldap-engineer)"
+```
+
+**LDAP user sees no data in Dremio**
+LDAP users inherit Dremio roles through Keycloak role mapping. Verify the user's
+Keycloak roles: Keycloak admin > Users > ldap-engineer > Role mappings. The user
+should have the `engineers` realm role. If missing, trigger a sync from the LDAP
+federation page in Keycloak admin.
+
 ## Cleanup
 
 ```bash
 docker compose down -v
+# or for SSO mode:
+docker compose -f docker-compose.yml -f docker-compose.sso.yml down --profile sso -v
+# or for SSO + LDAP mode:
+docker compose -f docker-compose.yml -f docker-compose.sso.yml \
+  -f docker-compose.ldap.yml down --profile sso --profile ldap -v
 ```
 
 The `-v` flag removes named volumes (MinIO data, Dremio data).

@@ -1,0 +1,40 @@
+# LDAP overlay — adds OpenLDAP + Keycloak LDAP federation.
+# Requires the SSO overlay. Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.sso.yml \
+#     -f docker-compose.ldap.yml --profile sso --profile ldap up -d
+
+services:
+
+  # ── OpenLDAP directory server ────────────────────────────────────────────────
+  openldap:
+    image: osixia/openldap:1.5.0
+    profiles:
+      - ldap
+    environment:
+      LDAP_ORGANISATION: "Example"
+      LDAP_DOMAIN: "example.org"
+      LDAP_ADMIN_PASSWORD: "admin"
+    volumes:
+      - ./keycloak/ldap-seed.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/50-seed.ldif:ro
+    command: --copy-service
+    healthcheck:
+      test: ["CMD-SHELL", "ldapsearch -x -H ldap://localhost:389 -D cn=admin,dc=example,dc=org -w admin -b dc=example,dc=org -s base"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 10
+
+  # ── One-shot: federate LDAP into Keycloak ───────────────────────────────────
+  keycloak-ldap-init:
+    image: alpine/curl:latest
+    profiles:
+      - ldap
+    depends_on:
+      keycloak-init:
+        condition: service_completed_successfully
+      openldap:
+        condition: service_healthy
+    restart: "no"
+    volumes:
+      - ./keycloak/keycloak-ldap-init.sh:/keycloak-ldap-init.sh:ro
+    entrypoint: ["/bin/sh", "-c", "apk add --no-cache jq >/dev/null 2>&1 && /bin/sh /keycloak-ldap-init.sh"]

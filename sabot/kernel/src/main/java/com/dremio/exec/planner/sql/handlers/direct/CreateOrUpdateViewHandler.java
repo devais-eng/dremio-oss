@@ -573,8 +573,7 @@ public class CreateOrUpdateViewHandler extends SimpleDirectHandler {
     List<String> explicitRoleIds = new ArrayList<>();
     for (Membership m : memberships) {
       String roleId = m.getRoleId();
-      if (!RbacService.ADMIN_ROLE_ID.equals(roleId)
-          && !RbacService.PUBLIC_ROLE_ID.equals(roleId)) {
+      if (!RbacService.ADMIN_ROLE_ID.equals(roleId) && !RbacService.PUBLIC_ROLE_ID.equals(roleId)) {
         explicitRoleIds.add(roleId);
       }
     }

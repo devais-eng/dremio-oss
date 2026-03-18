@@ -18,6 +18,7 @@ package com.dremio.service.flight.auth2;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 
 import com.dremio.service.flight.BasicFlightAuthenticationTest;
 import com.dremio.service.users.UserLoginException;
@@ -33,17 +34,26 @@ import org.junit.Test;
 /** Unit tests for DremioCredentialValidator. */
 public class TestDremioCredentialValidator extends BasicFlightAuthenticationTest {
   private DremioCredentialValidator credentialValidator;
+  private DremioCredentialValidator credentialValidatorNoKeycloak;
 
   @Before
   @Override
-  public void setup() throws UserLoginException {
+  public void setup() throws UserLoginException, java.text.ParseException {
     super.setup();
-    credentialValidator = new DremioCredentialValidator(getMockUserServiceProvider());
+    credentialValidator =
+        new DremioCredentialValidator(
+            getMockUserServiceProvider(),
+            getMockOidcTokenValidator(),
+            getMockJitProvisioner(),
+            getMockRoleSyncer());
+    credentialValidatorNoKeycloak =
+        new DremioCredentialValidator(getMockUserServiceProvider(), null, null, null);
   }
 
   @After
   public void tearDown() throws Exception {
     credentialValidator = null;
+    credentialValidatorNoKeycloak = null;
   }
 
   @Test
@@ -72,6 +82,58 @@ public class TestDremioCredentialValidator extends BasicFlightAuthenticationTest
     // Act
     try {
       credentialValidator.validate("BadUserName", "BadPassword");
+      testFailed();
+    } catch (FlightRuntimeException exception) {
+      assertEquals(FlightStatusCode.UNAUTHENTICATED, exception.status().code());
+    }
+  }
+
+  @Test
+  public void testValidateWithKeycloakJwt() throws Exception {
+    // Act
+    AuthResult result = credentialValidator.validate("ignored", KC_JWT);
+
+    // Assert - peer identity is the Keycloak username
+    assertEquals(KC_USERNAME, result.getPeerIdentity());
+
+    // Verify OidcTokenValidator was called
+    verify(getMockOidcTokenValidator()).validateWithClaims(KC_JWT);
+  }
+
+  @Test
+  public void testValidateWithKeycloakJwtCallsJitAndRoleSync() throws Exception {
+    // Act
+    credentialValidator.validate("ignored", KC_JWT);
+
+    // Verify JIT provisioning was called
+    verify(getMockJitProvisioner()).provision(KC_USERNAME, KC_EMAIL);
+
+    // Verify role sync was called
+    verify(getMockRoleSyncer()).syncRoles(KC_USERNAME, KC_REALM_ROLES);
+  }
+
+  @Test
+  public void testValidateWithInvalidKeycloakJwt() throws Exception {
+    // Act
+    try {
+      credentialValidator.validate("ignored", "eyJinvalid");
+      testFailed();
+    } catch (FlightRuntimeException exception) {
+      assertEquals(FlightStatusCode.UNAUTHENTICATED, exception.status().code());
+    }
+  }
+
+  @Test
+  public void testValidateWithKeycloakJwtNoOidcConfigured() throws Exception {
+    // Arrange - validator without Keycloak (null OidcTokenValidator)
+    // eyJ-prefixed password falls through to Dremio auth path
+    doThrow(new UserLoginException(USERNAME, "Invalid User credentials"))
+        .when(getMockUserService())
+        .authenticate(eq(USERNAME), eq(KC_JWT));
+
+    // Act - should fall through to Dremio auth (no NPE), then fail with UNAUTHENTICATED
+    try {
+      credentialValidatorNoKeycloak.validate(USERNAME, KC_JWT);
       testFailed();
     } catch (FlightRuntimeException exception) {
       assertEquals(FlightStatusCode.UNAUTHENTICATED, exception.status().code());

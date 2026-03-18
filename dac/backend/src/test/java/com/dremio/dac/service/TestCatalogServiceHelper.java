@@ -2610,9 +2610,9 @@ public class TestCatalogServiceHelper {
   // ---------------------------------------------------------------------------
 
   /**
-   * LOGIC-01: Non-admin with RBAC enabled sees only the dataset they have SELECT grant on.
-   * Space "myspace" has 2 VDS children + 1 folder; only one VDS is visible. Expects count = 1.
-   * RED until Task 1 replaces getDatasetCount() with RBAC-filtered list().
+   * LOGIC-01: Non-admin with RBAC enabled sees only the dataset they have SELECT grant on. Space
+   * "myspace" has 2 VDS children + 1 folder; only one VDS is visible. Expects count = 1. RED until
+   * Task 1 replaces getDatasetCount() with RBAC-filtered list().
    */
   @Test
   public void testDatasetCount_rbacEnabled_nonAdmin_returnsFilteredCount() throws Exception {
@@ -2633,9 +2633,10 @@ public class TestCatalogServiceHelper {
     when(mockNamespaceService.getTopLevelFunctions()).thenReturn(ImmutableList.of());
     when(sourceService.getSources()).thenReturn(ImmutableList.of());
     // getHome throws NamespaceException — caught and skipped
-    when(mockNamespaceService.getHome(any())).thenThrow(
-        new com.dremio.service.namespace.NamespaceNotFoundException(
-            new com.dremio.service.namespace.NamespaceKey("user"), "not found"));
+    when(mockNamespaceService.getHome(any()))
+        .thenThrow(
+            new com.dremio.service.namespace.NamespaceNotFoundException(
+                new com.dremio.service.namespace.NamespaceKey("user"), "not found"));
 
     // Three children when datasetCount.addInfo() calls list(): 2 VDS + 1 folder
     NameSpaceContainer vds1 = vdsContainer("myspace", "view1");
@@ -2648,18 +2649,17 @@ public class TestCatalogServiceHelper {
         rbacEnabledHelper.getTopLevelCatalogItems(ImmutableList.of("datasetCount"));
 
     // Find the "myspace" item and check its dataset count
-    Optional<? extends CatalogItem> spaceItem = items.stream()
-        .filter(i -> i.getPath().contains("myspace"))
-        .findFirst();
+    Optional<? extends CatalogItem> spaceItem =
+        items.stream().filter(i -> i.getPath().contains("myspace")).findFirst();
     assertTrue(spaceItem.isPresent());
     // Only view1 is visible — count should be 1
     assertEquals(1, (int) spaceItem.get().getStats().getDatasetCount());
   }
 
   /**
-   * LOGIC-01: RBAC disabled (null rbacService) — all datasets counted unfiltered.
-   * Space "myspace" has 2 VDS children. Expects count = 2.
-   * RED until Task 1 replaces getDatasetCount() with list()-based count.
+   * LOGIC-01: RBAC disabled (null rbacService) — all datasets counted unfiltered. Space "myspace"
+   * has 2 VDS children. Expects count = 2. RED until Task 1 replaces getDatasetCount() with
+   * list()-based count.
    */
   @Test
   public void testDatasetCount_rbacDisabled_returnsUnfilteredCount() throws Exception {
@@ -2670,9 +2670,10 @@ public class TestCatalogServiceHelper {
     when(mockNamespaceService.getSpaces()).thenReturn(ImmutableList.of(spaceConfig));
     when(mockNamespaceService.getTopLevelFunctions()).thenReturn(ImmutableList.of());
     when(sourceService.getSources()).thenReturn(ImmutableList.of());
-    when(mockNamespaceService.getHome(any())).thenThrow(
-        new com.dremio.service.namespace.NamespaceNotFoundException(
-            new com.dremio.service.namespace.NamespaceKey("user"), "not found"));
+    when(mockNamespaceService.getHome(any()))
+        .thenThrow(
+            new com.dremio.service.namespace.NamespaceNotFoundException(
+                new com.dremio.service.namespace.NamespaceKey("user"), "not found"));
 
     NameSpaceContainer vds1 = vdsContainer("myspace", "view1");
     NameSpaceContainer vds2 = vdsContainer("myspace", "view2");
@@ -2682,17 +2683,16 @@ public class TestCatalogServiceHelper {
     List<? extends CatalogItem> items =
         catalogServiceHelperWithMockNs.getTopLevelCatalogItems(ImmutableList.of("datasetCount"));
 
-    Optional<? extends CatalogItem> spaceItem = items.stream()
-        .filter(i -> i.getPath().contains("myspace"))
-        .findFirst();
+    Optional<? extends CatalogItem> spaceItem =
+        items.stream().filter(i -> i.getPath().contains("myspace")).findFirst();
     assertTrue(spaceItem.isPresent());
     assertEquals(2, (int) spaceItem.get().getStats().getDatasetCount());
   }
 
   /**
-   * LOGIC-01: Admin user sees unfiltered dataset count even with RBAC enabled.
-   * Space "myspace" has 2 VDS children. Expects count = 2.
-   * RED until Task 1 replaces getDatasetCount() with list()-based count.
+   * LOGIC-01: Admin user sees unfiltered dataset count even with RBAC enabled. Space "myspace" has
+   * 2 VDS children. Expects count = 2. RED until Task 1 replaces getDatasetCount() with
+   * list()-based count.
    */
   @Test
   public void testDatasetCount_admin_returnsUnfilteredCount() throws Exception {
@@ -2704,9 +2704,10 @@ public class TestCatalogServiceHelper {
     when(mockNamespaceService.getSpaces()).thenReturn(ImmutableList.of(spaceConfig));
     when(mockNamespaceService.getTopLevelFunctions()).thenReturn(ImmutableList.of());
     when(sourceService.getSources()).thenReturn(ImmutableList.of());
-    when(mockNamespaceService.getHome(any())).thenThrow(
-        new com.dremio.service.namespace.NamespaceNotFoundException(
-            new com.dremio.service.namespace.NamespaceKey("user"), "not found"));
+    when(mockNamespaceService.getHome(any()))
+        .thenThrow(
+            new com.dremio.service.namespace.NamespaceNotFoundException(
+                new com.dremio.service.namespace.NamespaceKey("user"), "not found"));
 
     NameSpaceContainer vds1 = vdsContainer("myspace", "view1");
     NameSpaceContainer vds2 = vdsContainer("myspace", "view2");
@@ -2716,9 +2717,8 @@ public class TestCatalogServiceHelper {
     List<? extends CatalogItem> items =
         rbacEnabledHelper.getTopLevelCatalogItems(ImmutableList.of("datasetCount"));
 
-    Optional<? extends CatalogItem> spaceItem = items.stream()
-        .filter(i -> i.getPath().contains("myspace"))
-        .findFirst();
+    Optional<? extends CatalogItem> spaceItem =
+        items.stream().filter(i -> i.getPath().contains("myspace")).findFirst();
     assertTrue(spaceItem.isPresent());
     assertEquals(2, (int) spaceItem.get().getStats().getDatasetCount());
   }

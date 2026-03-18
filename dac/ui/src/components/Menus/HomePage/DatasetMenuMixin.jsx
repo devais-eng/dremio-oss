@@ -45,8 +45,7 @@ export default function (input) {
 
       const isAdmin = localStorageUtils.isUserAnAdmin();
       const entityPermissions = entity.get("permissions");
-      const hasAlter =
-        isAdmin || entityPermissions?.get("canAlter");
+      const hasAlter = isAdmin || entityPermissions?.get("canAlter");
       const hasDelete =
         isAdmin ||
         entityPermissions?.get("canDelete") ||
@@ -172,8 +171,7 @@ export default function (input) {
 
       const isAdmin = localStorageUtils.isUserAnAdmin();
       const entityPermissions = entity.get("permissions");
-      const hasAlter =
-        isAdmin || entityPermissions?.get("canAlter");
+      const hasAlter = isAdmin || entityPermissions?.get("canAlter");
       const hasDelete =
         isAdmin ||
         entityPermissions?.get("canDelete") ||

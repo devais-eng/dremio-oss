@@ -175,8 +175,7 @@ public class ReflectionResource {
     NameSpaceContainer entity = container.get();
     String objectPath = String.join(".", entity.getFullPathList());
     String objectType =
-        entity.getDataset() != null
-                && entity.getDataset().getType() == DatasetType.VIRTUAL_DATASET
+        entity.getDataset() != null && entity.getDataset().getType() == DatasetType.VIRTUAL_DATASET
             ? "VDS"
             : "PDS";
     if (!rbacService.hasPrivilege(userName, "ALTER", objectType, objectPath)) {

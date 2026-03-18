@@ -59,7 +59,8 @@ public class TestDACSecurityContext {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
 
     DACSecurityContext ctx = context(BOB, rbacService, dremioConfig);
-    assertFalse("Non-admin user should not be in admin role when RBAC is enabled",
+    assertFalse(
+        "Non-admin user should not be in admin role when RBAC is enabled",
         ctx.isUserInRole("admin"));
   }
 
@@ -75,8 +76,8 @@ public class TestDACSecurityContext {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
 
     DACSecurityContext ctx = context(ALICE, rbacService, dremioConfig);
-    assertTrue("Admin user should be in admin role when RBAC is enabled",
-        ctx.isUserInRole("admin"));
+    assertTrue(
+        "Admin user should be in admin role when RBAC is enabled", ctx.isUserInRole("admin"));
   }
 
   // ---------------------------------------------------------------------------
@@ -89,8 +90,8 @@ public class TestDACSecurityContext {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
 
     DACSecurityContext ctx = context(BOB, null, dremioConfig);
-    assertTrue("Null rbacService should fall back to true (open-by-default)",
-        ctx.isUserInRole("admin"));
+    assertTrue(
+        "Null rbacService should fall back to true (open-by-default)", ctx.isUserInRole("admin"));
   }
 
   // ---------------------------------------------------------------------------
@@ -103,8 +104,8 @@ public class TestDACSecurityContext {
     when(rbacService.isAdminMember(BOB)).thenReturn(false);
 
     DACSecurityContext ctx = context(BOB, rbacService, null);
-    assertTrue("Null dremioConfig should fall back to true (open-by-default)",
-        ctx.isUserInRole("admin"));
+    assertTrue(
+        "Null dremioConfig should fall back to true (open-by-default)", ctx.isUserInRole("admin"));
   }
 
   // ---------------------------------------------------------------------------
@@ -119,8 +120,8 @@ public class TestDACSecurityContext {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(false);
 
     DACSecurityContext ctx = context(BOB, rbacService, dremioConfig);
-    assertTrue("RBAC disabled should fall back to true (backward-compatible)",
-        ctx.isUserInRole("admin"));
+    assertTrue(
+        "RBAC disabled should fall back to true (backward-compatible)", ctx.isUserInRole("admin"));
   }
 
   // ---------------------------------------------------------------------------
@@ -136,7 +137,8 @@ public class TestDACSecurityContext {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
 
     DACSecurityContext ctx = context(BOB, rbacService, dremioConfig);
-    assertTrue("'user' role should always return true for any authenticated user",
+    assertTrue(
+        "'user' role should always return true for any authenticated user",
         ctx.isUserInRole("user"));
   }
 
@@ -152,7 +154,8 @@ public class TestDACSecurityContext {
     when(dremioConfig.getBoolean(DremioConfig.RBAC_ENABLED)).thenReturn(true);
 
     DACSecurityContext ctx = context(BOB, rbacService, dremioConfig);
-    assertTrue("Any non-'admin' role string should always return true",
+    assertTrue(
+        "Any non-'admin' role string should always return true",
         ctx.isUserInRole("some_custom_role"));
   }
 
@@ -163,7 +166,8 @@ public class TestDACSecurityContext {
   @Test
   public void testSystem_isUserInRole_admin_returnsTrue() {
     SecurityContext systemCtx = DACSecurityContext.system();
-    assertTrue("system() context must return true for 'admin' role (null rbacService fallback)",
+    assertTrue(
+        "system() context must return true for 'admin' role (null rbacService fallback)",
         systemCtx.isUserInRole("admin"));
   }
 }

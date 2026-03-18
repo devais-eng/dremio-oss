@@ -1,0 +1,91 @@
+# SSO overlay — adds Keycloak auth to Nessie and SSO config to Dremio.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.sso.yml --profile sso up
+#
+# For browser access (OIDC redirect flow), add to /etc/hosts:
+#   127.0.0.1 keycloak
+#
+# This overlay:
+#   - Enables OIDC authentication on Nessie (via Keycloak)
+#   - Mounts dremio-sso.conf so Dremio uses Keycloak for web login
+#   - Adds keycloak dependency to nessie and dremio
+#   - Adds OAuth2 credentials to the seed service
+
+services:
+
+  nessie:
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+    environment:
+      # Version store
+      - nessie.version.store.type=IN_MEMORY
+
+      # Warehouse
+      - nessie.catalog.default-warehouse=warehouse
+      - nessie.catalog.warehouses.warehouse.location=s3://demobucket/
+
+      # S3 / MinIO
+      - nessie.catalog.service.s3.default-options.endpoint=http://minio:9000/
+      - nessie.catalog.service.s3.default-options.external-endpoint=http://minio:9000/
+      - nessie.catalog.service.s3.default-options.path-style-access=true
+      - nessie.catalog.service.s3.default-options.region=us-east-1
+
+      # S3 credentials
+      - nessie.catalog.service.s3.default-options.access-key=urn:nessie-secret:quarkus:nessie.catalog.secrets.access-key
+      - nessie.catalog.secrets.access-key.name=minioadmin
+      - nessie.catalog.secrets.access-key.secret=minioadmin
+
+      # OIDC authentication (Keycloak) — overrides base auth.enabled=false
+      - nessie.server.authentication.enabled=true
+      - quarkus.oidc.auth-server-url=http://keycloak:8080/realms/iceberg
+      - quarkus.oidc.client-id=client1
+      - quarkus.oidc.credentials.secret=s3cr3t
+      - quarkus.oidc.token.issuer=http://keycloak:8080/realms/iceberg
+
+  dremio:
+    depends_on:
+      nessie:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    volumes:
+      - dremio-data:/opt/dremio/data
+      - ./dremio-sso.conf:/opt/dremio/conf/dremio.conf:ro
+
+  dremio-init:
+    depends_on:
+      dremio:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      keycloak-init:
+        condition: service_completed_successfully
+    environment:
+      DREMIO_URL: "http://dremio:9047"
+      KC_URL: "http://keycloak:8080"
+      KC_REALM: "iceberg"
+      KC_CLIENT: "dremio-web"
+      KC_SECRET: "dremio-secret"
+      ADMIN_USER: "admin"
+      ADMIN_PASS: "admin123"
+      NESSIE_URI: "http://nessie:19120/iceberg/"
+      OAUTH2_SERVER_URI: "http://keycloak:8080/realms/iceberg/protocol/openid-connect/token"
+      CREDENTIAL: "client1:s3cr3t"
+      WAREHOUSE: "warehouse"
+      S3_ENDPOINT: "http://minio:9000"
+      S3_ACCESS_KEY: "minioadmin"
+      S3_SECRET_KEY: "minioadmin"
+
+  seed:
+    environment:
+      NESSIE_URI: "http://nessie:19120/iceberg/"
+      OAUTH2_SERVER_URI: "http://keycloak:8080/realms/iceberg/protocol/openid-connect/token"
+      CREDENTIAL: "client1:s3cr3t"
+      WAREHOUSE: "warehouse"
+      S3_ENDPOINT: "http://minio:9000"
+      S3_ACCESS_KEY: "minioadmin"
+      S3_SECRET_KEY: "minioadmin"

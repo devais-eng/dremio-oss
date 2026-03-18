@@ -118,7 +118,6 @@ import com.dremio.plugins.ExternalNamespaceEntry;
 import com.dremio.plugins.sysflight.SysFlightStoragePlugin;
 import com.dremio.service.jobs.SqlQuery;
 import com.dremio.service.jobs.metadata.QueryMetadata;
-import com.dremio.service.namespace.BoundedDatasetCount;
 import com.dremio.service.namespace.NamespaceAttribute;
 import com.dremio.service.namespace.NamespaceException;
 import com.dremio.service.namespace.NamespaceKey;
@@ -1308,8 +1307,8 @@ public class CatalogServiceHelper {
   }
 
   /**
-   * Enforces RBAC update privileges for catalog entity updates. Admin users bypass all checks.
-   * When RBAC is disabled the method is a no-op (three-way null guard).
+   * Enforces RBAC update privileges for catalog entity updates. Admin users bypass all checks. When
+   * RBAC is disabled the method is a no-op (three-way null guard).
    */
   private void enforceUpdatePrivilege(CatalogEntity entity) {
     if (rbacService == null

@@ -20,6 +20,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dremio.service.flight.BasicFlightAuthenticationTest;
@@ -42,13 +43,16 @@ public class TestDremioBearerTokenAuthenticator extends BasicFlightAuthenticatio
 
   @Before
   @Override
-  public void setup() throws UserLoginException {
+  public void setup() throws UserLoginException, java.text.ParseException {
     super.setup();
     bearerTokenAuthenticator =
         new DremioBearerTokenAuthenticator(
             getMockUserServiceProvider(),
             getMockTokenManagerProvider(),
-            getMockDremioFlightSessionsManager());
+            getMockDremioFlightSessionsManager(),
+            getMockOidcTokenValidator(),
+            getMockJitProvisioner(),
+            getMockRoleSyncer());
   }
 
   @After
@@ -125,5 +129,21 @@ public class TestDremioBearerTokenAuthenticator extends BasicFlightAuthenticatio
     } catch (FlightRuntimeException exception) {
       assertEquals(FlightStatusCode.UNAUTHENTICATED, exception.status().code());
     }
+  }
+
+  @Test
+  public void testValidateBearerWithKeycloakJwt() throws Exception {
+    // Act - KC_JWT starts with eyJ, should be validated via OidcTokenValidator
+    final AuthResult result = bearerTokenAuthenticator.validateBearer(KC_JWT);
+
+    // Assert - peer identity is the newly minted Dremio token (TOKEN, since createToken returns
+    // TOKEN_DETAILS)
+    assertEquals(TOKEN, result.getPeerIdentity());
+
+    // Verify OIDC validator was called
+    verify(getMockOidcTokenValidator()).validateWithClaims(KC_JWT);
+
+    // Verify Dremio token was minted for the Keycloak username
+    verify(getMockTokenManager()).createToken(KC_USERNAME, null);
   }
 }

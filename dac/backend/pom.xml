@@ -203,6 +203,11 @@
     </dependency>
     <dependency>
       <groupId>com.dremio.services</groupId>
+      <artifactId>dremio-services-keycloak</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.dremio.services</groupId>
       <artifactId>dremio-services-coordinator</artifactId>
     </dependency>
     <dependency>

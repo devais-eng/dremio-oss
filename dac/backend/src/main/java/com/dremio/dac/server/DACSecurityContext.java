@@ -104,8 +104,8 @@ public class DACSecurityContext implements SecurityContext {
   }
 
   /**
-   * Creates a security context for internal/system operations. The null rbacService ensures
-   * {@link #isUserInRole(String)} always returns {@code true}, so system operations bypass all role
+   * Creates a security context for internal/system operations. The null rbacService ensures {@link
+   * #isUserInRole(String)} always returns {@code true}, so system operations bypass all role
    * checks.
    */
   public static SecurityContext system() {

@@ -2,9 +2,11 @@
 
 **Research Date (v1.0):** 2026-02-17
 **Research Date (v2.0 additions):** 2026-02-20
+**Research Date (v1.5 Keycloak additions):** 2026-03-12
 **Scope:**
 - P1–P14: Adding deny-by-default RBAC to Dremio OSS — catalog-level enforcement via `CatalogImpl.validatePrivilege()` (v1.0)
 - P15–P27: Adding privilege context switching (VDS definer rights, UDF invoker rights), table-level SELECT on PDS, container visibility filtering, and VDS lifecycle privileges (ALTER, DROP) to the existing v1.0 system (v2.0)
+- P28–P41: Adding Keycloak OIDC as a pluggable IdP to the existing internal-auth + RBAC system (v1.5)
 
 ---
 
@@ -597,55 +599,450 @@ Low probability in production; higher risk in test environments where grants wer
 - Intermittent `ConcurrentModificationException` in `ViewExpansionContext` under concurrent query load.
 - Preconditions assertions fire in `releaseViewExpansionToken()` under parallel planning workloads.
 
-**Phase:** v2.0 Definer Rights Implementation — Phase 1. Verify threading model before adding per-definer state.
+---
+
+---
+## v1.5 Keycloak OIDC Integration Pitfalls
+
+**Domain:** Pluggable IdP (Keycloak OIDC) added to existing Java app with internal auth + RBAC
+**Researched:** 2026-03-12
+**Confidence:** HIGH (most pitfalls directly verified against Dremio source code)
 
 ---
 
-## Summary Table
+## P28 — JWT Issuer and Audience Not Validated: Any Keycloak Token Works
 
-| # | Pitfall | Milestone | Phase |
-|---|---------|-----------|-------|
-| P1 | Bootstrap deadlock: who grants the first ADMIN | v1.0 | Phase 1 |
-| P2 | SYSTEM_USERNAME as a silent backdoor | v1.0 | Phase 1 |
-| P3 | Definer-rights confusion: checking the wrong layer | v1.0 | Phase 1 |
-| P4 | Access path gaps: SQL is not the only door | v1.0 | Phase 2 |
-| P5 | Cache invalidation when grants change | v1.0 | Phase 1 |
-| P6 | Performance: KV lookup on every catalog resolution | v1.0 | Optimization |
-| P7 | Migration lock-out: existing views/UDFs have no owner | v1.0 | Migration |
-| P8 | EE conflict: clobbering the Enterprise RBAC | v1.0 | Design |
-| P9 | Implicit ADMIN: internal operations blocked by wrong identity | v1.0 | Phase 1 |
-| P10 | INFORMATION_SCHEMA leaks object existence | v1.0 | Phase 2 |
-| P11 | Error messages reveal object existence | v1.0 | Phase 1 |
-| P12 | KV store schema evolution: protobuf changes break records | v1.0 | Design |
-| P13 | DACSecurityContext.isUserInRole() time bomb | v1.0 | Phase 2 |
-| P14 | Using the deprecated LegacyKVStore API | v1.0 | Phase 1 |
-| P15 | Stale definer identity: frozen grant snapshot | v2.0 | Phase 1 |
-| P16 | Wrong CatalogImpl instance in inner definer check | v2.0 | Phase 1 |
-| P17 | Missing cycle guard in VDS-over-VDS definer chain | v2.0 | Phase 1 |
-| P18 | UDF invoker vs definer rights: unresolved design | v2.0 | Phase 1 |
-| P19 | Container visibility: O(n) tree walk per listing | v2.0 | Phase 2 |
-| P20 | Container visibility amplifies pagination shortfall | v2.0 | Phase 2 |
-| P21 | PDS SELECT grant key collides with VDS objectType | v2.0 | Phase 3 |
-| P22 | EXPLAIN PLAN reveals physical table names via definer | v2.0 | Phase 1 |
-| P23 | Plan cache key excludes definer identity | v2.0 | Phase 1 |
-| P24 | Deleted definer falls back silently to query user | v2.0 | Phase 1 |
-| P25 | Inner VDS check fires under definer, breaks VDS-over-VDS | v2.0 | Phase 1 |
-| P26 | ALTER/DROP grant stubs activate silently in v2.0 | v2.0 | Phase 4 |
-| P27 | ViewExpansionContext not thread-safe under parallel planning | v2.0 | Phase 1 |
+**What goes wrong:**
+The existing `JWTValidatorImpl` calls `jwtProcessor.process(jwt, null)` and then resolves the subject via `userResolverProvider.get().getUser(new UID(jwtClaimsSet.getSubject()))`. The `JWTProcessor` built by `JWTProcessorFactory` validates the signature and expiry but may not validate `iss` (issuer) or `aud` (audience) claims unless explicitly configured. Without issuer validation, a JWT from any Keycloak realm on any server — or from another OIDC provider entirely — passes signature verification if it uses the same key material. Without audience validation, a token issued for a different client application is accepted.
+
+**Why it happens:**
+Nimbus JOSE+JWT's `DefaultJWTProcessor` validates signature and expiry by default. Claims-set validation (issuer, audience, not-before) requires explicit addition of a `JWTClaimsSetVerifier` or equivalent. Developers wiring up JWKS validation focus on the key fetching and signature steps and miss the claims validation step.
+
+**Consequences:**
+Keycloak realm `A` issues tokens for client `frontend-app`. Keycloak realm `B` is a test realm with weaker policies. If both use the same JWKS endpoint or the validator is not checking `iss`, tokens from realm B are accepted by Dremio. Tokens issued for `frontend-app` are also accepted for `dremio-api` access even if the Dremio client scope was never granted to `frontend-app`.
+
+**Prevention:**
+1. When building the `JWTProcessor`, add a `DefaultJWTClaimsVerifier` configured with the expected issuer (`https://keycloak-host/realms/your-realm`) and the expected audience (the Dremio client ID in Keycloak, e.g., `dremio`). Reject tokens that do not match both values exactly.
+2. Use Nimbus JOSE+JWT's `DefaultJWTClaimsVerifier` with `exactMatchClaims` set to `{iss: "<realm-url>", aud: "<client-id>"}`. Mark both `iss` and `aud` as required claims.
+3. Store the expected issuer and client ID in `dremio.conf` (e.g., `services.keycloak.issuer-uri` and `services.keycloak.client-id`). Do not hardcode them.
+4. Test: generate a token from a different realm; assert it is rejected with a clear "invalid issuer" error.
+
+**Warning signs:**
+- JWT validation accepts tokens from test realms or different environments.
+- No `iss` or `aud` claim checks appear in the JWT validation path.
+
+**Phase:** v1.5 Phase 1 (JWT validation infrastructure) — must be enforced before any Keycloak token is accepted.
 
 ---
 
-## v2.0 Integration Pitfalls with v1.0
+## P29 — Clock Skew Causes Spurious Authentication Failures
 
-| v1.0 Design Decision | v2.0 Impact | What to Verify |
-|----------------------|-------------|----------------|
-| `isRbacDeniedForVds()` fires on every `getTable()` | During definer expansion, inner views trigger this check under the definer's identity | Add `isInDefinerContext` flag (P25) |
-| `isRbacDeniedForVds()` skips PDS (`!(table instanceof ViewTable)`) | When adding PDS SELECT, must add a parallel check — the skip is no longer universal | Add `isRbacDeniedForPds()` method (P21) |
-| `resolveRbacObjectType()` defaults to `"VDS"` for ALTER/DROP | ALTER/DROP stubs already exist; activating them requires only a grant being present | Scan for pre-existing ALTER/DROP grants (P26) |
-| No plan cache user-scoping | Plan cache does not include user identity or definer chain | Hash definer chain into cache key (P23) |
-| `UserNotFoundException` fallback in `ViewExpander` | Silently changes security boundary when definer is deleted | Replace with explicit error (P24) |
-| Grant store scan is O(grants) for all listing operations | Container visibility adds another listing query layer | Use prefix scan, not per-row check (P19) |
+**What goes wrong:**
+JWT `exp` (expiration) and `nbf` (not-before) claims are validated against the server's system clock. Keycloak and Dremio may run on different hosts with small but non-zero clock differences. A 5-second clock difference means a token issued by Keycloak at T=0 with `nbf=T` may be rejected by Dremio at T=-3 (Dremio's clock is 3 seconds behind Keycloak). Token expiry within a few seconds of the true expiry also produces spurious rejections: a user who just received a fresh token gets 401 from Dremio.
+
+**Why it happens:**
+Default Nimbus JOSE+JWT clock tolerance is 0 seconds. Real-world Docker/Kubernetes deployments routinely have 1–10 second clock drift between containers. NTP synchronisation reduces but does not eliminate this.
+
+**Consequences:**
+Users experience intermittent "token expired" or "token not yet valid" errors immediately after login. The failures are not reproducible in dev environments where all processes run on the same host but appear in production where Keycloak and Dremio are on separate nodes.
+
+**Prevention:**
+1. Set a clock skew tolerance of 30 seconds when building the Nimbus `DefaultJWTClaimsVerifier`. Pass `new ClockSkewAware(30, TimeUnit.SECONDS)` or equivalent to the processor. This matches Keycloak's own default clock skew allowance.
+2. Document the configured skew in `dremio.conf` as `services.keycloak.allowed-clock-skew-seconds` (default: 30). Expose it as a configuration option, not a hardcoded constant.
+3. In production Docker deployments, configure chrony/NTP in all containers or use host clock sync. Clock skew tolerance is a defence-in-depth measure, not a substitute for time synchronisation.
+
+**Warning signs:**
+- `nbf` or `exp` validation failures appear in logs only when Dremio and Keycloak are on separate hosts.
+- Failures resolve themselves within 30–60 seconds without code changes.
+
+**Phase:** v1.5 Phase 1 (JWT validation infrastructure).
 
 ---
 
-*v1.0 pitfall research: 2026-02-17. v2.0 pitfall research: 2026-02-20. Codebase: rbac branch, commit 2cc3b3c3d.*
+## P30 — JWKS Cache Not Refreshed After Keycloak Key Rotation
+
+**What goes wrong:**
+Dremio's existing `RemoteJWKSetManager` uses a 24-hour JWKS cache TTL for the secondary coordinator's copy of the master coordinator's internal JWK set. The same pattern applied to external Keycloak JWKs means a key rotation in Keycloak (Keycloak recommends rotating keys periodically; it can also happen on restart) takes up to 24 hours to propagate. During that window, signature verification fails for all tokens signed with the new key.
+
+**Why it happens:**
+The 24-hour TTL was acceptable for the internal Dremio JWKS (which almost never rotates in practice). Keycloak keys can rotate more frequently, and a failed cluster upgrade or security incident may force immediate rotation. The existing cache does not implement the standard mitigation: re-fetch the JWKS when an unknown `kid` is encountered in an incoming token.
+
+**Consequences:**
+Keycloak rotates its signing key. All new tokens are signed with the new key. Dremio's JWKS cache still contains only the old key. All token validations fail until the cache expires. Users are locked out for up to 24 hours.
+
+**Prevention:**
+1. Implement the `kid`-based cache refresh pattern: before rejecting a token with "unknown key ID", attempt to refresh the JWKS from the Keycloak `jwks_uri` endpoint once. If the new key is found, update the cache and re-validate. If not, reject.
+2. Use a shorter TTL for the external Keycloak JWKS cache: 1–4 hours is appropriate. Combine with negative-cache prevention (always attempt a refresh on unknown `kid` regardless of TTL).
+3. Keycloak's JWKS endpoint returns `Cache-Control` headers. Honour them — the `max-age` directive from Keycloak should drive the cache TTL rather than a hardcoded constant.
+4. Test: configure Dremio with Keycloak. Get a valid token. Rotate the Keycloak realm key (via Keycloak admin API). Issue a new token. Verify Dremio accepts it without a restart.
+
+**Warning signs:**
+- Token validation fails after any Keycloak restart or key rotation.
+- Dremio log shows "unknown kid" errors for tokens that Keycloak confirms are valid.
+
+**Phase:** v1.5 Phase 1 (JWKS fetching and caching) — design kid-refresh before implementing the cache.
+
+---
+
+## P31 — JIT Provisioning Race Condition: Duplicate User Creation on Concurrent First Logins
+
+**What goes wrong:**
+JIT provisioning creates a Dremio user account on first Keycloak login: the filter checks whether a user with the given username exists in `SimpleUserService`; if not, it calls `userService.createUser(...)`. Under concurrent load — two browser tabs logging in simultaneously, or a client retry — two concurrent requests may both observe "user not found" and both attempt `createUser`. `SimpleUserService.createUser()` uses KVStore `PUT_CREATE` semantics (via `LegacyIndexedStore`), so the second write may succeed, fail with a conflict exception, or silently overwrite the first write depending on the KV implementation path.
+
+**Why it happens:**
+The check-then-act pattern (`if !exists → create`) is not atomic in `SimpleUserService`. The method is not synchronized, and RocksDB's `PUT_CREATE` semantics are not exposed via `LegacyIndexedStore`. In the standard `SimpleUserService.createUser()`, a `getUser()` existence check is followed by a `put()` without a distributed lock.
+
+**Consequences:**
+Best case: second create fails with a duplicate exception and the second login request returns 500, but eventual retry succeeds. Worst case: two user records are created with the same username but different UIDs, corrupting the user store. RBAC membership records keyed by username are then ambiguous.
+
+**Prevention:**
+1. Implement JIT provisioning using a synchronized block or optimistic locking: attempt `createUser` unconditionally; catch `UserAlreadyExistsException`; on conflict, re-fetch and continue with the existing user. Do not check-then-create.
+2. Alternatively: use a per-username lock (striped lock via `Striped<Lock>` from Guava, keyed on the Keycloak subject claim) to serialize first-login provisioning for the same user.
+3. Make provisioning idempotent: if a user with the Keycloak `sub` already exists (identified by an external ID field or by username convention), return the existing user without error.
+4. Test: simulate two simultaneous first-login requests for the same user under load. Assert: exactly one user record is created, both requests ultimately succeed.
+
+**Warning signs:**
+- Duplicate `UserAlreadyExistsException` logs on first login under load.
+- Users appear in `sys.membership` twice with different UIDs.
+
+**Phase:** v1.5 Phase 2 (JIT provisioning) — must be in the initial implementation, not a follow-up.
+
+---
+
+## P32 — Keycloak Role Mapping Overwrites Manually Assigned Dremio RBAC Roles
+
+**What goes wrong:**
+Keycloak role-to-RBAC-role mapping at login time faces a fundamental question: should Keycloak roles be additive (added to the user's existing Dremio roles) or authoritative (replacing the user's current Dremio roles entirely on each login)? The pitfall is implementing an authoritative sync: every login removes the user's current Dremio role memberships and re-adds only those derived from Keycloak roles. This silently discards any RBAC roles that a Dremio admin assigned manually after the user's last login.
+
+**Why it happens:**
+The simplest implementation is a "delete all memberships + re-add from token" loop, which is authoritative. Developers choose it because it avoids stale role accumulation. But it conflicts with Dremio's existing administrative model where admins independently manage role memberships via `GRANT ROLE`.
+
+**Consequences:**
+Admin manually grants `analyst-role` to user Alice via `GRANT ROLE analyst-role TO USER alice`. Alice logs out. Admin rotates her Keycloak roles, removing the `analyst` realm role. Alice logs back in. The authoritative sync removes `analyst-role` (correctly). But it also removes a manually-added `data-admin-role` that was not Keycloak-derived — the admin's manual grant is lost silently.
+
+**Prevention:**
+1. Use additive mapping only: on login, add Dremio role memberships for any Keycloak roles that are not already present. Never remove existing Dremio memberships during login.
+2. Use a naming convention to distinguish Keycloak-derived memberships from manually-assigned ones (e.g., store a `source: "keycloak"` field in the Membership proto). On login, remove only memberships marked `source: "keycloak"` and re-add from the token. This makes the Keycloak-derived portion authoritative while preserving manual assignments.
+3. Document the chosen model explicitly. Do not change it silently between versions.
+4. Test: assign a manual RBAC role to user Alice. Simulate a login that maps a different Keycloak role. Assert: the manual role is still present after login.
+
+**Warning signs:**
+- Manually assigned Dremio RBAC roles disappear after the user's next Keycloak login.
+- Admins report that their `GRANT ROLE` commands are "reversed" by the SSO login.
+
+**Phase:** v1.5 Phase 3 (role mapping) — the mapping semantics must be decided and documented before coding.
+
+---
+
+## P33 — OIDC Redirect Flow Missing CSRF State Validation
+
+**What goes wrong:**
+The OIDC authorization code flow requires the server to generate a cryptographically random `state` parameter, store it in the user's session, redirect to Keycloak with it, and validate it when the callback arrives. Skipping state validation or using a static/predictable state value enables CSRF attacks: an attacker can force a victim's browser to complete an OAuth flow using the attacker's authorization code, logging the victim into the attacker's Keycloak account within Dremio.
+
+**Why it happens:**
+Developers implementing the callback endpoint focus on extracting the authorization code and exchanging it for tokens. The state parameter is perceived as optional because Keycloak does not enforce it server-side. JAX-RS resource implementations without session-scoped state store may skip the round-trip validation step.
+
+**Consequences:**
+CSRF login attack (account takeover via OAuth code injection). The attacker can attach their Dremio session to a victim's browser, then observe the victim's queries or impersonate them.
+
+**Prevention:**
+1. Generate a 128-bit random `state` value (using `SecureRandom`) at the start of the authorization code flow. Store it in a signed HTTP cookie or server-side session keyed on a session ID.
+2. In the Keycloak callback endpoint, extract the `state` query parameter and compare it to the stored value. Reject any callback where the state does not match exactly.
+3. Use PKCE (`code_challenge`/`code_verifier`) as a complementary measure for public clients. For Dremio's server-side callback, state is the primary CSRF defence.
+4. Dremio's existing `TokenUtils.getAuthHeaderToken()` pattern handles token extraction but has no concept of OAuth state. The state management must be a new, independent mechanism.
+5. Test: initiate an OIDC flow. Intercept the callback and change the `state` parameter. Assert: Dremio returns 400 Bad Request and does not issue a session token.
+
+**Warning signs:**
+- The callback endpoint does not read a `state` query parameter.
+- State is generated as a static constant or based on predictable values like username or timestamp.
+
+**Phase:** v1.5 Phase 4 (OIDC redirect UI flow) — state management is mandatory, not optional.
+
+---
+
+## P34 — DACAuthFilter Requires User in SimpleUserService: JIT Must Complete Before First REST Call
+
+**What goes wrong:**
+`DACAuthFilter.filter()` calls `userService.get().getUser(userName.getName())` after validating the token. If the token is valid but the user does not exist in `SimpleUserService` (e.g., a Keycloak user who has never logged in via the UI), `getUser` throws `UserNotFoundException` and the filter returns 401. JIT provisioning that creates users during the OIDC login flow works for the UI, but REST API clients that present a Keycloak Bearer token directly (without going through the OIDC redirect flow) will fail on the first request because the user does not yet exist.
+
+**Why it happens:**
+The `DACAuthFilter` was written for internal auth where every user exists in the KV store. The Keycloak auth path exchanges a token for a username (via JWT claims) before the filter runs, but does not trigger JIT provisioning. The filter assumes the user exists; if not, it fails.
+
+**Consequences:**
+A new Keycloak user with a valid Bearer token calls `GET /api/v3/catalog`. The token is valid. But `getUser` fails. 401 is returned. The user must first log in via the UI before REST API access works, which breaks automation and service accounts.
+
+**Prevention:**
+1. Add a JIT provisioning hook inside `DACAuthFilter` (or in the Keycloak token validation provider) that runs before `getUser`: if `UserNotFoundException` is caught and the token is a Keycloak JWT, attempt to provision the user from the JWT claims, then retry `getUser`.
+2. Alternatively: move JIT provisioning to the token validation layer. The `KeycloakAuthProvider.validate()` method (to be created) should provision the user as a side effect of successful validation, before returning `AuthResult`.
+3. Ensure the provisioning step is idempotent (see P31) — concurrent REST requests from a new user must not produce duplicate user records.
+4. Test: create a Keycloak user who has never logged in. Issue a Bearer token directly from Keycloak. Call `GET /api/v3/catalog` with that token. Assert: 200 OK, user is created in Dremio on first call.
+
+**Warning signs:**
+- REST API clients with Keycloak tokens return 401 until the user logs in via the web UI.
+- `UserNotFoundException` logs appear for users who exist in Keycloak but have never used the UI.
+
+**Phase:** v1.5 Phase 2 (JIT provisioning) — the `DACAuthFilter` integration must be explicit in the design.
+
+---
+
+## P35 — Arrow Flight Authentication Bypasses Keycloak Token Validation
+
+**What goes wrong:**
+`DremioBearerTokenAuthenticator.validateBearer()` calls `tokenManagerProvider.get().validateToken(token)`. This validates only Dremio-internal opaque tokens stored in the KVStore. A Keycloak JWT presented to the Flight endpoint is not an opaque Dremio token — it will fail `tokenManager.validateToken()` with "invalid token" even if it is a perfectly valid Keycloak JWT. JDBC/ODBC clients that acquire a Keycloak access token and attempt to use it as a Flight Bearer token will be rejected.
+
+**Why it happens:**
+`TokenManagerImpl.validateToken()` looks up the token string as a KV store key. Keycloak JWTs are not stored in the KV store (they are stateless JWTs). The Flight authenticator was designed for Dremio's opaque token model and has no JWT awareness.
+
+**Consequences:**
+ODBC/JDBC connections using Keycloak tokens fail at the Flight level even when REST API access works. This blocks Keycloak-authenticated BI tool connections (Tableau, Power BI, DBeaver via Flight). The error message "invalid token" gives no indication that the token type is wrong.
+
+**Prevention:**
+1. Extend `DremioBearerTokenAuthenticator.validateBearer()` to try Dremio opaque token validation first. If it fails with "invalid token", attempt Keycloak JWT validation as a fallback using the `KeycloakAuthProvider` (or `JWTValidatorImpl` configured for Keycloak keys).
+2. Alternatively: implement a new `CallHeaderAuthenticator` variant that handles both token types and select between them based on the token format (a Keycloak JWT starts with `eyJ` and is parseable as a JWT; a Dremio opaque token is a base-32 string).
+3. For JDBC clients, document that they must exchange the Keycloak access token for a Dremio session token via `POST /apiv2/login` before establishing a JDBC connection, if direct JWT auth is not supported.
+4. Test: obtain a Keycloak access token. Present it as a Bearer token to the Flight endpoint (`arrow-flight-client --bearer <token>`). Assert: connection is established, not rejected.
+
+**Warning signs:**
+- Flight/JDBC clients work with internal Dremio tokens but fail immediately with Keycloak tokens.
+- `DremioBearerTokenAuthenticator` logs "Bearer token validation failed" for Keycloak JWTs.
+
+**Phase:** v1.5 Phase 5 (Flight/JDBC integration) — must be explicitly addressed before declaring JDBC support complete.
+
+---
+
+## P36 — Keycloak Token Expiry vs Dremio Session Token Mismatch
+
+**What goes wrong:**
+When a user logs in via Keycloak OIDC, Dremio creates an internal session token via `tokenManager.createToken(username, clientAddress)`. This Dremio session token has its own expiry (default 30 hours per `TOKEN_EXPIRATION_TIME_MINUTES`). The Keycloak access token that initiated the login has a much shorter expiry (default 5 minutes in Keycloak). After the Keycloak token expires, the user's Dremio session token may still be valid for 29 more hours. If Dremio does not verify the Keycloak token's validity on each request (only on login), the Dremio session remains active even after the Keycloak session is revoked, user is deprovisioned in Keycloak, or password is changed.
+
+**Why it happens:**
+Dremio's internal auth model issues a long-lived session token at login time and never re-validates the upstream credential after that. This is appropriate for internal auth (password changes are relatively rare) but breaks the expected SSO behaviour where revoking a Keycloak session should propagate to all connected applications immediately.
+
+**Consequences:**
+Admin disables a Keycloak user (e.g., employee termination). The user's Dremio session token remains valid for up to 30 more hours. The user continues querying data despite being deprovisioned in the identity provider.
+
+**Prevention:**
+1. For the UI OIDC flow: store the Keycloak refresh token alongside the Dremio session. On each request (or periodically, e.g., every 15 minutes), attempt a silent token refresh via Keycloak's token endpoint. If the refresh fails (user deprovisioned, session revoked), invalidate the Dremio session token immediately.
+2. For REST API Bearer token auth: do not issue a long-lived Dremio session token. Instead, validate the Keycloak JWT on every request (stateless validation is fast via JWKS). The JWT's own `exp` claim enforces the session lifetime.
+3. Make Dremio's session token TTL configurable per auth provider: `services.keycloak.session-ttl-minutes` (recommend 30–60 minutes for Keycloak sessions, matching Keycloak's SSO session idle timeout).
+4. Test: log in via Keycloak, obtain a Dremio session token. Disable the user in Keycloak admin. Verify that Dremio rejects the next request within the configured re-validation window.
+
+**Warning signs:**
+- Deprovisioned Keycloak users can still query Dremio for many hours after deprovisioning.
+- Dremio session tokens outlive the Keycloak session that created them without re-validation.
+
+**Phase:** v1.5 Phase 4 (session management) — the re-validation strategy must be decided before shipping the UI login flow.
+
+---
+
+## P37 — Username Claim Mismatch: `preferred_username` vs `sub` vs Email
+
+**What goes wrong:**
+Dremio identifies users by username string (e.g., in `MembershipStore` key `alice|analyst`). When provisioning or looking up a Keycloak user, the implementation must choose which JWT claim maps to the Dremio username. Three common choices each have failure modes:
+- `preferred_username`: human-readable, but can change in Keycloak (admin can rename a user). Changing `preferred_username` creates a new Dremio user and abandons all RBAC memberships of the old one.
+- `sub`: stable UUID, never changes, but not human-readable. Dremio admins cannot identify users by UUID in `sys.membership` or role management SQL.
+- `email`: changes on email address updates; not unique if email reuse is permitted.
+
+**Why it happens:**
+The `preferred_username` claim is the intuitive choice (it looks like a username) and is the most commonly used in tutorials and examples. The stability problem of `preferred_username` is not obvious until an actual username change occurs in production.
+
+**Consequences:**
+If `preferred_username` is used and an admin renames a Keycloak user from `alice` to `alice.smith`: Dremio creates a new user `alice.smith` with no RBAC roles. All grants and memberships for `alice` are orphaned. Data access is lost until an admin re-assigns all roles.
+
+**Prevention:**
+1. Use `sub` (stable) as the internal user identifier (Dremio's UID field). Use `preferred_username` as the display name only.
+2. Map Keycloak `sub` to the Dremio `UID.id` field. Store `preferred_username` as `User.userName` for display purposes. On login, look up the user by `sub` (not by username) to detect renames.
+3. If the existing `UserService` and `MembershipStore` keying on username strings cannot be changed without a large refactor, document the limitation explicitly: Keycloak usernames must not change for existing Dremio users. Provide a migration procedure for username changes.
+4. Test: provision user with `sub=abc123`, `preferred_username=alice`. Rename user in Keycloak to `alice.smith`. Log in again. Assert: the same Dremio user record is returned (matched by `sub`), username field updated to `alice.smith`, RBAC memberships preserved.
+
+**Warning signs:**
+- Keycloak user renames create duplicate Dremio user records.
+- RBAC role memberships are lost after a Keycloak username change.
+
+**Phase:** v1.5 Phase 2 (JIT provisioning) — the identity claim mapping decision is foundational and difficult to change later.
+
+---
+
+## P38 — Backward Compatibility Break: Existing Internal Users Cannot Log In After Keycloak Is Enabled
+
+**What goes wrong:**
+When Keycloak OIDC is enabled via config flag, the authentication path changes. If the implementation replaces the internal auth provider entirely rather than adding Keycloak as an additional option, existing users with internal Dremio passwords are locked out. The ADMIN user (whose account was created during `BootstrapResource` flow) cannot log in, which also blocks emergency access.
+
+**Why it happens:**
+The pluggable auth model requires careful design: both the UI login form (internal auth) and the SSO button (Keycloak) must work simultaneously. A naive implementation that routes all auth through Keycloak ignores the pre-existing `LocalUsernamePasswordAuthProvider` path.
+
+**Consequences:**
+After enabling `services.keycloak.enabled=true`, the admin user created during bootstrap can no longer log in (their password is in Dremio's KV store, not in Keycloak). RBAC bootstrap admin is locked out. Emergency fallback access is eliminated.
+
+**Prevention:**
+1. Implement Keycloak as an additional `AuthProvider` (via the existing `AuthProvider` interface), not a replacement. The `Authenticator` should try providers in order: (1) Keycloak JWT validation, (2) internal Dremio password auth. The first provider to return a valid `AuthResult` wins.
+2. Keep `LocalUsernamePasswordAuthProvider` active regardless of Keycloak config. Document this explicitly: the internal admin account always works as an emergency backdoor.
+3. Add a UI configuration element that shows both "Login with SSO" (Keycloak redirect) and the internal username/password form simultaneously. The form is for internal users; the SSO button is for Keycloak users. Do not hide the form when Keycloak is enabled.
+4. Test: enable Keycloak. Log in as the bootstrap admin with internal password. Assert: login succeeds. Log in as a Keycloak user via SSO. Assert: login succeeds.
+
+**Warning signs:**
+- Enabling Keycloak config breaks the bootstrap admin login.
+- The internal login form disappears from the UI when Keycloak is configured.
+
+**Phase:** v1.5 Phase 1 (config flag and provider plugging) — backward compatibility must be in the initial design.
+
+---
+
+## P39 — ODBC/JDBC Token Refresh Is Not Automatic: Long-Running Sessions Break
+
+**What goes wrong:**
+ODBC/JDBC clients (BI tools, ETL pipelines, notebooks) establish a connection and hold it for the duration of a session or workload. The connection authenticates once (either with a Keycloak access token or by exchanging credentials for a Dremio session token). Keycloak access tokens expire in 5 minutes by default. If the ODBC/JDBC client presents the access token directly to the Flight endpoint and the token expires mid-session, subsequent queries on the same connection fail with 401. The ODBC driver does not automatically refresh the token.
+
+**Why it happens:**
+Arrow Flight's auth model is: authenticate once at connection time, use the returned bearer token for all subsequent RPC calls. The Flight client does not have a built-in hook for token refresh. Keycloak's access token lifetime is much shorter than a typical BI tool session.
+
+**Consequences:**
+A Tableau or Power BI live connection queries Dremio every few minutes. After 5 minutes, the initial Keycloak token expires. The next query fails. The user sees a connection error and must re-authenticate manually. This is unacceptable for live dashboards.
+
+**Prevention:**
+1. For JDBC/ODBC clients that support it: document that users must exchange their Keycloak access token for a Dremio session token via `POST /apiv2/login` (which issues a long-lived Dremio token). The Dremio session token (default 30 hours) outlasts the Keycloak access token's validity window.
+2. For the Flight endpoint: implement token refresh on the server side — if the client presents a Keycloak refresh token alongside the expired access token, exchange it for a new access token transparently. This requires the refresh token to be stored server-side during login.
+3. Configure Keycloak access token lifetime to match expected session durations for machine clients (e.g., extend to 1–8 hours for service accounts in the Keycloak realm, separate from the user-facing realm settings).
+4. Document the limitation: Keycloak access tokens with 5-minute TTL are incompatible with long-running JDBC connections unless a token refresh mechanism is implemented.
+
+**Warning signs:**
+- JDBC connections fail after exactly 5 minutes (Keycloak's default access token TTL).
+- BI tool live dashboards drop connection periodically without user action.
+
+**Phase:** v1.5 Phase 5 (JDBC/ODBC integration) — document the limitation in Phase 1, resolve in Phase 5.
+
+---
+
+## P40 — JIT-Provisioned Users Are Not Assigned to ADMIN: Keycloak Admin Cannot Administer Dremio
+
+**What goes wrong:**
+A Keycloak user with the `admin` realm role logs in for the first time. JIT provisioning creates their Dremio account. Keycloak role mapping maps `admin` → Dremio `ADMIN` role. But the `MembershipStore.add()` call fails because `ADMIN` membership requires the calling user to be an ADMIN themselves — there is a chicken-and-egg problem if the provisioning code is subject to RBAC checks.
+
+More concretely: `addMembership(userName, "ADMIN", grantedBy)` stores the membership in KV with `grantedBy = "SYSTEM"` (acceptable) but the bootstrap ADMIN validation (`validateAdminMembersExist()`) may have already passed at startup and the new ADMIN member is invisible to startup checks.
+
+**Why it happens:**
+JIT provisioning runs in the request filter, after startup validation has completed. The `addMembership` call itself has no RBAC guard (it is called from the provisioning code, not from a user-initiated SQL command). But if any part of the provisioning flow calls through the RBAC-gated REST API or requires the calling user to be in ADMIN, it fails.
+
+**Consequences:**
+A Keycloak user mapped to the Dremio ADMIN role can log in successfully (JIT provisioning creates their user record), but their ADMIN membership is not created (role mapping fails silently). They can authenticate but cannot administer Dremio. The only ADMIN user remains the bootstrap user.
+
+**Prevention:**
+1. Implement role mapping as a direct `MembershipStore.add()` call (bypassing the RBAC-gated `RbacService.addMembership()` method), with explicit `grantedBy = "KEYCLOAK"` or `"SYSTEM"`. Provisioning code runs with system privileges.
+2. Add a unit test: JIT-provision a user with Keycloak `admin` role. Assert: `rbacService.isAdminMember(username)` returns `true` after provisioning.
+3. Never route JIT provisioning through the user-facing REST API endpoints (e.g., `POST /api/v3/rbac/roles/ADMIN/members`). Those endpoints require the caller to be ADMIN.
+
+**Warning signs:**
+- Keycloak users with the `admin` role can log in but see "access denied" for admin operations.
+- `sys.membership` does not contain an ADMIN entry for Keycloak-provisioned admin users.
+
+**Phase:** v1.5 Phase 3 (role mapping) — the bypass must be explicit in the provisioning design.
+
+---
+
+## P41 — Token Validation Ambiguity: Keycloak JWT vs Dremio Opaque Token Cannot Be Distinguished
+
+**What goes wrong:**
+`DACAuthFilter` calls `TokenUtils.getAuthHeaderToken()` which returns a token string from the `Authorization: Bearer <token>` header. It then calls `tokenManager.validateToken(token)`. With Keycloak integration, two valid token formats exist: Dremio opaque tokens (random base-32 strings, stored in KV) and Keycloak JWTs (base64url-encoded JWS, start with `eyJ`). If the code path does not distinguish between them before calling `validateToken()`, Keycloak JWTs are passed to `TokenManagerImpl.validateToken()` which does a KV lookup — the JWT is not in the KV store, so the lookup fails with "invalid token", and Keycloak users are rejected at the REST API layer.
+
+**Why it happens:**
+The existing filter was designed for a single token type. Adding a second type requires a discriminator step. Developers may attempt to add Keycloak validation inside `TokenManagerImpl.validateToken()` itself (branching on JWT parse success), which violates the single-responsibility principle and entangles the token manager with Keycloak configuration.
+
+**Consequences:**
+Keycloak Bearer tokens are rejected at the REST API even after all other Keycloak integration pieces are in place, because the entry point in `DACAuthFilter` routes them to the wrong validator.
+
+**Prevention:**
+1. Add a token type discriminator before calling `validateToken()`: attempt to parse the token as a JWT using `JWTParser.parse()`. If it succeeds and the issuer matches the configured Keycloak issuer, route to `KeycloakJWTValidator`. If it fails (not a JWT), route to `tokenManager.validateToken()` (Dremio opaque token).
+2. Alternatively: implement a new `AuthProvider` for Keycloak tokens and register it in the `Authenticator` chain. The `Authenticator` already has the `isSupported(tokenType)` dispatch pattern via `AuthProvider`. Add `token_type = "keycloak_jwt"` as a recognized type.
+3. Do not modify `TokenManagerImpl` to understand JWTs. Keep the token type boundary clean.
+4. Test: POST to a `@Secured` endpoint with a Dremio opaque token. Assert: 200. POST with a Keycloak JWT. Assert: 200. POST with a garbage string. Assert: 401.
+
+**Warning signs:**
+- "Invalid token" errors appear for Keycloak JWTs at REST endpoints that work fine for Dremio tokens.
+- `TokenManagerImpl.validateToken()` is invoked with a JWT string (observable in debug logs).
+
+**Phase:** v1.5 Phase 1 (auth provider plugging) — the discriminator is the first code change required.
+
+---
+
+## Technical Debt Patterns (v1.5 Keycloak)
+
+Shortcuts that seem reasonable but create long-term problems.
+
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| Hard-code Keycloak issuer URL | Simpler initial config | Cannot switch realms or move Keycloak without restart | Never — externalize to dremio.conf from day one |
+| Use `preferred_username` as UID | Human-readable logs | All RBAC memberships lost on username rename | Only if username changes are forbidden by policy (document this) |
+| Skip `state` parameter validation | Simpler callback handler | CSRF attack vector enabled | Never |
+| Authoritative Keycloak role sync (delete + re-add) | Simpler sync logic | Manual RBAC grants lost on next login | Only if no manual RBAC grants are ever used |
+| Issue Dremio session token at Keycloak login, never re-validate | Existing session infra reused | Deprovisioned users remain active for 30 hours | Acceptable only if session TTL is reduced to ≤60 minutes |
+| Skip JIT provisioning for REST API token path | Fewer code paths | REST API clients with new Keycloak tokens get 401 | Never — REST is a primary access path |
+
+---
+
+## Security Mistakes (v1.5 Keycloak-specific)
+
+| Mistake | Risk | Prevention |
+|---------|------|------------|
+| Accept tokens without issuer validation | Tokens from any Keycloak realm accepted | Configure `DefaultJWTClaimsVerifier` with exact issuer |
+| Accept tokens without audience validation | Tokens issued for other clients accepted | Add `aud` claim check for Dremio client ID |
+| Store Keycloak client secret in dremio.conf plaintext | Secret exposure in config files | Use environment variable or secrets manager reference |
+| Allow `preferred_username` to be empty/null | Dremio user with blank username created | Reject tokens where `preferred_username` is absent or empty |
+| Expose OIDC callback endpoint without HTTPS | Authorization code interceptable in transit | Enforce HTTPS for the callback redirect URI in Keycloak client config |
+| Not validating `nonce` claim for ID tokens | Token replay attacks | Store and validate nonce for authorization code flows using ID tokens |
+
+---
+
+## "Looks Done But Isn't" Checklist (v1.5 Keycloak)
+
+- [ ] **Keycloak JWT validation:** Often missing issuer and audience checks — verify `DefaultJWTClaimsVerifier` is configured with both `iss` and `aud` exact-match claims
+- [ ] **JWKS caching:** Often missing `kid`-based refresh — verify that an unknown `kid` triggers a JWKS re-fetch before rejecting the token
+- [ ] **JIT provisioning:** Often missing concurrency protection — verify that concurrent first logins for the same user produce exactly one user record
+- [ ] **Flight/JDBC Bearer auth:** Often missing Keycloak JWT routing — verify that `DremioBearerTokenAuthenticator` handles Keycloak JWTs, not just Dremio opaque tokens
+- [ ] **OIDC state validation:** Often present but validating wrong session — verify the state is stored in a server-side session tied to the initiating request, not a client-side cookie alone
+- [ ] **Backward compatibility:** Often broken on first attempt — verify bootstrap admin can log in with internal password after Keycloak is enabled
+- [ ] **Role mapping bootstrap:** Often missing ADMIN membership creation — verify Keycloak admin-mapped users have `isAdminMember()` = true after JIT provisioning
+
+---
+
+## Pitfall-to-Phase Mapping (v1.5 Keycloak)
+
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| P28 — Missing issuer/audience validation | Phase 1: JWT validation infrastructure | Unit test: token from wrong realm rejected |
+| P29 — Clock skew failures | Phase 1: JWT validation infrastructure | Integration test: token validated with 30s skew tolerance |
+| P30 — Stale JWKS after key rotation | Phase 1: JWKS caching | Integration test: key rotation followed by token validation |
+| P31 — JIT race condition | Phase 2: JIT provisioning | Load test: 10 concurrent first logins, 1 user record created |
+| P32 — Role mapping overwrites manual grants | Phase 3: Role mapping design | Test: manual grant survives next SSO login |
+| P33 — Missing CSRF state validation | Phase 4: OIDC redirect UI flow | Security test: modified `state` rejected |
+| P34 — REST API 401 for new Keycloak users | Phase 2: JIT provisioning | Test: direct Bearer token API call for new user succeeds |
+| P35 — Flight bypasses Keycloak validation | Phase 5: Flight/JDBC integration | Test: Keycloak JWT accepted by Flight endpoint |
+| P36 — Session outlives Keycloak revocation | Phase 4: Session management | Test: deprovisioned user rejected within TTL window |
+| P37 — Username claim instability | Phase 2: JIT provisioning | Test: username rename preserves RBAC memberships |
+| P38 — Internal auth broken when Keycloak enabled | Phase 1: Auth provider plugging | Test: bootstrap admin logs in after Keycloak enabled |
+| P39 — JDBC token expiry under long sessions | Phase 5: JDBC/ODBC integration | Document + test: 5-min token fails, Dremio session token works |
+| P40 — JIT admin membership not created | Phase 3: Role mapping | Test: Keycloak admin user has ADMIN membership after provision |
+| P41 — Token type discrimination | Phase 1: Auth provider plugging | Test: Keycloak JWT and Dremio opaque token both accepted at REST |
+
+---
+
+## Sources
+
+- Dremio OSS source: `services/tokens/src/main/java/com/dremio/service/tokens/jwt/JWTValidatorImpl.java` — JWT validation via Nimbus JOSE+JWT, subject-based user resolution
+- Dremio OSS source: `services/tokens/src/main/java/com/dremio/service/tokens/jwks/RemoteJWKSetManager.java` — 24-hour JWKS cache, `kid`-based cache refresh pattern
+- Dremio OSS source: `dac/backend/src/main/java/com/dremio/dac/server/DACAuthFilter.java` — token validation → `getUser()` dependency, `UserNotFoundException` → 401 path
+- Dremio OSS source: `services/arrow-flight/src/main/java/com/dremio/service/flight/auth2/DremioBearerTokenAuthenticator.java` — opaque token-only Flight auth
+- Dremio OSS source: `services/users/src/main/java/com/dremio/service/users/SimpleUserService.java` — user creation via KV store, no atomic check-and-create
+- Dremio OSS source: `sabot/kernel/src/main/java/com/dremio/exec/rbac/MembershipStore.java` — `PUT_CREATE` semantics, username-keyed membership records
+- Keycloak GitHub issue #8966 — clock skew in JWT client authentication: https://github.com/keycloak/keycloak/issues/8966
+- Keycloak GitHub issue #38819 — audience validation strictness: https://github.com/keycloak/keycloak/issues/38819
+- Nimbus JOSE+JWT docs — validating JWT access tokens: https://connect2id.com/products/nimbus-jose-jwt/examples/validating-jwt-access-tokens
+- Auth0 docs — state parameter and CSRF prevention: https://auth0.com/docs/secure/attack-protection/state-parameters
+- RFC 9700 — OAuth 2.0 Security Best Current Practice: https://datatracker.ietf.org/doc/rfc9700/
+- Keycloak JWKS caching discussion #14152: https://github.com/keycloak/keycloak/discussions/14152
+
+---
+
+*Pitfalls research for: Keycloak OIDC integration into Dremio OSS with existing RBAC*
+*Sections P1–P14: RBAC v1.0 — 2026-02-17*
+*Sections P15–P27: RBAC v2.0 (definer rights, PDS, container visibility) — 2026-02-20*
+*Sections P28–P41: Keycloak OIDC v1.5 integration — 2026-03-12*

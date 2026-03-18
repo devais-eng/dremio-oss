@@ -110,10 +110,7 @@ export class AllSpacesView extends PureComponent {
             {
               label: this.getInlineIcon("interface/settings"),
               tooltip: intl.formatMessage({ id: "Common.Settings" }),
-              link: getSettingsLocation(
-                this.context.location,
-                item.get("id"),
-              ),
+              link: getSettingsLocation(this.context.location, item.get("id")),
               type: btnTypes.settings,
             },
           ]

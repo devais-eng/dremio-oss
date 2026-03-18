@@ -3,24 +3,6 @@
   "enabled": true,
   "sslRequired": "none",
   "registrationAllowed": false,
-  "clientScopes": [
-    {
-      "name": "catalog",
-      "protocol": "openid-connect",
-      "attributes": {
-        "include.in.token.scope": "true",
-        "display.on.consent.screen": "false"
-      }
-    },
-    {
-      "name": "sign",
-      "protocol": "openid-connect",
-      "attributes": {
-        "include.in.token.scope": "true",
-        "display.on.consent.screen": "false"
-      }
-    }
-  ],
   "clients": [
     {
       "clientId": "client1",
@@ -31,13 +13,100 @@
       "directAccessGrantsEnabled": true,
       "standardFlowEnabled": false,
       "protocol": "openid-connect",
-      "optionalClientScopes": [
-        "catalog",
-        "sign"
-      ],
       "attributes": {
         "access.token.lifespan": "3600"
       }
+    },
+    {
+      "clientId": "dremio-web",
+      "enabled": true,
+      "secret": "dremio-secret",
+      "publicClient": false,
+      "serviceAccountsEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "http://localhost:9047/*",
+        "http://dremio:9047/*"
+      ],
+      "webOrigins": [
+        "http://localhost:9047",
+        "http://dremio:9047"
+      ],
+      "attributes": {
+        "access.token.lifespan": "300",
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "ADMIN",
+        "description": "Admin role mapped to Dremio admin"
+      },
+      {
+        "name": "analysts",
+        "description": "Analyst role for Dremio RBAC mapping"
+      },
+      {
+        "name": "engineers",
+        "description": "Engineer role for Dremio RBAC mapping"
+      }
+    ]
+  },
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "admin@example.com",
+      "firstName": "Admin",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "ADMIN"
+      ]
+    },
+    {
+      "username": "testuser",
+      "enabled": true,
+      "email": "testuser@example.com",
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "testpass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "analysts"
+      ]
+    },
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@example.com",
+      "firstName": "Alice",
+      "lastName": "Analyst",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "analysts"
+      ]
     }
   ]
 }

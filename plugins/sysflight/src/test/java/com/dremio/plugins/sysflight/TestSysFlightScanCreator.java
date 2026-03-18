@@ -86,9 +86,12 @@ public class TestSysFlightScanCreator {
     // Three privilege rows with different grantees (role IDs)
     // Constructor: (grantee_type, grantee, object_type, object, privilege)
     // Filtering is by grantee field matching userRoleIds
-    SysTablePrivilegeInfo p1 = new SysTablePrivilegeInfo("role", "role1-id", "VDS", "myspace.view1", "SELECT");
-    SysTablePrivilegeInfo p2 = new SysTablePrivilegeInfo("role", "role2-id", "VDS", "myspace.view2", "SELECT");
-    SysTablePrivilegeInfo p3 = new SysTablePrivilegeInfo("role", "role3-id", "VDS", "myspace.view3", "SELECT");
+    SysTablePrivilegeInfo p1 =
+        new SysTablePrivilegeInfo("role", "role1-id", "VDS", "myspace.view1", "SELECT");
+    SysTablePrivilegeInfo p2 =
+        new SysTablePrivilegeInfo("role", "role2-id", "VDS", "myspace.view2", "SELECT");
+    SysTablePrivilegeInfo p3 =
+        new SysTablePrivilegeInfo("role", "role3-id", "VDS", "myspace.view3", "SELECT");
     Iterator<?> input = Arrays.asList(p1, p2, p3).iterator();
 
     when(rbacService.getUserRoleIds("alice"))

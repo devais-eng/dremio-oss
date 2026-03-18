@@ -53,10 +53,7 @@ public class SystemTableScanCreator implements ProducerOperator.Creator<SystemSu
 
     final RecordReader reader =
         new PojoRecordReader(
-            table.getPojoClass(),
-            iterator,
-            config.getColumns(),
-            context.getTargetBatchSize());
+            table.getPojoClass(), iterator, config.getColumns(), context.getTargetBatchSize());
 
     return new ScanOperator(fec, config, context, RecordReaderIterator.from(reader));
   }
@@ -101,9 +98,7 @@ public class SystemTableScanCreator implements ProducerOperator.Creator<SystemSu
     }
   }
 
-  /**
-   * Filters sys.membership rows to only show the current user's own memberships.
-   */
+  /** Filters sys.membership rows to only show the current user's own memberships. */
   @SuppressWarnings("unchecked")
   private Iterator<?> filterMembershipByUser(Iterator<?> iterator, String userName) {
     return StreamSupport.stream(
@@ -118,12 +113,9 @@ public class SystemTableScanCreator implements ProducerOperator.Creator<SystemSu
         .iterator();
   }
 
-  /**
-   * Filters sys.privileges rows to only show grants for the user's roles (explicit + PUBLIC).
-   */
+  /** Filters sys.privileges rows to only show grants for the user's roles (explicit + PUBLIC). */
   @SuppressWarnings("unchecked")
-  private Iterator<?> filterPrivilegesByUserRoles(
-      Iterator<?> iterator, Set<String> userRoleIds) {
+  private Iterator<?> filterPrivilegesByUserRoles(Iterator<?> iterator, Set<String> userRoleIds) {
     return StreamSupport.stream(
             Spliterators.spliteratorUnknownSize((Iterator<Object>) iterator, 0), false)
         .filter(

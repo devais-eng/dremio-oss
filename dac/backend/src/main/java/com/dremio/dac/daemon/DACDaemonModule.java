@@ -272,6 +272,12 @@ import com.dremio.service.jobtelemetry.JobTelemetryClient;
 import com.dremio.service.jobtelemetry.client.JobTelemetryExecutorClientFactory;
 import com.dremio.service.jobtelemetry.server.LocalJobTelemetryServer;
 import com.dremio.service.jobtelemetry.server.store.ProfileDistStoreConfig;
+import com.dremio.service.keycloak.JitUserProvisioner;
+import com.dremio.service.keycloak.KeycloakConfig;
+import com.dremio.service.keycloak.KeycloakRoleSyncer;
+import com.dremio.service.keycloak.OidcSessionStore;
+import com.dremio.service.keycloak.OidcStateStore;
+import com.dremio.service.keycloak.OidcTokenValidator;
 import com.dremio.service.listing.DatasetListingInvoker;
 import com.dremio.service.listing.DatasetListingService;
 import com.dremio.service.listing.DatasetListingServiceImpl;
@@ -1033,6 +1039,7 @@ public class DACDaemonModule implements DACModule {
     GrantStore grantStore = new GrantStore(kvStoreProviderForRbac);
     MembershipStore membershipStore = new MembershipStore(kvStoreProviderForRbac);
     RbacService rbacServiceInstance = new RbacService(roleStore, grantStore, membershipStore);
+    registry.bind(RoleStore.class, roleStore);
     registry.bind(RbacService.class, rbacServiceInstance);
 
     registry.bind(
@@ -1760,7 +1767,10 @@ public class DACDaemonModule implements DACModule {
           new DremioFlightAuthProviderImpl(
               registry.provider(DremioConfig.class),
               registry.provider(UserService.class),
-              registry.provider(TokenManager.class)));
+              registry.provider(TokenManager.class),
+              registry.provider(OidcTokenValidator.class),
+              registry.provider(JitUserProvisioner.class),
+              registry.provider(KeycloakRoleSyncer.class)));
       registry.bind(FlightRequestContextDecorator.class, FlightRequestContextDecorator.DEFAULT);
 
       registry.bindSelf(
@@ -2209,13 +2219,64 @@ public class DACDaemonModule implements DACModule {
       registry.bindSelf(simpleUserService);
       // UserResolver is only needed on Coordinator
       registry.bindProvider(UserResolver.class, () -> simpleUserService);
+
+      // Bind null providers for optional keycloak types so HK2 can resolve
+      // @Nullable injection points in DACAuthFilter when keycloak is not configured.
+      registry.bindProvider(OidcTokenValidator.class, () -> null);
+      registry.bindProvider(JitUserProvisioner.class, () -> null);
+      registry.bindProvider(KeycloakRoleSyncer.class, () -> null);
+
       logger.info("Internal user/group service is configured.");
       return true;
     }
 
+    if ("keycloak".equals(dacConfig.getConfig().getString(WEB_AUTH_TYPE))) {
+      // Users stored locally in KVStore (JIT provisioning adds them in Phase 32)
+      final SimpleUserService simpleUserService =
+          new SimpleUserService(registry.provider(LegacyKVStoreProvider.class), isMaster);
+      registry.bindProvider(UserService.class, () -> simpleUserService);
+      registry.bindSelf(simpleUserService);
+      registry.bindProvider(UserResolver.class, () -> simpleUserService);
+
+      // Bind KeycloakConfig for downstream injection
+      final KeycloakConfig keycloakConfig = new KeycloakConfig(dacConfig.getConfig());
+      registry.bind(KeycloakConfig.class, keycloakConfig);
+
+      // Bind OidcTokenValidator for Phase 31 (DACAuthFilter) and Phase 35 (Arrow Flight)
+      registry.bind(
+          OidcTokenValidator.class,
+          new OidcTokenValidator(
+              keycloakConfig.getJwksUri(),
+              keycloakConfig.getIssuerUrl(),
+              keycloakConfig.getClientId()));
+
+      // Phase 32: JIT provisioning and role sync
+      // RbacService and RoleStore are bound AFTER setupUserService() in the DACDaemonModule
+      // lifecycle, so we pass providers for lazy resolution at first-use time.
+      registry.bind(
+          JitUserProvisioner.class,
+          new JitUserProvisioner(registry.provider(LegacyKVStoreProvider.class)));
+      registry.bind(
+          KeycloakRoleSyncer.class,
+          new KeycloakRoleSyncer(
+              registry.provider(RbacService.class),
+              registry.provider(RoleStore.class),
+              keycloakConfig));
+
+      // Phase 33: OIDC redirect flow stores
+      OidcStateStore oidcStateStore = new OidcStateStore();
+      registry.bind(OidcStateStore.class, oidcStateStore);
+
+      OidcSessionStore oidcSessionStore = new OidcSessionStore();
+      registry.bind(OidcSessionStore.class, oidcSessionStore);
+
+      logger.info("Keycloak authentication is configured.");
+      return true; // true = internal user records (KVStore-backed SimpleUserService)
+    }
+
     String authType = dacConfig.getConfig().getString(WEB_AUTH_TYPE);
     logger.error(
-        "Unknown value '{}' set for {}. Accepted values are ['internal', 'ldap']",
+        "Unknown value '{}' set for {}. Accepted values are ['internal', 'ldap', 'keycloak']",
         authType,
         WEB_AUTH_TYPE);
     throw new RuntimeException(

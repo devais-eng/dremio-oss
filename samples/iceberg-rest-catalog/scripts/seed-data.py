@@ -28,11 +28,8 @@ def wait_for_nessie(max_retries: int = 30):
 
 def main():
     nessie_uri = os.environ.get("NESSIE_URI", "http://nessie:19120/iceberg/")
-    oauth2_server = os.environ.get(
-        "OAUTH2_SERVER_URI",
-        "http://keycloak:8080/realms/iceberg/protocol/openid-connect/token",
-    )
-    credential = os.environ.get("CREDENTIAL", "client1:s3cr3t")
+    oauth2_server = os.environ.get("OAUTH2_SERVER_URI", "")
+    credential = os.environ.get("CREDENTIAL", "")
     warehouse = os.environ.get("WAREHOUSE", "warehouse")
 
     print("=== Seeding sample data into Nessie ===")
@@ -42,21 +39,26 @@ def main():
     s3_access_key = os.environ.get("S3_ACCESS_KEY", "minioadmin")
     s3_secret_key = os.environ.get("S3_SECRET_KEY", "minioadmin")
 
-    catalog = RestCatalog(
-        "nessie",
-        **{
-            "uri": nessie_uri,
-            "warehouse": warehouse,
-            "oauth2-server-uri": oauth2_server,
-            "credential": credential,
-            "scope": "catalog sign",
-            "s3.endpoint": s3_endpoint,
-            "s3.access-key-id": s3_access_key,
-            "s3.secret-access-key": s3_secret_key,
-            "s3.path-style-access": "true",
-            "s3.region": "us-east-1",
-        },
-    )
+    catalog_props = {
+        "uri": nessie_uri,
+        "warehouse": warehouse,
+        "s3.endpoint": s3_endpoint,
+        "s3.access-key-id": s3_access_key,
+        "s3.secret-access-key": s3_secret_key,
+        "s3.path-style-access": "true",
+        "s3.region": "us-east-1",
+    }
+
+    # OAuth2 is optional — only used when Keycloak is present (SSO mode)
+    if oauth2_server and credential:
+        print("  OAuth2 enabled (Keycloak)")
+        catalog_props["oauth2-server-uri"] = oauth2_server
+        catalog_props["credential"] = credential
+        catalog_props["scope"] = "catalog sign"
+    else:
+        print("  No OAuth2 (Nessie auth disabled)")
+
+    catalog = RestCatalog("nessie", **catalog_props)
 
     # ── Namespace: demo ─────────────────────────────────────────────────
     ns = ("demo",)

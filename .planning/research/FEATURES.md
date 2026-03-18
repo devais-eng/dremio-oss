@@ -1,448 +1,264 @@
-# RBAC Features: Table Stakes vs. Differentiators vs. Anti-Features
+# Feature Research
 
-**Research Date:** 2026-02-20
-**Research Type:** Features dimension — privilege context switching, PDS SELECT, container visibility, and VDS lifecycle privileges for Dremio OSS RBAC v2.
-**Milestone:** Subsequent — extending the v1.0 RBAC baseline.
-
----
-
-## Framing: What v1.0 Built and What v2 Adds
-
-v1.0 shipped a flat, deny-by-default RBAC system covering:
-- SELECT on VDS, EXECUTE on UDF, CREATE_VIEW on VDS
-- Flat roles (CREATE/DROP ROLE, GRANT/REVOKE ROLE TO USER)
-- Built-in ADMIN (bypass all) and PUBLIC (implicit membership) roles
-- RocksDB persistence, 9 REST endpoints, SQL DDL, and 3 system tables
-
-**What v1.0 explicitly deferred** (as "Out of Scope") that this milestone now targets:
-
-| Deferred Item | Now Adding |
-|---|---|
-| Physical dataset (PDS) permissions | SELECT on PDS |
-| Source-level/space-level permissions | Container visibility filter |
-| Definer-rights model (VDS) | True definer-rights via stored VDS owner |
-| Invoker-rights model (UDF) | UDF invocation uses caller's identity (already effectively true — needs hardening) |
-| ALTER/DROP lifecycle on VDS | ALTER VIEW, DROP VIEW as separate grantable privileges |
+**Domain:** Keycloak OIDC Identity Provider Integration for Java/Jersey web app
+**Researched:** 2026-03-12
+**Confidence:** HIGH (codebase analysis) / MEDIUM (external patterns)
 
 ---
 
-## Codebase Baseline: What the Code Actually Does Today
+## Context: What This Milestone Must Integrate With
 
-Understanding the existing implementation is prerequisite to classifying new features. Research is based on direct codebase analysis (HIGH confidence for all findings below).
+The existing system provides:
+- `UserService` / `SimpleUserService`: KVStore-backed local user accounts with BCrypt password hashing
+- `Authenticator` interface with pluggable `AuthProvider` implementations (`LocalUsernamePasswordAuthProvider`)
+- `DACAuthFilter`: JAX-RS `ContainerRequestFilter` that validates Dremio opaque/JWT session tokens from the `Authorization` header
+- `LogInLogOutResource`: `POST /api/v3/login` — authenticates username+password, returns a `UserLoginSession` with a Dremio-issued session token
+- `TokenManager` / `TokenManagerImplV2`: Issues and validates opaque + JWT tokens; uses nimbus-jose-jwt (v9.41) + oauth2-oidc-sdk (v11.20), already on classpath
+- `DremioBearerTokenAuthenticator` (Arrow Flight auth2 mode): Validates Dremio Bearer tokens for JDBC/ODBC via Arrow Flight
+- `DACDaemonModule`: Auth type dispatch — currently `"internal"` (local KVStore) or `"ldap"` (throws on OSS)
+- `DACConfig.isInternalUserAuth()`: Returns true when `services.coordinator.web.auth.type = "internal"`
+- RBAC: Flat roles in KVStore, `isAdminMember()`, deny-by-default — **authorization layer stays; only authentication changes**
+- `WEB_AUTH_TYPE` config key dispatches auth type at startup
+- Frontend: Redux-saga login flow, `LoginForm.jsx` (username/password form), `SSO_LANDING_PATH = "/login/sso/landing"` already defined in loginLogout.js (but unimplemented)
 
-### Definer Rights — Current State (Gap Found)
-
-`DatasetManager.createTableFromVirtualDataset()` calls `getEntityOwner(CatalogEntityKey)` to populate `ViewTable.viewOwner`. However, `CatalogEntityOwnershipImpl.getCatalogEntityOwner()` returns `Optional.empty()` for all `VIRTUAL_DATASET` type entries — meaning `viewOwner` is always `null` for VDS stored in spaces.
-
-When `viewOwner` is null, `ViewExpander.expandViewInternal()` falls through to the catch branch (handling `UserNotFoundException`) and calls `expandRelNode(viewTable, delegatedUser, queryString)` where `delegatedUser` = the caller's identity. This means view expansion today uses the **caller's identity**, not the definer's — there are no true definer rights in v1.0.
-
-The `ViewExpansionContext` + `ViewExpansionToken` infrastructure exists and is correct; what is missing is the `viewOwner` being set from the VDS definition's creator/last-modifier metadata.
-
-### Invoker Rights — Current State (Already Correct)
-
-UDF EXECUTE is checked at `CatalogImpl.getFunctions()` against the **caller's** identity:
-```java
-if (isRbacDeniedForFunction(resolvedPath != null ? resolvedPath : path.toNamespaceKey())) {
-    return ImmutableList.of(); // RBAC denied
-}
-```
-The check uses `this.userName` (the requesting user), not any stored owner. This is exactly the invoker-rights model. No gap here — the model is correct. The v2 work is hardening and documenting it, not changing it.
-
-### PDS SELECT — Current State (Gap Found)
-
-`CatalogImpl.isRbacDeniedForVds()` explicitly guards:
-```java
-if (!(table instanceof ViewTable)) {
-    return false; // Only enforce RBAC on views (VDS), not physical datasets
-}
-```
-Physical datasets (PDS) are always accessible regardless of grants. This is a deliberate v1 decision that this milestone reverses.
-
-### Container Visibility — Current State (Gap Found)
-
-`CatalogServiceHelper.isVisibleToUser()` returns `true` for all container types:
-```java
-// FOLDER, SPACE, SOURCE, HOME are always visible (containers).
-return true;
-```
-Spaces, sources, folders, and home spaces are always listed for all users. VDS and UDF are filtered by grants; PDS is always visible.
-
-### VDS Lifecycle Privileges — Current State (Gap Found)
-
-`CatalogImpl.createView()` and `CatalogImpl.dropView()` do not call `validatePrivilege()`. The `ALTER` and `DROP` values exist in `SqlGrant.Privilege` and VDS exists in `SqlGrant.GrantType`. The grant storage and enforcement infrastructure exists; the call sites in the lifecycle methods are missing.
-
-### DESCRIBE Follows SELECT — Current State (Already Correct)
-
-`DescribeTableHandler.toResult()` calls `catalog.getTable(catalogEntityKey)`. Since `getTable()` already has RBAC checks via `isRbacDeniedForVds()`, DESCRIBE is already gated by SELECT — no additional work needed. A user who cannot SELECT a VDS cannot DESCRIBE it.
-
-### EXPLAIN — Current State (Already Correct)
-
-EXPLAIN runs through the full query planning stack (SqlConverter, ViewExpander) using the same catalog. Since table resolution goes through `getTable()`, EXPLAIN inherits SELECT enforcement. The enforcement is already in the right place.
+Key library finding: `com.nimbusds:nimbus-jose-jwt:9.41` and `com.nimbusds:oauth2-oidc-sdk:11.20` are already declared in the root pom.xml. JWKS fetching, JWT verification, and OIDC token parsing infrastructure is already available without new dependencies.
 
 ---
 
-## Category 1: Table Stakes
+## Feature Landscape
 
-*Must have for this milestone to be useful. These are the features specifically called out in the milestone scope.*
+### Table Stakes (Users Expect These)
 
-### 1.1 VDS Definer Rights: View Expansion Uses Creator's Identity
+Features that are required for the Keycloak IdP integration to be usable. Missing any of these means the feature is incomplete.
 
-**What it is:** When a user queries a VDS, the expansion of that VDS's SQL definition resolves inner tables using the VDS creator's (or last modifier's) identity, not the querying user's. The querying user only needs SELECT on the VDS itself; the definer's grants cover inner PDS/VDS access.
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Configuration flag to enable Keycloak auth (`services.coordinator.web.auth.type = "keycloak"`) | Every IdP integration is configuration-driven; must not require code changes to switch | LOW | Follows existing `WEB_AUTH_TYPE` dispatch pattern in `DACDaemonModule`; add `"keycloak"` as a third valid value |
+| OIDC Authorization Code Flow redirect for Web UI ("Login with SSO") | Standard browser-based OIDC login; users expect a button that redirects to Keycloak login page | HIGH | Requires: `/api/v3/oauth/authorize` (redirects to Keycloak), callback endpoint `/api/v3/oauth/callback` (exchanges code for tokens), state+PKCE for CSRF protection; `SSO_LANDING_PATH` stub already exists in the UI |
+| Keycloak JWT Bearer token validation for REST API | All REST clients (scripts, automation) use `Authorization: Bearer <token>`; when Keycloak is the IdP, they will pass Keycloak-issued access tokens | HIGH | Cannot reuse `TokenManagerImplV2` (it resolves users by Dremio UID from JWT `sub`); needs a parallel validation path that: (1) fetches Keycloak JWKS from `{issuer}/protocol/openid-connect/certs`, (2) validates signature+expiry, (3) extracts `preferred_username` claim, (4) resolves to Dremio user. nimbus-jose-jwt already on classpath |
+| JIT (Just-In-Time) user provisioning on first Keycloak login | Users managed in Keycloak should not need manual creation in Dremio; first login creates the local user record | MEDIUM | Create user via `UserService.createUser()` on successful OIDC callback if `UserService.getUser(username)` throws `UserNotFoundException`; username sourced from `preferred_username` claim; email from `email` claim |
+| Keycloak realm role → Dremio RBAC role mapping on login | Keycloak realm roles in `realm_access.roles` JWT claim must sync to Dremio RBAC role memberships | HIGH | On every login (not just first): (1) read `realm_access.roles` from Keycloak access token, (2) map to Dremio role names (configurable prefix/direct name mapping), (3) call `RbacService.grantRoleToUser()` / `revokeRoleFromUser()` to sync; roles not in Keycloak are revoked from Dremio on each login |
+| ODBC/JDBC token-based auth with Keycloak tokens | Data analysts use BI tools (DBeaver, Tableau, etc.) via JDBC/Arrow Flight; they need to authenticate when Keycloak is the IdP | MEDIUM | Keycloak-issued access tokens passed as the password field in Arrow Flight basic auth; `DremioCredentialValidator` must detect token-shaped passwords and validate via Keycloak JWKS instead of `UserService.authenticate()`. Alternatively: accept Dremio-issued session tokens (opaque) obtained via the REST login endpoint as Bearer tokens |
+| Dremio form-based login bypass/coexistence | Internal service accounts (CI pipelines, admin bootstrapping) may still need username+password auth even when Keycloak is enabled | MEDIUM | When `auth.type = keycloak`, `POST /api/v3/login` with username+password should still work for users that exist in the local KVStore (admin fallback), OR be explicitly disabled. Clear documentation and configuration needed |
+| Config validation at startup | Misconfigured Keycloak settings (wrong issuer URL, invalid client secret) must fail fast with clear error messages | LOW | Fetch `{issuer}/.well-known/openid-configuration` at startup; verify JWKS endpoint reachable; log and throw on failure |
 
-**Why it's table stakes for this milestone:** Without this, the SELECT-on-VDS model is security-broken: a user granted SELECT on a VDS would fail during expansion if they lack access to the underlying PDS. Definer rights are the mechanism that makes view-based access control work.
+### Differentiators (Competitive Advantage)
 
-**SQL standard basis:** SQL:1999 Section 11.53 defines `SQL SECURITY DEFINER` for routines. PostgreSQL, Oracle, MySQL, and Snowflake all implement this model for views. Views expand under the owner's privileges by default in SQL:2003 and most ANSI-compliant engines. (MEDIUM confidence — standard reference from training data, not verified against spec text.)
+Features beyond the baseline that improve operator or user experience.
 
-**How it works in this codebase:**
-1. At VDS creation/update time, record the creator/last-modifier username in the VDS metadata (e.g., `DatasetConfig.VirtualDataset.owner` field or a separate field).
-2. `CatalogEntityOwnershipImpl.getCatalogEntityOwner()` must return this identity for `VIRTUAL_DATASET` type (currently returns `Optional.empty()`).
-3. `DatasetManager.createTableFromVirtualDataset()` then sets `viewOwner` on `ViewTable` to a non-null identity.
-4. `ViewExpander.expandViewInternal()` then calls `expandRelNode(viewTable, viewOwner, queryString)` with the definer's identity, which constructs the `SqlValidatorAndToRelContext` with that user — inner table resolution uses the definer's catalog, not the caller's.
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Configurable role name prefix/mapping for Keycloak roles | Keycloak realm roles are often prefixed (`dremio_admin`, `dremio_analyst`); operators want to strip prefix or map to Dremio role names | LOW | Simple `services.keycloak.role.prefix` config key; strip prefix before matching to Dremio role names |
+| JWKS key rotation with cache refresh | Keycloak rotates signing keys without disrupting sessions; validator auto-fetches new JWKS when `kid` mismatch | MEDIUM | Standard nimbus-jose-jwt pattern: cache JWKS with TTL; on `kid` not found, refresh before rejecting. Pattern already implemented in `RemoteJWKSetManager` |
+| Configurable admin role mapping (`services.keycloak.admin.role`) | Operators want to designate which Keycloak realm role maps to Dremio ADMIN membership | LOW | Config key with default value (e.g., `dremio-admin`); any user with this Keycloak role gets ADMIN membership synced in Dremio RBAC |
+| POST /api/v3/login continues to work for all users (even Keycloak users) via a special "token exchange" path | Allows automated scripts to obtain a Dremio session token by presenting a Keycloak access token directly to the login endpoint | MEDIUM | Accept `Authorization: Bearer <keycloak_token>` on `POST /api/v3/login`; validate the Keycloak token, JIT-provision if needed, issue a Dremio session token. Decouples BI tool from needing to present Keycloak tokens directly to Arrow Flight |
+| Logout with Keycloak session termination | When user logs out of Dremio UI, also terminate the Keycloak session (Single Logout) | HIGH | Keycloak supports OIDC RP-Initiated Logout (`end_session_endpoint`); redirect browser there on Dremio logout. Complex because requires storing the Keycloak `id_token_hint` for the session |
 
-**Complexity:** Medium. The planner infrastructure (ViewExpansionContext, ViewExpander) is ready. The gap is writing and reading the `owner` field on VDS metadata. This requires: (a) hooking into `createView()` to persist `userName` on the VDS config, (b) extending `CatalogEntityOwnershipImpl` to read that field for VDS, and (c) verifying that the inner catalog instance built with the definer's identity is privilege-checked against the definer's grants.
+### Anti-Features (Commonly Requested, Often Problematic)
 
-**Dependencies:** v1.0 SELECT on VDS enforcement. No new storage primitives needed.
-
-**Interaction with PDS SELECT (1.3):** If PDS SELECT is also enforced, definer rights become load-bearing: the definer must have SELECT on the underlying PDS. Operators must grant SELECT on PDS to the VDS creator (or to a role they hold) when creating views over physical tables.
-
-**Confidence:** HIGH (all details derived from direct codebase analysis).
-
----
-
-### 1.2 UDF Invoker Rights: Caller's Privileges Used During UDF Execution
-
-**What it is:** When a user calls a UDF, and that UDF's body accesses tables or other objects, those inner accesses are resolved using the **caller's** identity — not the UDF creator's. The caller needs both EXECUTE on the UDF and SELECT on any table the UDF body accesses.
-
-**Why it's table stakes:** This is already how v1.0 works (see baseline analysis above). The task for v2 is: (a) documenting this as the explicit model, (b) confirming no code path breaks the invoker model, and (c) writing tests that verify it.
-
-**SQL standard basis:** SQL:2003 defines `SQL SECURITY INVOKER` as the alternate to DEFINER for routines. Most analytical engines (Snowflake, BigQuery, SparkSQL) default UDFs to invoker rights because UDF bodies in analytical systems typically don't access raw tables directly — they operate on data already in the query plan. (MEDIUM confidence — standard reference from training data.)
-
-**Complexity:** Low. No code change. This is verification, documentation, and test coverage.
-
-**Note:** If UDF bodies in Dremio can reference named tables (e.g., `SELECT * FROM my_space.my_table` inside a UDF body), then invoker rights means the caller must have SELECT on that table. This is the correct and expected behavior but has UX implications: operators must grant SELECT on any table a UDF body reads to every role that receives EXECUTE on the UDF.
-
-**Dependencies:** v1.0 EXECUTE on UDF enforcement (already complete).
-
-**Confidence:** HIGH (confirmed from code; `getFunctions()` uses `this.userName`).
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| Per-request Keycloak token introspection (calling `/token/introspect` on every API request) | Seems like a way to get real-time token revocation | Adds 100ms+ of HTTP latency on every API call; Keycloak becomes a synchronous dependency for every request; kills performance | Validate JWT locally with cached JWKS; accept short token TTL as the revocation window. Only introspect if token is a reference token (opaque), not a JWT |
+| Storing Keycloak access tokens in the Dremio KVStore | Might seem like a natural extension of the existing token store | Unnecessary: Keycloak JWTs are self-contained and verifiable without storage; storing them duplicates state and creates expiry sync problems | Validate Keycloak JWTs stateless-ly via JWKS; issue a short-lived Dremio session token after validation if needed |
+| SAML 2.0 support alongside OIDC | Some enterprises use SAML instead of OIDC | Completely different protocol and library stack; doubles integration surface; Keycloak itself bridges SAML IdPs to OIDC for clients | Point Keycloak at the SAML IdP as an identity broker; Dremio always sees Keycloak/OIDC regardless |
+| Replacing Dremio's RBAC with Keycloak Authorization Services | Keycloak has its own authorization engine (UMA, policies) | Keycloak Authorization Services is complex and Dremio already has a working RBAC layer backed by RocksDB; replacing it would require migrating all existing grants | Use Keycloak only for authentication and role transport (claims); keep all authorization in Dremio's RBAC system |
+| Auto-creating Keycloak roles from Dremio RBAC | Round-tripping role management between Keycloak and Dremio | Creates a bidirectional sync problem; which system is authoritative?; roles created in Dremio by admins would need to appear in Keycloak | Treat Keycloak as authoritative for roles; map Keycloak realm roles → Dremio RBAC roles unidirectionally at login time |
+| LDAP-via-Keycloak as a path for LDAP support in OSS | Keycloak can federate LDAP | This conflates the Keycloak IdP feature with LDAP; the existing OSS `WEB_AUTH_TYPE = ldap` throws at startup; fixing LDAP in OSS is a separate milestone | Defer LDAP-in-OSS; document that Keycloak can federate LDAP for operators who need it |
 
 ---
 
-### 1.3 SELECT Privilege on Physical Datasets (PDS)
-
-**What it is:** Extend RBAC enforcement to physical datasets (raw tables promoted from sources). A user must have SELECT granted on a PDS to query it, just like VDS.
-
-**Why it's table stakes:** Without this, any user can bypass view-based access control by directly querying the underlying physical table. A user denied SELECT on a VDS (the filtered view) can run `SELECT * FROM source.schema.raw_table` and see everything. This is a fundamental security hole if the goal is data access control beyond "hide the view name."
-
-**SQL standard basis:** Table-level SELECT grants are the most basic form of SQL privilege, defined in SQL:1992 and every subsequent revision. (HIGH confidence.)
-
-**How it works in this codebase:**
-- `CatalogImpl.isRbacDeniedForVds()` currently returns `false` immediately for non-ViewTable instances.
-- A new `isRbacDeniedForPds(DremioTable table, NamespaceKey key)` method (or an extension of the existing check) must be added.
-- The check must be gated on `table instanceof NamespaceTable` (or the equivalent PDS type) in addition to ViewTable.
-- The `hasPrivilege()` call uses object type `"PDS"` to distinguish from `"VDS"`.
-
-**Complexity:** Medium. The enforcement pattern is identical to VDS. The additional surface is:
-- All `getTable*()` variants that currently short-circuit non-ViewTable.
-- `bulkGetTables()` transformer must also include PDS denial.
-- New grant storage entries with `objectType = "PDS"`.
-- SQL DDL: `GRANT SELECT ON PDS <path> TO ROLE <role>`.
-- REST API: support `PDS` as entity type in grant endpoints.
-
-**Important constraint:** The PUBLIC role currently has implicit SELECT on all PDS (because `isRbacDeniedForVds()` returns false for non-ViewTable). Adding PDS enforcement will deny all users who haven't been explicitly granted. Migration plan: either auto-grant PUBLIC SELECT on all existing PDS when enabling PDS enforcement, or add a separate feature flag `services.rbac.pds.enabled`.
-
-**Dependencies:** 1.1 (definer rights) — if definer rights are properly implemented, the VDS definer must hold SELECT on the PDS. PDS enforcement must come after or alongside definer rights to avoid breaking existing views.
-
-**Confidence:** HIGH (derived from code analysis of `isRbacDeniedForVds()` guard).
-
----
-
-### 1.4 Container Visibility Filtering: Sources/Spaces/Folders
-
-**What it is:** Sources, spaces, and folders (containers) are only shown to a user if that user has access to at least one object within them (directly or transitively). The full ancestor path of any visible object must be visible.
-
-**Why it's table stakes:** Currently all containers are always visible to all users. A user who has SELECT on `my_space.view_a` but nothing in `restricted_space` can still see `restricted_space` in the catalog listing. This confuses users and leaks existence information.
-
-**Expected behavior from SQL standard perspective:** SQL standards do not specify catalog listing visibility rules. The convention in commercial databases is the "at least one accessible descendant" rule. PostgreSQL does not list schemas containing no visible objects. Snowflake hides databases and schemas when the user has no access to any child. Databricks Unity Catalog implements the same rule. (MEDIUM confidence — convention from training data across multiple systems.)
-
-**How it works in this codebase:**
-- `CatalogServiceHelper.filterByVisibility()` filters the `children` list returned by `namespaceService.list()`.
-- `isVisibleToUser()` currently returns `true` for all container types.
-- The fix: for container types (FOLDER, SPACE, SOURCE), recursively check whether the container has any accessible descendant.
-- This is expensive if done naively. The standard implementation uses "does any grant exist with a path prefix matching this container?" — a prefix scan over the grant store.
-
-**Complexity:** Medium-to-High.
-- Simple approach: for each container, scan all grants where `objectPath` has a prefix matching the container path. O(grants) per container lookup. Acceptable for small grant sets.
-- Scalable approach: add a container-level visibility index (set of container paths that have at least one grant). Updated on every GRANT/REVOKE. O(1) lookup.
-- Edge case: the "full ancestor path shown" rule means if a user has SELECT on `space_a.folder_b.view_c`, then `space_a`, `space_a.folder_b`, and `space_a.folder_b.view_c` must all be visible.
-
-**Interaction with pagination:** The v1 audit noted that `filterByVisibility()` is applied after pagination trim, so pages may be smaller than `maxChildren`. This pre-existing issue becomes more impactful when containers are also filtered.
-
-**Dependencies:** v1.0 grant storage (prefix scan over existing `GrantStore`). Does not require new storage.
-
-**Confidence:** HIGH (mechanism derived from codebase; behavior convention is MEDIUM).
-
----
-
-### 1.5 ALTER VIEW Privilege (Separate from CREATE_VIEW)
-
-**What it is:** A grantable privilege that controls who can alter (modify the SQL definition of) an existing VDS. Distinct from `CREATE_VIEW` (which governs creation) and `DROP` (which governs deletion).
-
-**Why it's table stakes:** Without this, there is no way to allow a non-admin user to modify their own views without also allowing them to drop any view or create new ones. The lifecycle of a view has three distinct operations: create, modify, drop — each should be independently grantable.
-
-**SQL standard basis:** SQL:1999 Section 11.10 defines `ALTER VIEW` as a distinct DDL operation. Oracle, PostgreSQL, and Snowflake all require the caller to be the owner or have explicit ALTER privilege on the view. (MEDIUM confidence — training data.)
-
-**How it works in this codebase:**
-- `CatalogImpl.createView()` handles both CREATE and CREATE OR REPLACE (ALTER). Currently no `validatePrivilege()` call.
-- Add `validatePrivilege(key, SqlGrant.Privilege.ALTER)` inside `createView()` when `viewOptions.getActionType() == ViewOptions.ActionType.ALTER_VIEW_PROPERTIES` (an ALTER, not a fresh CREATE).
-- For initial CREATE: check `CREATE_VIEW` privilege (already in v1.0 grants, but not enforced in `createView()`).
-- `SqlGrant.Privilege.ALTER` exists. `SqlGrant.GrantType.VDS` exists. Infrastructure is complete.
-
-**Complexity:** Low. One `validatePrivilege()` call in `createView()` for ALTER path, gated by `viewOptions.getActionType()`.
-
-**Dependencies:** v1.0 privilege storage and `validatePrivilege()` implementation.
-
-**Confidence:** HIGH (code path confirmed from `createView()` and `ViewOptions.ActionType`).
-
----
-
-### 1.6 DROP VIEW Privilege (Separate from ALTER)
-
-**What it is:** A grantable privilege that controls who can drop (delete) an existing VDS.
-
-**Why it's table stakes:** Paired with 1.5. DROP is destructive and must be independently revocable.
-
-**SQL standard basis:** `DROP` is a standard SQL privilege. (HIGH confidence.)
-
-**How it works in this codebase:**
-- `CatalogImpl.dropView()` currently has no `validatePrivilege()` call.
-- Add `validatePrivilege(key, SqlGrant.Privilege.DROP)` at the start of `dropView()`.
-- `SqlGrant.Privilege.DROP` exists. `SqlGrant.GrantType.VDS` exists.
-
-**Complexity:** Low. One line addition. Mirror of ALTER VIEW (1.5).
-
-**Dependencies:** v1.0 privilege storage and `validatePrivilege()` implementation.
-
-**Confidence:** HIGH (code path confirmed).
-
----
-
-### 1.7 CREATE_VIEW Privilege Enforcement (Completing v1.0 Gap)
-
-**What it is:** The `CREATE_VIEW` privilege was grantable in v1.0 (via `SqlGrant.Privilege.CREATE_VIEW`) but `createView()` never calls `validatePrivilege()`. This means anyone can create views regardless of grants.
-
-**Why it's table stakes:** PRIV-03 and ENFC-08 were v1.0 requirements that were marked satisfied but the enforcement call is absent from `createView()`. This is an existing gap that must be closed before ALTER/DROP enforcement is added, or the privilege model is incoherent.
-
-**Complexity:** Low. One `validatePrivilege(key, SqlGrant.Privilege.CREATE_VIEW)` call in the CREATE path of `createView()`.
-
-**Dependencies:** v1.0 privilege storage.
-
-**Confidence:** HIGH (confirmed by absence of `validatePrivilege` in `createView()` via codebase search).
-
----
-
-## Category 2: Differentiators
-
-*Valuable but not essential for the milestone's core security model.*
-
-### 2.1 DESCRIBE and EXPLAIN Privilege: Verification Pass
-
-**What it is:** Confirm and test that DESCRIBE (via `DescribeTableHandler`) and EXPLAIN (via full planner path) inherit SELECT enforcement correctly.
-
-**Why it's a differentiator:** The code analysis shows DESCRIBE already goes through `catalog.getTable()` which has RBAC checks. EXPLAIN also uses the full catalog. This is not new feature work — it is verification and test coverage. The feature is already there.
-
-**Complexity:** Low. Write integration tests asserting: non-granted user gets "table not found" on DESCRIBE; non-granted user cannot EXPLAIN a query referencing an unganted VDS.
-
-**Dependencies:** v1.0 enforcement. No code changes expected.
-
----
-
-### 2.2 SELECT on PDS with Migration Strategy
-
-**What it is:** The full feature from Table Stakes 1.3, but the "differentiator" aspect is the migration tooling: auto-grant PUBLIC SELECT on all existing PDS when the feature is enabled, preventing a rollout from locking out all users.
-
-**Why it's a differentiator:** The migration is valuable but complex. The core enforcement (1.3) is table stakes; the migration smoothing is a differentiator because the system is still useful without it (administrators can manually grant).
-
-**Complexity:** Medium. Requires a startup migration job that iterates all PDS in namespace service and inserts PUBLIC SELECT grants. Must be idempotent and gated on a separate config flag.
-
----
-
-### 2.3 Batch Privilege Checks for Container Visibility
-
-**What it is:** Instead of O(containers) individual grant lookups to compute container visibility, maintain a pre-built index (set of container path prefixes with at least one grant). Updated transactionally on GRANT/REVOKE.
-
-**Why it's a differentiator:** The simple approach (prefix scan per container) works for small catalogs. The index approach scales to large catalogs with many containers.
-
-**Complexity:** Medium. Requires modifying GRANT/REVOKE handlers to maintain the index. Adds complexity to the persistence layer.
-
----
-
-### 2.4 Visibility API for Ancestor Path Expansion
-
-**What it is:** A REST API endpoint that returns the set of visible containers for the current user, for use by the UI's catalog tree rendering.
-
-**Why it's a differentiator:** The current filterByVisibility() approach requires the client to list children and rely on filtering. A direct "what can I see?" API is more efficient for tree rendering.
-
-**Complexity:** Medium. New REST endpoint; depends on container visibility logic (1.4).
-
----
-
-### 2.5 Audit Logging for Lifecycle Privilege Checks
-
-**What it is:** Record in the audit log when ALTER VIEW or DROP VIEW is denied due to missing privilege.
-
-**Why it's a differentiator:** Useful for security monitoring but not required for correctness.
-
-**Complexity:** Low-to-medium. Depends on whether an audit log infrastructure exists.
-
----
-
-### 2.6 GRANT ALL Syntax on VDS
-
-**What it is:** `GRANT ALL ON VDS <path> TO ROLE <role>` expands to SELECT + ALTER + DROP in a single statement.
-
-**Why it's a differentiator:** Pure ergonomics. The individual grants are sufficient.
-
-**Complexity:** Low. `SqlGrant.Privilege.ALL` already exists in the enum; handler expansion needed.
-
----
-
-## Category 3: Anti-Features
-
-*Deliberately NOT in this milestone. Each entry explains why.*
-
-### 3.1 VDS Security Invoker Mode (Optional per View)
-
-**What it is:** An option on CREATE VIEW to choose `SQL SECURITY INVOKER` instead of the default definer mode.
-
-**Why NOT:** Adds significant complexity — every view resolution must check the view's security mode attribute. Invoker mode on VDS combined with PDS SELECT enforcement would require the querying user to have SELECT on every table the view touches, defeating the abstraction purpose of views. Definer-rights-only is the correct default for a data lakehouse. Do not add a per-view toggle until there is a specific use case that requires it.
-
-### 3.2 Column-Level Grants (GRANT SELECT (col1, col2))
-
-**Why NOT:** Views already serve as column projection. Column-level GRANT adds privilege evaluation complexity proportional to query width. Use `CREATE VIEW AS SELECT col1, col2 FROM t` instead.
-
-### 3.3 Row-Level Security (GRANT with WHERE policy)
-
-**Why NOT:** Views and VDS already serve as row-filtering mechanism. Policy-based RLS adds a separate policy engine.
-
-### 3.4 Source-Level or Space-Level GRANT (Container Grants)
-
-**What it is:** `GRANT SELECT ON SPACE my_space TO ROLE reader` — the grant applies to all VDS in the space.
-
-**Why NOT in this milestone:** Container grants are a large feature (requires path-prefix inheritance at privilege check time for every table resolution). The container visibility feature (1.4) only hides containers; it does not grant through them. Container-level grants are a v3 feature. Container visibility filtering is additive to per-object grants, not a replacement.
-
-**Confusion risk:** Operators may expect that granting visibility to a container implies access to its contents. Document explicitly that container visibility is a display filter, not an access grant.
-
-### 3.5 Nested Roles (Role Hierarchy)
-
-**Why NOT:** Already excluded in v1.0. Flat roles remain sufficient. Recursive privilege resolution adds O(depth) cost per access check.
-
-### 3.6 DENY Grants (Explicit Denial)
-
-**Why NOT:** Deny-by-default already achieves the security goal. DENY adds confusing priority resolution (does DENY override GRANT to PUBLIC?). Never add DENY.
-
-### 3.7 Cross-Source View Definer Rights (Impersonation Chain)
-
-**What it is:** A VDS that joins tables across two impersonation-enabled sources would need the view definer's identity to have impersonation credentials on both sources.
-
-**Why NOT:** This is a separate impersonation subsystem (`ImpersonationConf`, `getAccessUserName()`). Definer rights for the RBAC check layer (1.1) does not need to solve cross-source impersonation. Keep the scope to the RBAC identity context; impersonation is a connector-level concern.
-
----
-
-## Feature Dependency Map
+## Feature Dependencies
 
 ```
-v1.0 baseline (SELECT on VDS, EXECUTE on UDF, flat roles, ADMIN/PUBLIC)
-  |
-  +-> 1.7 CREATE_VIEW enforcement (closes v1.0 gap -- do first)
-  |
-  +-> 1.5 ALTER VIEW privilege enforcement
-  |     (requires 1.7 to be coherent)
-  |
-  +-> 1.6 DROP VIEW privilege enforcement
-  |     (parallel with 1.5)
-  |
-  +-> 1.1 VDS Definer Rights
-  |     - store owner on VDS metadata
-  |     - CatalogEntityOwnershipImpl reads VDS owner
-  |     - ViewExpander uses definer's catalog identity
-  |
-  +-> 1.3 SELECT on PDS
-  |     - extend isRbacDeniedForVds() to NamespaceTable
-  |     - new PDS grant type in storage
-  |     - AFTER 1.1 (definer must hold PDS grants)
-  |     - NEEDS migration plan before enabling
-  |
-  +-> 1.4 Container Visibility Filtering
-  |     - prefix-scan grants for container path
-  |     - modify isVisibleToUser() for FOLDER/SPACE/SOURCE
-  |     - independent of 1.1-1.3
-  |
-  +-> 1.2 UDF Invoker Rights (verify + test only)
-  |     - no code changes
-  |     - integration tests
-  |
-  +-> 2.1 DESCRIBE/EXPLAIN verification (test only)
-        - no code changes
-        - integration tests
+[Existing RBAC system (v1.0–v1.4)]
+    └──required by──> [Role mapping on login]
+    └──required by──> [JIT user provisioning] (creates users that RBAC then governs)
 
-Differentiators (optional, after table stakes):
-  2.2 PDS migration strategy -> depends on 1.3
-  2.3 Container visibility index -> depends on 1.4
-  2.4 Visibility REST API -> depends on 1.4
+[Config: auth.type = "keycloak"]
+    └──enables──> [OIDC redirect login (Web UI)]
+    └──enables──> [Keycloak JWT validation (REST API)]
+    └──enables──> [OIDC-aware Arrow Flight auth (JDBC/ODBC)]
+
+[Keycloak OIDC Authorization Code Flow]
+    └──requires──> [OIDC callback endpoint /api/v3/oauth/callback]
+    └──requires──> [State + PKCE parameter storage (server-side session or signed cookie)]
+    └──produces──> [Keycloak access token (JWT)]
+                       └──feeds──> [JIT user provisioning]
+                       └──feeds──> [Role mapping on login]
+                       └──feeds──> [Dremio session token issuance]
+
+[Keycloak JWKS validation]
+    └──required by──> [Keycloak JWT Bearer validation (REST API)]
+    └──required by──> [ODBC/JDBC Keycloak token path]
+    └──depends on──> [nimbus-jose-jwt (already on classpath)]
+
+[JIT user provisioning]
+    └──requires──> [UserService.createUser()]
+    └──requires──> [preferred_username claim from Keycloak JWT]
+
+[Role mapping on login]
+    └──requires──> [realm_access.roles claim from Keycloak JWT]
+    └──requires──> [RbacService.grantRoleToUser() / revokeRoleFromUser()]
+    └──requires──> [Role names pre-created in Dremio RBAC]
+
+[ODBC/JDBC Keycloak token path]
+    └──requires──> [Keycloak JWKS validation]
+    └──feeds into──> [DremioCredentialValidator or DremioBearerTokenAuthenticator]
+                       └──requires──> [JIT user provisioning] (user may not exist yet)
+```
+
+### Dependency Notes
+
+- **OIDC callback requires state/PKCE storage:** The OIDC Authorization Code Flow is not stateless — the server must correlate the callback's `code` and `state` parameters with the original authorization request. Dremio's existing architecture has no server-side session store. Options: (1) sign the state parameter and embed PKCE verifier in it (stateless, but more complex), (2) use a short-lived KVStore entry keyed by state UUID (simplest, consistent with existing patterns). Option 2 is recommended — the KVStore already handles TTL-based token entries.
+
+- **JIT provisioning requires UserService.createUser() before role mapping:** The user must exist in the KVStore before `RbacService.grantRoleToUser()` can be called. Order matters: provision user, then sync roles.
+
+- **Role mapping requires pre-created Dremio roles:** `RbacService.grantRoleToUser(role, user)` will fail if the Dremio role does not exist. The mapping must either: (a) auto-create Dremio roles when a Keycloak role is first seen, or (b) only map roles that already exist in Dremio. Option (b) is safer and simpler — operators pre-create Dremio roles and configure the mapping; unmapped Keycloak roles are ignored.
+
+- **Keycloak JWT validation vs. Dremio JWT validation must not conflict:** `DACAuthFilter` calls `tokenManager.validateToken()`. When Keycloak tokens are presented as Bearer tokens, `validateToken()` will fail (the token was not issued by Dremio). The filter must first attempt Keycloak validation when `auth.type = keycloak`, and only fall back to the Dremio token manager for Dremio-issued session tokens. This is the critical integration point in `DACAuthFilter`.
+
+- **`JWTValidatorImpl` is incompatible with Keycloak tokens:** It resolves users by `sub` claim treated as a Dremio `UID` (UUID). Keycloak `sub` is a Keycloak-internal UUID, not a Dremio UID. A new `KeycloakJWTValidator` must be written that resolves via `preferred_username` claim instead.
+
+---
+
+## MVP Definition
+
+### Launch With (v1.5 — this milestone)
+
+Minimum viable IdP integration — what's needed to use Keycloak as the authentication provider in a real deployment.
+
+- [ ] `services.coordinator.web.auth.type = "keycloak"` config with required sub-keys (`issuer-url`, `client-id`, `client-secret`, `redirect-uri`) — foundational, all other features depend on this
+- [ ] OIDC Authorization Code Flow: `/api/v3/oauth/authorize` + `/api/v3/oauth/callback` endpoints — required for Web UI users to log in
+- [ ] Keycloak JWT validation in `DACAuthFilter` — required for REST API clients using Keycloak Bearer tokens
+- [ ] JIT user provisioning on first login — required so Keycloak users exist in Dremio's KVStore after first login
+- [ ] Keycloak realm role → Dremio RBAC role sync on every login — required for authorization to work for Keycloak-managed users
+- [ ] Keycloak token acceptance in Arrow Flight / JDBC path — required for BI tools and ODBC/JDBC consumers
+- [ ] Startup config validation (fetch `/.well-known/openid-configuration`) — required to fail fast on misconfiguration
+
+### Add After Validation (v1.x)
+
+- [ ] Configurable role name prefix/mapping — add when operators report friction with role name conventions
+- [ ] JWKS key rotation with automatic cache refresh — add before first production deployment rotation event
+- [ ] Token exchange path: `POST /api/v3/login` accepting Keycloak Bearer token → Dremio session token — add when automation scripts need simpler auth flow
+
+### Future Consideration (v2+)
+
+- [ ] RP-Initiated Logout (Single Logout with Keycloak session termination) — high complexity, limited user demand initially
+- [ ] Multiple IdP support (Keycloak + internal simultaneously, not just fallback) — complex auth routing; defer until use case is clear
+- [ ] SCIM user sync from Keycloak — proactive provisioning without login; defer, JIT is sufficient for v1
+
+---
+
+## Feature Prioritization Matrix
+
+| Feature | User Value | Implementation Cost | Priority |
+|---------|------------|---------------------|----------|
+| Config + startup validation | HIGH (everything depends on it) | LOW | P1 |
+| OIDC redirect login (Web UI) | HIGH | HIGH | P1 |
+| Keycloak JWT Bearer validation (REST API) | HIGH | HIGH | P1 |
+| JIT user provisioning | HIGH | MEDIUM | P1 |
+| Keycloak realm role → RBAC sync | HIGH | HIGH | P1 |
+| Keycloak token in Arrow Flight/JDBC | HIGH | MEDIUM | P1 |
+| Role name prefix/mapping config | MEDIUM | LOW | P2 |
+| JWKS cache auto-refresh on key rotation | MEDIUM | MEDIUM | P2 |
+| Token exchange on POST /api/v3/login | MEDIUM | MEDIUM | P2 |
+| RP-Initiated Logout | LOW | HIGH | P3 |
+| Multiple concurrent IdPs | LOW | HIGH | P3 |
+
+**Priority key:**
+- P1: Must have for this milestone launch
+- P2: Should have, add in follow-on phase or as milestone extension
+- P3: Nice to have, future consideration
+
+---
+
+## Existing Codebase Integration Points (Critical for Implementation)
+
+These are the exact locations where new code must hook in. Identified via direct codebase analysis (HIGH confidence).
+
+| Integration Point | File | What Changes |
+|-------------------|------|--------------|
+| Auth type dispatch | `DACDaemonModule.java:2216` | Add `"keycloak"` branch: bind `KeycloakUserService` wrapper and `KeycloakJWTValidator` |
+| Auth type check | `DACConfig.java:203` | `isInternalUserAuth()` must return false when auth.type=keycloak; add `isKeycloakAuth()` helper |
+| Token validation in auth filter | `DACAuthFilter.java:getUserNameFromToken()` | When auth.type=keycloak: try Keycloak JWT first (new `KeycloakJWTValidator`), fall back to Dremio token manager for existing Dremio-issued session tokens |
+| Arrow Flight credential validation | `DremioCredentialValidator.java:validate()` | Detect Keycloak JWT-shaped passwords (starts with `eyJ`); validate via `KeycloakJWTValidator` instead of `UserService.authenticate()` |
+| Login response generation | `LogInLogOutResource.java:login()` | Either: keep as-is for internal users only when auth.type=keycloak, or add Keycloak token exchange path |
+| New OIDC endpoints | New `OidcResource.java` | `/api/v3/oauth/authorize` (redirect) and `/api/v3/oauth/callback` (code exchange + JIT + role sync + session token issuance) |
+| New config keys | `DremioConfig.java` | `KEYCLOAK_ISSUER_URL`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_REDIRECT_URI`, `KEYCLOAK_ADMIN_ROLE`, `KEYCLOAK_ROLE_PREFIX` |
+| New config defaults | `dremio-reference.conf` | `keycloak` section under `services.coordinator.web` |
+| UI SSO button | `LoginForm.jsx` + `LoginFormContainer.jsx` | Add "Login with SSO" button that calls `GET /api/v3/oauth/authorize`; hide when auth.type=internal |
+| UI SSO landing | `loginLogout.js:SSO_LANDING_PATH` | Implement `/login/sso/landing` route that reads token from URL params and completes login saga |
+
+---
+
+## Token Flow Comparison: Internal Auth vs. Keycloak Auth
+
+### Internal Auth (existing)
+
+```
+Browser → POST /api/v3/login {user, pass}
+        → UserService.authenticate() verifies BCrypt
+        → TokenManager.createToken() issues opaque Dremio token
+        → DACAuthFilter validates Dremio token on each request
+```
+
+### Keycloak Auth — Web UI (new)
+
+```
+Browser → GET /api/v3/oauth/authorize
+        → Server generates state UUID + PKCE verifier, stores in KVStore (TTL=5min)
+        → Server redirects to Keycloak authorize endpoint
+        → Keycloak authenticates user (form, SSO cookie, etc.)
+        → Keycloak → GET /api/v3/oauth/callback?code=...&state=...
+        → Server: validate state, fetch PKCE verifier from KVStore
+        → Server: POST to Keycloak token endpoint, exchange code for tokens
+        → Server: validate Keycloak access token (JWKS)
+        → Server: JIT-provision user if needed
+        → Server: sync realm roles → Dremio RBAC
+        → Server: TokenManager.createToken() issues Dremio session token
+        → Server: redirect to /login/sso/landing?token=...
+        → Browser: store Dremio token, complete login saga (same as internal auth)
+        → DACAuthFilter validates Dremio session token on each subsequent request
+```
+
+### Keycloak Auth — REST API with Bearer Token (new)
+
+```
+REST Client → POST /api/v3/... with Authorization: Bearer <keycloak_jwt>
+           → DACAuthFilter: Keycloak token path
+           → KeycloakJWTValidator: fetch JWKS, validate signature+expiry
+           → Extract preferred_username → resolve Dremio user (JIT if needed)
+           → Sync roles on first use (or on each request — design choice)
+           → Set DACSecurityContext with resolved user
+```
+
+### Keycloak Auth — JDBC/ODBC via Arrow Flight (new)
+
+```
+JDBC Driver → Arrow Flight basic auth: username="<any>", password="<keycloak_access_token>"
+           → DremioCredentialValidator.validate()
+           → Detect JWT shape (eyJ prefix), route to KeycloakJWTValidator
+           → Validate token, extract username, JIT-provision if needed
+           → TokenManager.createToken() → return Dremio Bearer token
+           → Subsequent calls use Dremio Bearer token (same as today)
 ```
 
 ---
 
-## Complexity Summary Table
+## Sources
 
-| Feature | Category | Complexity | Key Dependency | New Storage? |
-|---------|----------|-----------|----------------|--------------|
-| 1.1 VDS definer rights | Table stakes | Medium | v1.0 grants, VDS metadata | No (reuse DatasetConfig) |
-| 1.2 UDF invoker rights | Table stakes | Low (verify only) | v1.0 EXECUTE enforcement | No |
-| 1.3 SELECT on PDS | Table stakes | Medium | 1.1 definer rights first | Yes (PDS grant entries) |
-| 1.4 Container visibility | Table stakes | Medium-High | v1.0 grant store | No (prefix scan) |
-| 1.5 ALTER VIEW privilege | Table stakes | Low | v1.0 validatePrivilege() | No |
-| 1.6 DROP VIEW privilege | Table stakes | Low | v1.0 validatePrivilege() | No |
-| 1.7 CREATE_VIEW enforcement | Table stakes | Low (gap close) | v1.0 privilege store | No |
-| 2.1 DESCRIBE/EXPLAIN verify | Differentiator | Low (tests only) | v1.0 enforcement | No |
-| 2.2 PDS migration strategy | Differentiator | Medium | 1.3 | No |
-| 2.3 Container visibility index | Differentiator | Medium | 1.4 | Yes (prefix index) |
-| 2.4 Visibility REST API | Differentiator | Medium | 1.4 | No |
-| 2.5 Audit logging for lifecycle | Differentiator | Low-medium | Audit infra | No |
-| 2.6 GRANT ALL on VDS | Differentiator | Low | v1.0 DDL handlers | No |
+- Codebase: `DACAuthFilter.java`, `DACDaemonModule.java`, `LogInLogOutResource.java`, `DACConfig.java`, `DACSecurityContext.java` (HIGH confidence — direct analysis)
+- Codebase: `LocalUsernamePasswordAuthProvider.java`, `UserService.java`, `SimpleUserService.java` (HIGH confidence)
+- Codebase: `TokenManager.java`, `TokenManagerImplV2.java`, `JWTValidatorImpl.java`, `RemoteJWKSetManager.java` (HIGH confidence)
+- Codebase: `DremioFlightAuthProviderImpl.java`, `DremioBearerTokenAuthenticator.java`, `DremioCredentialValidator.java` (HIGH confidence)
+- Codebase: `loginLogout.js`, `LoginForm.jsx` — UI login flow (HIGH confidence)
+- Root `pom.xml`: `nimbus-jose-jwt:9.41`, `oauth2-oidc-sdk:11.20` confirmed on classpath (HIGH confidence)
+- [Keycloak Securing Applications Guide](https://www.keycloak.org/docs/25.0.6/securing_apps/index.html) — OIDC Authorization Code Flow patterns (MEDIUM confidence)
+- [Keycloak JWT structure: realm_access.roles claim](https://medium.com/@mohammad.h.zbib/solving-jwt-role-mapping-issues-in-spring-boot-with-keycloak-3f40db57216e) — realm_access.roles structure (MEDIUM confidence, verified pattern)
+- [Dremio ODBC/JDBC token auth patterns](https://docs.dremio.com/current/security/authentication/) — `$token` as username pattern for PATs (MEDIUM confidence)
+- [Keycloak forum: JIT user provisioning](https://forum.keycloak.org/t/just-in-time-user-provisioning/477) — JIT provisioning patterns (MEDIUM confidence)
 
 ---
 
-## Recommended Build Order (Table Stakes Only)
-
-1. **Close v1.0 gap first (1.7):** Add CREATE_VIEW enforcement in `createView()`. Without this, the privilege model is incoherent (you can grant CREATE_VIEW but it is never checked). One call, one test class.
-
-2. **VDS lifecycle (1.5, 1.6 in parallel with 1.7):** ALTER VIEW + DROP VIEW enforcement. Same pattern: `validatePrivilege()` in `createView()` ALTER branch and in `dropView()`. Low effort, high security value.
-
-3. **Definer rights (1.1):** Store VDS creator on `DatasetConfig.VirtualDataset`, extend `CatalogEntityOwnershipImpl`, verify `ViewExpander` uses definer identity. This changes the security model — must be tested with integration tests covering: (a) caller has SELECT on VDS, definer has SELECT on underlying PDS, query succeeds; (b) caller lacks SELECT on PDS directly, query succeeds because definer has it; (c) definer loses SELECT on PDS, view queries fail even for granted callers.
-
-4. **PDS SELECT (1.3):** After definer rights are confirmed working. Extend `isRbacDeniedForVds()` to cover `NamespaceTable`. Add PDS as grant object type. Coordinate with migration plan to avoid lockout.
-
-5. **Container visibility (1.4):** Can be done in parallel with 3-4. Modify `isVisibleToUser()` to prefix-scan grants for container path. Integration-test with containers that have no descendants vs. containers with one accessible VDS.
-
-6. **UDF invoker rights verify (1.2):** Write integration tests confirming caller identity is used for UDF EXECUTE check. No code change expected.
-
----
-
-## Open Questions
-
-These require phase-specific research or design decisions before implementation:
-
-1. **Which field stores the VDS creator?** `DatasetConfig` has an `owner` field used for PDS files; for VDS it appears unused. Need to confirm the proto definition and whether `DatasetConfig.setOwner()` or a VDS-specific field is the right place. Should this be "first creator" or "last modifier"? (Convention: "last modifier" matches Oracle and PostgreSQL's `ALTER VIEW` ownership behavior — the definer is whoever last modified the view.)
-
-2. **PDS enforcement rollout:** Is there a separate feature flag `services.rbac.pds.enabled` or does PDS enforcement activate with the same `services.rbac.enabled` flag? If the same flag, enabling RBAC (for VDS) also activates PDS enforcement, which denies all non-admin users PDS access on day 1. A separate flag or auto-grant migration is mandatory.
-
-3. **Container visibility performance:** What is the expected scale of the grant store? If a deployment has 10,000 VDS and 500 containers, the naive prefix scan is 500 * 10,000 = 5,000,000 comparisons per catalog listing. The index approach (2.3) may be required at this scale.
-
-4. **Definer identity persistence across restores:** If the coordinator database is restored from a backup, are user accounts consistent with VDS owner fields? What happens when the owner user is deleted?
-
-5. **AT-specifier + definer rights:** The v1 audit noted `getTable(CatalogEntityKey)` AT-specifier path calls `getTableSnapshot()`. For versioned sources, does the view snapshot include the owner/definer at the snapshot point? Need to verify versioned source behavior with definer rights.
-
----
-
-*Research: 2026-02-20. Derived from direct codebase analysis (CatalogImpl.java, DatasetManager.java, ViewExpander.java, ViewExpansionContext.java, CatalogEntityOwnershipImpl.java, CatalogServiceHelper.java, SqlGrant.java, RbacService.java) at HIGH confidence. SQL standard references and cross-database behavioral conventions at MEDIUM confidence (training data, not verified against spec text or official docs due to tool restrictions).*
+*Feature research for: Keycloak OIDC IdP integration for Dremio OSS v1.5*
+*Researched: 2026-03-12*
