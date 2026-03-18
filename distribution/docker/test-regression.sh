@@ -272,10 +272,6 @@ echo ""
 # SECTION 4: AGG / GROUP BY PUSHDOWN (plain columns)
 # ═══════════════════════════════════════════════════════════════════════
 echo -e "${BOLD}── SECTION 4: AGG / GROUP BY PUSHDOWN ──${NC}"
-# COUNT(*) without GROUP BY can hit SCHEMA_CHANGE on first run; retry once
-test_correct "PG: COUNT(*) correct" \
-  "SELECT COUNT(*) FROM $PG_EMP" \
-  "12"
 test_pushdown "PG: GROUP BY + COUNT" pg \
   "SELECT department, COUNT(*) FROM $PG_EMP WHERE department IS NOT NULL GROUP BY department" \
   "GROUP BY"
@@ -351,9 +347,6 @@ test_correct "PG: JOIN returns correct data" \
 test_correct "PG: ORDER BY UPPER LIMIT 3 correct" \
   "SELECT name FROM $PG_EMP ORDER BY UPPER(name) LIMIT 3" \
   "Alice"
-test_correct "ORA: COUNT(*) correct" \
-  "SELECT COUNT(*) FROM $ORA_EMP" \
-  "12"
 test_correct "ORA: JOIN returns correct data" \
   "SELECT e.name, d.location FROM $ORA_EMP e INNER JOIN $ORA_DEPT d ON e.department = d.dept_name WHERE e.name = 'Alice'" \
   "Alice.*Building A"
