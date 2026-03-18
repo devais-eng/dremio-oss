@@ -48,6 +48,10 @@ import org.apache.calcite.sql.SqlOperator;
  *   <li>{@code ABS}, {@code ROUND}</li>
  *   <li>{@code SUBSTRING}</li>
  *   <li>{@code CHAR_LENGTH}, {@code CHARACTER_LENGTH}, {@code LENGTH}</li>
+ *   <li>{@code L2_DISTANCE} — pgvector L2 distance; renders as {@code <->} via
+ *       {@link com.dremio.plugins.jdbc.postgresql.DremioPostgresDialect}</li>
+ *   <li>{@code COSINE_DISTANCE} — pgvector cosine distance; renders as {@code <=>}</li>
+ *   <li>{@code INNER_PRODUCT} — pgvector inner product; renders as {@code <#>}</li>
  * </ul>
  *
  * <p>This class is a singleton. Per-dialect subclasses (e.g. a PostgreSQL registry that also
@@ -89,7 +93,10 @@ public class StandardPushdownFunctionRegistry implements PushdownFunctionRegistr
       "SUBSTRING",        // SUBSTRING(str FROM start FOR len)
       "CHAR_LENGTH",      // CHAR_LENGTH(str) — SQL standard alias for LENGTH
       "CHARACTER_LENGTH",  // CHARACTER_LENGTH(str) — SQL standard
-      "LENGTH"            // LENGTH(str) — common dialect alias
+      "LENGTH",           // LENGTH(str) — common dialect alias
+      "L2_DISTANCE",      // pgvector L2 distance; renders as <-> via DremioPostgresDialect
+      "COSINE_DISTANCE",  // pgvector cosine distance; renders as <=>
+      "INNER_PRODUCT"     // pgvector inner product; renders as <#>
   );
 
   /** Private constructor; use {@link #INSTANCE}. */

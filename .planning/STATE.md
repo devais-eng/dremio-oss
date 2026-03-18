@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: in_progress
-stopped_at: Completed 41-01-PLAN.md — pgvector SQL functions (l2_distance, cosine_distance, inner_product) via @FunctionTemplate, 21 unit tests pass
-last_updated: "2026-03-18T15:29:00Z"
-last_activity: 2026-03-18 — Completed 41-01 (VectorDistanceFunctions.java 3 @FunctionTemplate inner classes, TestVectorDistanceFunctions.java 21 tests all pass)
+stopped_at: Completed 42-01-PLAN.md — DremioPostgresDialect renders distance functions as pgvector infix operators; 317 tests pass
+last_updated: "2026-03-18T16:30:06Z"
+last_activity: 2026-03-18 — Completed 42-01 (DremioPostgresDialect.java new, StandardPushdownFunctionRegistry +3 functions, PostgresConf wired, 6 unit tests + 2 pgvector integration tests)
 progress:
   total_phases: 10
   completed_phases: 9
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** Phase 41 — pgvector SQL operators — l2_distance, inner_product, cosine_distance as Dremio SQL functions (COMPLETE)
+**Current focus:** Phase 42 — pgvector operator pushdown — DremioPostgresDialect translates distance functions to <-> <=> <#> infix operators (COMPLETE)
 
 ## Current Position
 
-Phase: 41 of 41 (pgvector SQL operators — l2_distance, inner_product, cosine_distance as Dremio SQL functions)
+Phase: 42 of 43 (pgvector operator pushdown — Volcano planner translates distance operators to pgvector infix SQL)
 Plan: 1 of 1 complete — PHASE COMPLETE
 Status: COMPLETE
-Last activity: 2026-03-18 — Completed 41-01 (VectorDistanceFunctions.java 3 @FunctionTemplate inner classes, TestVectorDistanceFunctions.java 21 tests all pass)
+Last activity: 2026-03-18 — Completed 42-01 (DremioPostgresDialect.java unparseCall override, L2_DISTANCE/COSINE_DISTANCE/INNER_PRODUCT whitelist, PostgresConf wired, 6 unit + 2 integration tests pass)
 
 Progress: [██████████] 100% (25 of 25 plans complete)
 
@@ -76,6 +76,7 @@ Progress: [██████████] 100% (25 of 25 plans complete)
 | Phase 39-docker-integration-tests P01 | 25 | 2 tasks | 5 files |
 | Phase 40-pgvector-type-support P01 | 15 | 2 tasks | 5 files |
 | Phase 41-pgvector-sql-operators P01 | 9 | 2 tasks | 2 files |
+| Phase 42-pgvector-operator-pushdown P01 | 35 | 2 tasks | 5 files |
 
 ## Shipped Milestones
 
@@ -172,6 +173,10 @@ Progress: [██████████] 100% (25 of 25 plans complete)
 - [Phase 41-01]: cosine_distance returns NULL (isSet=0) for zero-magnitude vectors instead of NaN/Infinity
 - [Phase 41-01]: inner_product returns negative dot product (-sum) matching pgvector <#> operator convention
 - [Phase 41-01]: Unit tests use direct ListVector construction (low-level buffer writes) + reflection injection + FunctionErrorContextBuilder — avoids running Dremio server for pure math unit tests
+- [Phase 42-01]: DremioPostgresDialect uses equalsIgnoreCase() in getPgvectorOp() switch — @FunctionTemplate registers lowercase names; defensive case-insensitivity prevents subtle breakage
+- [Phase 42-01]: toPlainString() on BigDecimal extracted from SqlNumericLiteral — pgvector rejects scientific notation (1E+2 not accepted; 100 accepted) in text vector literals
+- [Phase 42-01]: SqlKind.ARRAY_VALUE_CONSTRUCTOR kind check in renderVectorOperand — detects ARRAY[...] while falling through to operand.unparse() for column refs; avoids ClassCastException
+- [Phase 42-01]: L2_DISTANCE/COSINE_DISTANCE/INNER_PRODUCT added to StandardPushdownFunctionRegistry directly (not PG-specific subclass) — JdbcRulesFactory hardcodes StandardPushdownFunctionRegistry.INSTANCE; per-plugin registry subclasses not consulted at rule-firing time
 
 ### Pending Todos
 
@@ -197,6 +202,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-18T15:29:00Z
-Stopped at: Completed 41-01-PLAN.md — pgvector SQL functions (l2_distance, cosine_distance, inner_product) via @FunctionTemplate, 21 unit tests pass
+Last session: 2026-03-18T16:30:06Z
+Stopped at: Completed 42-01-PLAN.md — DremioPostgresDialect renders distance functions as pgvector infix operators; 317 tests pass
 Resume file: None

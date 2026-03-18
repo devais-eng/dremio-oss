@@ -91,6 +91,17 @@ public class TestPostgresPushdown {
     PostgresTestContainer.executeSql(
         "INSERT INTO departments_expr_test VALUES (1, 'Engineering'), (2, 'Marketing')");
 
+    // Phase 42: pgvector distance pushdown integration test table
+    PostgresTestContainer.executeSql("CREATE EXTENSION IF NOT EXISTS vector");
+    PostgresTestContainer.executeSql(
+        "CREATE TABLE IF NOT EXISTS pgvec_knn_test ("
+            + "  id SERIAL PRIMARY KEY,"
+            + "  embedding vector(3)"
+            + ")");
+    PostgresTestContainer.executeSql(
+        "INSERT INTO pgvec_knn_test (embedding) VALUES "
+            + "('[1.0,2.0,3.0]'), ('[4.0,5.0,6.0]'), ('[0.1,0.2,0.3]')");
+
     // Gap 2: tables for JOIN ON CAST(integer AS varchar) — real type mismatch
     PostgresTestContainer.executeSql(
         "CREATE TABLE IF NOT EXISTS products ("
@@ -1307,6 +1318,113 @@ public class TestPostgresPushdown {
       assertEquals("Marketing", rs.getString("department"));
       assertEquals("Marketing SUM * 1.15 = 161000", 161000.00, rs.getDouble("boosted"), 1.0);
       assertFalse("Exactly 2 departments", rs.next());
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 42: pgvector distance operator integration tests
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verifies that the pgvector extension is available in the test container, that the
+   * {@code <->} (L2 distance) infix operator works with the text literal format
+   * {@code '[1.0,2.0,3.0]'}, and that {@code ORDER BY embedding <-> '...' LIMIT 1} returns
+   * the single nearest-neighbor row correctly.
+   *
+   * <p>The table contains three rows: id=1 with {@code [1.0,2.0,3.0]}, id=2 with
+   * {@code [4.0,5.0,6.0]}, id=3 with {@code [0.1,0.2,0.3]}. The query vector is
+   * {@code [1.0,2.0,3.0]}, which is identical to id=1 (distance = 0.0). The nearest neighbor
+   * must be id=1.
+   */
+  @Test
+  public void testPgvectorOrderByDistanceLimitK() throws Exception {
+    String sql = "SELECT id FROM pgvec_knn_test"
+        + " ORDER BY embedding <-> '[1.0,2.0,3.0]' LIMIT 1";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql)) {
+      assertTrue("Must have exactly one result row for LIMIT 1", rs.next());
+      int id = rs.getInt("id");
+      assertEquals(
+          "Nearest neighbor to [1.0,2.0,3.0] is id=1 (exact match at distance 0.0)",
+          1, id);
+      assertFalse("LIMIT 1 must return exactly 1 row", rs.next());
+    }
+  }
+
+  /**
+   * Verifies that all three pgvector distance operators ({@code <->}, {@code <=>}, {@code <#>})
+   * are accepted by the pgvector database engine and return the expected distance values.
+   *
+   * <p>For the row with id=1 and embedding {@code [1.0,2.0,3.0]}, and query vector
+   * {@code [1.0,2.0,3.0]} (identical):
+   * <ul>
+   *   <li>L2 distance ({@code <->}): 0.0 (identical vectors)</li>
+   *   <li>Cosine distance ({@code <=>}): 0.0 (identical direction)</li>
+   *   <li>Inner product ({@code <#>}): -14.0 (pgvector convention: negated dot product,
+   *       {@code -(1*1 + 2*2 + 3*3) = -14})</li>
+   * </ul>
+   *
+   * <p>This test confirms that the text literal format {@code '[1.0,2.0,3.0]'} emitted by
+   * {@link DremioPostgresDialect} is correctly accepted by the pgvector database engine.
+   */
+  @Test
+  public void testPgvectorAllThreeOperators() throws Exception {
+    final double EPSILON = 0.001;
+
+    // L2 distance of identical vectors: sqrt((1-1)^2 + (2-2)^2 + (3-3)^2) = 0.0
+    String sqlL2 = "SELECT embedding <-> '[1.0,2.0,3.0]' AS d"
+        + " FROM pgvec_knn_test WHERE id = 1";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sqlL2)) {
+      assertTrue("L2 distance query must return a row", rs.next());
+      double d = rs.getDouble("d");
+      assertTrue(
+          "L2 distance of [1,2,3] vs [1,2,3] must be 0.0, got: " + d,
+          Math.abs(d) < EPSILON);
+    }
+
+    // Cosine distance of identical vectors: 0.0
+    String sqlCosine = "SELECT embedding <=> '[1.0,2.0,3.0]' AS d"
+        + " FROM pgvec_knn_test WHERE id = 1";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sqlCosine)) {
+      assertTrue("Cosine distance query must return a row", rs.next());
+      double d = rs.getDouble("d");
+      assertTrue(
+          "Cosine distance of [1,2,3] vs [1,2,3] must be 0.0, got: " + d,
+          Math.abs(d) < EPSILON);
+    }
+
+    // Inner product (pgvector <#> convention): -(1*1 + 2*2 + 3*3) = -(1+4+9) = -14.0
+    String sqlIp = "SELECT embedding <#> '[1.0,2.0,3.0]' AS d"
+        + " FROM pgvec_knn_test WHERE id = 1";
+    try (Connection conn =
+            DriverManager.getConnection(
+                PostgresTestContainer.getJdbcUrl(),
+                PostgresTestContainer.getUsername(),
+                PostgresTestContainer.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sqlIp)) {
+      assertTrue("Inner product query must return a row", rs.next());
+      double d = rs.getDouble("d");
+      assertTrue(
+          "Inner product of [1,2,3] <#> [1,2,3] must be -14.0 (pgvector convention), got: " + d,
+          Math.abs(d - (-14.0)) < EPSILON);
     }
   }
 }

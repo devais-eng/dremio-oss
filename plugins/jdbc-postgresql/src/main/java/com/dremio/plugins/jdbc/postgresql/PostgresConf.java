@@ -282,7 +282,7 @@ public class PostgresConf extends BaseJdbcConf<PostgresConf, JdbcStoragePlugin> 
 
       @Override
       public SqlDialect createDialect() {
-        return PostgresqlSqlDialect.DEFAULT;
+        return DremioPostgresDialect.INSTANCE;
       }
     };
   }
