@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: in_progress
-stopped_at: Completed 40-01-PLAN.md — pgvector LIST<FLOAT4> type mapping + ListVector write branch + integration tests
-last_updated: "2026-03-18T14:52:55Z"
-last_activity: 2026-03-18 — Completed 40-01 (pgvector vector(N) -> LIST<FLOAT4> schema discovery, ListVector write in JdbcRecordReader, 3 integration tests all pass)
+stopped_at: Completed 41-01-PLAN.md — pgvector SQL functions (l2_distance, cosine_distance, inner_product) via @FunctionTemplate, 21 unit tests pass
+last_updated: "2026-03-18T15:29:00Z"
+last_activity: 2026-03-18 — Completed 41-01 (VectorDistanceFunctions.java 3 @FunctionTemplate inner classes, TestVectorDistanceFunctions.java 21 tests all pass)
 progress:
   total_phases: 10
   completed_phases: 9
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** Phase 40 — pgvector type support — embedding column types and schema discovery (COMPLETE)
+**Current focus:** Phase 41 — pgvector SQL operators — l2_distance, inner_product, cosine_distance as Dremio SQL functions (COMPLETE)
 
 ## Current Position
 
-Phase: 40 of 40 (pgvector type support — embedding column types and schema discovery)
+Phase: 41 of 41 (pgvector SQL operators — l2_distance, inner_product, cosine_distance as Dremio SQL functions)
 Plan: 1 of 1 complete — PHASE COMPLETE
 Status: COMPLETE
-Last activity: 2026-03-18 — Completed 40-01 (pgvector vector(N) -> LIST<FLOAT4> schema discovery, ListVector write branch in JdbcRecordReader, 6 integration tests pass)
+Last activity: 2026-03-18 — Completed 41-01 (VectorDistanceFunctions.java 3 @FunctionTemplate inner classes, TestVectorDistanceFunctions.java 21 tests all pass)
 
 Progress: [██████████] 100% (25 of 25 plans complete)
 
@@ -75,6 +75,7 @@ Progress: [██████████] 100% (25 of 25 plans complete)
 | Phase 38 P03 | 3 | 2 tasks | 4 files |
 | Phase 39-docker-integration-tests P01 | 25 | 2 tasks | 5 files |
 | Phase 40-pgvector-type-support P01 | 15 | 2 tasks | 5 files |
+| Phase 41-pgvector-sql-operators P01 | 9 | 2 tasks | 2 files |
 
 ## Shipped Milestones
 
@@ -166,6 +167,11 @@ Progress: [██████████] 100% (25 of 25 plans complete)
 - [Phase 40-01]: getPool() protected getter added to JdbcSchemaFetcher — avoids changing private field visibility while enabling PostgresSchemaFetcher to override getTableSchema()
 - [Phase 40-01]: ListVector offset buffer uses literal 4 (INT32 width) — OFFSET_WIDTH constant not available on ListVector class in Arrow 18.1.1-dremio
 - [Phase 40-01]: DremioPostgresContainer IMAGE changed from postgres:16-alpine to pgvector/pgvector:pg16 — all PG integration tests now use pgvector image (strict superset, fully backward compatible)
+- [Phase 41-01]: NullHandling.INTERNAL required for FieldReader params — NULL_IF_NULL does not work with complex type readers; manual !left.isSet() || left.readObject() == null check in each eval()
+- [Phase 41-01]: Functions placed in com.dremio.plugins.jdbc.postgresql (already classpath-scanned) — no sabot-module.conf changes needed
+- [Phase 41-01]: cosine_distance returns NULL (isSet=0) for zero-magnitude vectors instead of NaN/Infinity
+- [Phase 41-01]: inner_product returns negative dot product (-sum) matching pgvector <#> operator convention
+- [Phase 41-01]: Unit tests use direct ListVector construction (low-level buffer writes) + reflection injection + FunctionErrorContextBuilder — avoids running Dremio server for pure math unit tests
 
 ### Pending Todos
 
@@ -191,6 +197,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-18T14:52:55Z
-Stopped at: Completed 40-01-PLAN.md — pgvector LIST<FLOAT4> type mapping + ListVector write branch + 6 integration tests passing
+Last session: 2026-03-18T15:29:00Z
+Stopped at: Completed 41-01-PLAN.md — pgvector SQL functions (l2_distance, cosine_distance, inner_product) via @FunctionTemplate, 21 unit tests pass
 Resume file: None
