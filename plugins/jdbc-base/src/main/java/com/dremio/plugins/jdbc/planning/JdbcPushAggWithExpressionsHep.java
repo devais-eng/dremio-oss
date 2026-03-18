@@ -183,11 +183,13 @@ public final class JdbcPushAggWithExpressionsHep extends RelOptRule {
     ImmutableBitSet groupSet = agg.getGroupSet();
     RelDataType newRowType = agg.getRowType();
 
-    // Separate GROUP BY key expressions into:
-    //   - Simple column refs: record the full-table index (RexInputRef.getIndex())
-    //   - Function expressions: collect as groupKeyExpressions
-    // Build a new groupSet remapped to full-table indices (extended columns for functions).
-    final int fullTableFieldCount = scan.getRowType().getFieldCount();
+    // Build projected-to-full-table index mapping. The scan's projected columns may be a
+    // subset of the full table. getPhysicalOperator() builds from full-table columns, so
+    // all groupSet bits and aggCall arg indices must be in full-table space.
+    RelDataType fullTableRowType = JdbcPushFilterIntoScan.getFullTableRowType(scan);
+    final int fullTableFieldCount = fullTableRowType.getFieldCount();
+    int[] projToFull = buildProjToFull(scan, fullTableRowType);
+
     // extended index counter starts after all full-table columns
     int extendedIdx = fullTableFieldCount;
 
@@ -197,18 +199,25 @@ public final class JdbcPushAggWithExpressionsHep extends RelOptRule {
     for (int bit : groupSet) {
       RexNode expr = projExprs.get(bit);
       if (expr instanceof RexInputRef) {
-        // Simple column ref: use the underlying scan column index directly.
-        newGroupSetBuilder.set(((RexInputRef) expr).getIndex());
+        // Simple column ref: map from projected-column index to full-table index.
+        int projIdx = ((RexInputRef) expr).getIndex();
+        int fullIdx = (projToFull != null && projIdx < projToFull.length) ? projToFull[projIdx] : projIdx;
+        newGroupSetBuilder.set(fullIdx);
       } else {
-        // Function expression: assign to extended column.
+        // Function expression: remap inner RexInputRef indices to full-table space,
+        // then assign to extended column.
+        RexNode remappedExpr = remapToFullTable(expr, projToFull, fullTableFieldCount, fullTableRowType, scan.getCluster().getRexBuilder());
         newGroupSetBuilder.set(extendedIdx++);
-        groupKeyExpressions.add(expr);
+        groupKeyExpressions.add(remappedExpr);
       }
     }
     ImmutableBitSet newGroupSet = newGroupSetBuilder.build();
 
     // Remap aggregate call argument indices.
     // Function expression operands get assigned to extended columns.
+    // Expression RexInputRef indices must also be remapped to full-table space because
+    // cloneWithAggregationExpressions sets projectedColumns=null, making projToFull
+    // unavailable in getPhysicalOperator.
     List<AggregateCall> newAggCalls = new ArrayList<>(agg.getAggCallList().size());
     List<RexNode> aggOperandExpressions = new ArrayList<>();
 
@@ -217,10 +226,15 @@ public final class JdbcPushAggWithExpressionsHep extends RelOptRule {
       for (int argIdx : aggCall.getArgList()) {
         RexNode expr = projExprs.get(argIdx);
         if (expr instanceof RexInputRef) {
-          newArgs.add(((RexInputRef) expr).getIndex());
+          // Map from projected-column index to full-table index.
+          int projIdx = ((RexInputRef) expr).getIndex();
+          int fullIdx = (projToFull != null && projIdx < projToFull.length) ? projToFull[projIdx] : projIdx;
+          newArgs.add(fullIdx);
         } else {
-          // Function expression: assign to next extended column.
-          aggOperandExpressions.add(expr);
+          // Function expression: remap inner RexInputRef indices to full-table space,
+          // then assign the expression to the next extended column.
+          RexNode remappedExpr = remapToFullTable(expr, projToFull, fullTableFieldCount, fullTableRowType, scan.getCluster().getRexBuilder());
+          aggOperandExpressions.add(remappedExpr);
           newArgs.add(extendedIdx++);
         }
       }
@@ -235,14 +249,59 @@ public final class JdbcPushAggWithExpressionsHep extends RelOptRule {
         groupKeyExpressions.isEmpty() ? null : groupKeyExpressions,
         aggOperandExpressions.isEmpty() ? null : aggOperandExpressions);
 
-    // The replacement must have the same row type as the AggregatePrel being replaced.
-    // Wrap in a ProjectPrel that preserves the agg output shape.
-    ProjectPrel wrapper = ProjectPrel.create(
-        newScan.getCluster(),
-        newScan.getTraitSet(),
-        newScan,
-        projectPrel.getProjects(),
-        projectPrel.getRowType());
-    call.transformTo(wrapper);
+    // The scan's overrideRowType is already set to agg.getRowType() by
+    // cloneWithAggregationExpressions, so deriveRowType() returns the correct
+    // aggregate output type. No wrapper needed — transform directly.
+    call.transformTo(newScan);
+  }
+
+  /**
+   * Remaps RexInputRef indices in an expression from projected-column space to full-table space.
+   * This must be done at rule time because cloneWithAggregationExpressions sets projectedColumns
+   * to null, making projToFull unavailable in getPhysicalOperator.
+   */
+  private static RexNode remapToFullTable(
+      RexNode expr, int[] projToFull, int fullTableWidth,
+      RelDataType fullTableRowType, org.apache.calcite.rex.RexBuilder rexBuilder) {
+    if (projToFull == null) {
+      return expr; // identity mapping
+    }
+    return expr.accept(new org.apache.calcite.rex.RexShuttle() {
+      @Override
+      public RexNode visitInputRef(RexInputRef ref) {
+        int idx = ref.getIndex();
+        int fullIdx = (idx >= 0 && idx < projToFull.length) ? projToFull[idx] : idx;
+        if (fullIdx >= 0 && fullIdx < fullTableWidth) {
+          return rexBuilder.makeInputRef(
+              fullTableRowType.getFieldList().get(fullIdx).getType(), fullIdx);
+        }
+        return ref;
+      }
+    });
+  }
+
+  /**
+   * Builds a mapping from projected-column position to full-table column position.
+   * Returns null if the scan has no projected columns (identity mapping).
+   */
+  private static int[] buildProjToFull(JdbcScanPrel scan, RelDataType fullRowType) {
+    java.util.List<com.dremio.common.expression.SchemaPath> projCols = scan.getProjectedColumns();
+    if (projCols == null || projCols.isEmpty()) {
+      return null;
+    }
+    int[] projToFull = new int[projCols.size()];
+    java.util.List<org.apache.calcite.rel.type.RelDataTypeField> fullFields = fullRowType.getFieldList();
+    for (int pi = 0; pi < projCols.size(); pi++) {
+      String colName = projCols.get(pi).getRootSegment().getPath();
+      int fullIdx = -1;
+      for (int fi = 0; fi < fullFields.size(); fi++) {
+        if (fullFields.get(fi).getName().equalsIgnoreCase(colName)) {
+          fullIdx = fi;
+          break;
+        }
+      }
+      projToFull[pi] = (fullIdx >= 0) ? fullIdx : pi;
+    }
+    return projToFull;
   }
 }

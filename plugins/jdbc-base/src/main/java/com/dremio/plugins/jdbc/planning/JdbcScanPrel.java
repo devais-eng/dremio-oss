@@ -729,34 +729,17 @@ public class JdbcScanPrel extends ScanPrelBase {
           extendedNames.add(f.getName());
         }
 
-        // Remap RexInputRef indices in expressions from projected-column space to full-table space.
-        final int[] finalProjToFull = projToFull;
-        final int finalFullTableWidth = fullTableWidth;
-        org.apache.calcite.rex.RexShuttle remapShuttle = new RexShuttle() {
-          @Override
-          public RexNode visitInputRef(RexInputRef ref) {
-            int idx = ref.getIndex();
-            int fullIdx = (finalProjToFull != null && idx < finalProjToFull.length)
-                ? finalProjToFull[idx] : idx;
-            if (fullIdx >= 0 && fullIdx < finalFullTableWidth) {
-              return rexBuilder.makeInputRef(
-                  fullFields.get(fullIdx).getType(), fullIdx);
-            }
-            return ref;
-          }
-        };
-
+        // groupKeyExpressions and aggOperandExpressions are already in full-table space
+        // (remapped by JdbcPushAggWithExpressionsHep at rule time). No remapping needed here.
         if (groupKeyExpressions != null) {
           for (int k = 0; k < groupKeyExpressions.size(); k++) {
-            RexNode remapped = groupKeyExpressions.get(k).accept(remapShuttle);
-            extendedProjects.add(remapped);
+            extendedProjects.add(groupKeyExpressions.get(k));
             extendedNames.add("_group_key_" + k);
           }
         }
         if (aggOperandExpressions != null) {
           for (int k = 0; k < aggOperandExpressions.size(); k++) {
-            RexNode remapped = aggOperandExpressions.get(k).accept(remapShuttle);
-            extendedProjects.add(remapped);
+            extendedProjects.add(aggOperandExpressions.get(k));
             extendedNames.add("_agg_operand_" + k);
           }
         }
