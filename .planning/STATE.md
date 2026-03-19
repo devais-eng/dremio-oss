@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: in_progress
-stopped_at: Completed 43-01-PLAN.md — pgvector UAT (SECTION 8, 9 tests) + Testcontainers SECTION 9 (7 tests) + EXPLAIN ANALYZE index scan verification
-last_updated: "2026-03-18T16:49:30Z"
-last_activity: 2026-03-18 — Completed 43-01 (test-regression.sh SECTION 8, TestDremioJdbcIntegration SECTION 9, docker-compose + DremioJdbcPgContainer upgraded to pgvector/pgvector:pg16)
+stopped_at: Completed 44-01-PLAN.md — pgvector gap closure (KNN distance projection + ADBC vector transfer)
+last_updated: "2026-03-19T22:25:09Z"
+last_activity: 2026-03-19 — Completed 44-01 (PgvectorKnnPushdownRule distanceCall emission, AdbcRecordReader ListVector+VarBinary transfer, 204 unit tests + Docker UAT 30/30 PG+ADBC)
 progress:
-  total_phases: 10
-  completed_phases: 9
-  total_plans: 25
-  completed_plans: 25
+  total_phases: 11
+  completed_phases: 10
+  total_plans: 26
+  completed_plans: 26
   percent: 100
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** Phase 43 — pgvector UAT and integration tests — end-to-end regression gate with HNSW index scan verification (COMPLETE)
+**Current focus:** Phase 44 — pgvector gap closure — KNN distance projection pushdown + ADBC vector binary format parsing (COMPLETE)
 
 ## Current Position
 
-Phase: 43 of 43 (pgvector UAT and integration tests — end-to-end semantic search pushdown verification with HNSW index usage)
+Phase: 44 of 44 (pgvector gap closure — KNN distance projection pushdown + ADBC vector binary format parsing)
 Plan: 1 of 1 complete — PHASE COMPLETE
 Status: COMPLETE
-Last activity: 2026-03-18 — Completed 43-01 (test-regression.sh SECTION 8 9 tests, TestDremioJdbcIntegration SECTION 9 7 tests, pgvector/pgvector:pg16 image upgrade, EXPLAIN ANALYZE helper)
+Last activity: 2026-03-19 — Completed 44-01 (PgvectorKnnPushdownRule distanceCall emission, AdbcRecordReader ListVector+VarBinary transfer, 204 unit tests + Docker UAT 30/30)
 
-Progress: [██████████] 100% (25 of 25 plans complete)
+Progress: [██████████] 100% (26 of 26 plans complete)
 
 ## Performance Metrics
 
@@ -78,6 +78,7 @@ Progress: [██████████] 100% (25 of 25 plans complete)
 | Phase 41-pgvector-sql-operators P01 | 9 | 2 tasks | 2 files |
 | Phase 42-pgvector-operator-pushdown P01 | 35 | 2 tasks | 5 files |
 | Phase 43-pgvector-uat-integration-tests P01 | 15 | 2 tasks | 4 files |
+| Phase 44-pgvector-gap-closure P01 | 19 | 2 tasks | 2 files |
 
 ## Shipped Milestones
 
@@ -181,6 +182,9 @@ Progress: [██████████] 100% (25 of 25 plans complete)
 - [Phase 43-01]: pgvector/pgvector:pg16 used in both UAT docker-compose and Testcontainers — strict superset of postgres:16-alpine, fully drop-in compatible
 - [Phase 43-01]: EXPLAIN ANALYZE runs directly against PG container JDBC URL (not via Dremio) — Dremio does not expose EXPLAIN; PG-native SQL (embedding <-> '[...]') is the pushed-down equivalent
 - [Phase 43-01]: TestDremioJdbcIntegration @Test count is 42 (not 39 as plan stated) — plan had stale pre-existing count of 32; actual was 35; 7 new pgvector tests added = 42
+- [Phase 44-01]: distanceCall RexNode emitted directly in wrapper ProjectPrel (already in scope from onMatch lines 147-150) — single-line replacement, no new construction needed
+- [Phase 44-01]: ListVector element-level Float4Vector copy (not zero-copy) consistent with AdbcRecordReader's allocator separation design
+- [Phase 44-01]: VarBinaryVector->ListVector fallback added defensively — current ADBC PG driver (0.22.0) materializes vector(N) as native Arrow ListVector, but future versions could return raw binary
 
 ### Pending Todos
 
@@ -199,6 +203,7 @@ None.
 - Phase 41 added: pgvector SQL operators — l2_distance, inner_product, cosine_distance
 - Phase 42 added: pgvector operator pushdown — Volcano planner translates to <-> <#> <=> operators
 - Phase 43 added: pgvector UAT and integration tests — semantic search pushdown with index usage
+- Phase 44 added: pgvector gap closure — KNN distance projection pushdown + ADBC vector binary format parsing
 
 ### Blockers/Concerns
 
@@ -206,6 +211,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-18T16:49:30Z
-Stopped at: Completed 43-01-PLAN.md — pgvector UAT (SECTION 8, 9 tests) + Testcontainers SECTION 9 (7 tests) + EXPLAIN ANALYZE index scan verification; Phase 43 complete
+Last session: 2026-03-19T22:25:09Z
+Stopped at: Completed 44-01-PLAN.md — pgvector gap closure (KNN distance projection + ADBC vector transfer); Phase 44 complete
 Resume file: None
