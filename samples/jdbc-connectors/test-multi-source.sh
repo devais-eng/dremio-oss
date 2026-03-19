@@ -41,7 +41,7 @@ hdrs = {'Authorization': auth, 'Content-Type': 'application/json'}
 
 # Delete existing
 import urllib.parse
-for name in ['pg_jdbc', 'pg_adbc', 'oracle_src', 'nessie_src']:
+for name in ['pg_jdbc', 'pg_adbc', 'oracle_src', 'nessie_rest', 'nessie_ver', 's3_parquet']:
     r = requests.get(f'{url}/apiv2/source/{name}', headers=hdrs)
     if r.status_code == 200:
         tag = urllib.parse.quote(r.json().get('tag',''))
@@ -82,8 +82,9 @@ requests.put(f'{url}/apiv2/source/oracle_src', headers=hdrs, json={
 print('oracle_src: created')
 
 # Nessie/Iceberg REST Catalog
-r = requests.put(f'{url}/apiv2/source/nessie_src', headers=hdrs, json={
-    'name': 'nessie_src',
+# Nessie/Iceberg REST Catalog
+r = requests.put(f'{url}/apiv2/source/nessie_rest', headers=hdrs, json={
+    'name': 'nessie_rest',
     'config': {
         'restEndpointUri': 'http://nessie:19120/iceberg/',
         'propertyList': [
@@ -101,9 +102,69 @@ r = requests.put(f'{url}/apiv2/source/nessie_src', headers=hdrs, json={
     'type': 'RESTCATALOG'
 })
 if r.status_code >= 400:
-    print(f'nessie_src: FAILED ({r.status_code}): {r.text[:200]}')
+    print(f'nessie_rest: FAILED ({r.status_code}): {r.text[:200]}')
 else:
-    print('nessie_src: created')
+    print('nessie_rest: created')
+
+# Nessie versioned catalog (NESSIE source type)
+r = requests.put(f'{url}/apiv2/source/nessie_ver', headers=hdrs, json={
+    'name': 'nessie_ver',
+    'config': {
+        'nessieEndpoint': 'http://nessie:19120/api/v2',
+        'nessieAuthType': 'NONE',
+        'awsAccessKey': 'minioadmin',
+        'awsAccessSecret': 'minioadmin',
+        'awsRootPath': '/warehouse',
+        'secure': False,
+        'propertyList': [
+            {'name': 'fs.s3a.endpoint', 'value': 'minio:9000'},
+            {'name': 'fs.s3a.path.style.access', 'value': 'true'},
+            {'name': 'fs.s3a.connection.ssl.enabled', 'value': 'false'},
+            {'name': 'dremio.s3.compat', 'value': 'true'},
+            {'name': 'fs.s3a.aws.credentials.provider', 'value': 'org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider'},
+        ],
+        'credentialType': 'ACCESS_KEY',
+    },
+    'type': 'NESSIE'
+})
+if r.status_code >= 400:
+    print(f'nessie_ver: FAILED ({r.status_code}): {r.text[:200]}')
+else:
+    print('nessie_ver: created')
+
+# S3 / MinIO (raw Parquet)
+r = requests.put(f'{url}/apiv2/source/s3_parquet', headers=hdrs, json={
+    'name': 's3_parquet',
+    'config': {
+        'accessKey': 'minioadmin',
+        'accessSecret': 'minioadmin',
+        'secure': False,
+        'externalBucketList': ['parquet-data'],
+        'rootPath': '/',
+        'compatibilityMode': True,
+        'enableAsync': True,
+        'propertyList': [
+            {'name': 'fs.s3a.endpoint', 'value': 'minio:9000'},
+            {'name': 'fs.s3a.path.style.access', 'value': 'true'},
+            {'name': 'fs.s3a.connection.ssl.enabled', 'value': 'false'},
+        ],
+        'credentialType': 'ACCESS_KEY',
+    },
+    'type': 'S3'
+})
+if r.status_code >= 400:
+    print(f's3_parquet: FAILED ({r.status_code}): {r.text[:200]}')
+else:
+    print('s3_parquet: created')
+    # Promote Parquet folders as datasets via v2 file_format API
+    import time; time.sleep(10)
+    for folder in ['shipping_rates', 'product_reviews']:
+        r = requests.put(
+            f'{url}/apiv2/source/s3_parquet/file_format/parquet-data/{folder}',
+            headers=hdrs,
+            json={'type': 'Parquet'}
+        )
+        print(f'  promote {folder}: {r.status_code}')
 PYEOF
 echo "Waiting 15s for metadata..."
 sleep 15
@@ -216,7 +277,12 @@ test_no_error() {
 PG="pg_jdbc.\"public\""
 ADBC="pg_adbc.\"public\""
 ORA="oracle_src.TESTUSER"
-ICE="nessie_src.analytics"
+ICE="nessie_rest.analytics"
+NVER="nessie_ver.analytics"
+S3="s3_parquet.\"parquet-data\""
+
+# S3 Parquet files need promotion — promote on first access
+# (Dremio S3 source doesn't auto-discover file datasets)
 
 echo ""
 echo -e "${BOLD}============================================================${NC}"
@@ -395,6 +461,61 @@ test_no_error "Oracle self-join" \
 test_correct "Cross-source COUNT consistency" \
   "SELECT COUNT(*) AS pg_count FROM $PG.products WHERE category_id IS NOT NULL" \
   "15"
+echo ""
+
+# ═══════════════════════════════════════════════════════════════════════
+# SECTION 9: NON-JDBC SOURCE VALIDATION (S3, Nessie versioned, RESTCATALOG)
+# Ensures JDBC pushdown rules do NOT fire for non-JDBC sources
+# ═══════════════════════════════════════════════════════════════════════
+echo -e "${BOLD}── SECTION 9: NON-JDBC SOURCE VALIDATION ──${NC}"
+echo -e "  ${YELLOW}(JDBC rules must NOT interfere with S3, Nessie versioned, or RESTCATALOG sources)${NC}"
+
+# S3 / MinIO Parquet queries
+# NOTE: S3 Parquet folders may need promotion in Dremio before first query.
+# If autoPromoteDatasets is enabled (default), folders are auto-promoted.
+test_no_error "S3: SELECT from shipping_rates Parquet" \
+  "SELECT * FROM $S3.shipping_rates LIMIT 5"
+
+test_correct "S3: COUNT shipping_rates" \
+  "SELECT COUNT(*) AS cnt FROM $S3.shipping_rates" \
+  "4"
+
+test_no_error "S3: SELECT from product_reviews Parquet" \
+  "SELECT review_id, rating, review_text FROM $S3.product_reviews ORDER BY rating DESC LIMIT 3"
+
+test_correct "S3: AVG(rating) from reviews" \
+  "SELECT CAST(AVG(CAST(rating AS DOUBLE)) AS INTEGER) AS avg_rating FROM $S3.product_reviews" \
+  "4"
+
+# Nessie versioned queries (NESSIE source type)
+test_no_error "Nessie versioned: SELECT from product_categories" \
+  "SELECT * FROM $NVER.product_categories LIMIT 5"
+
+test_correct "Nessie versioned: COUNT product_categories" \
+  "SELECT COUNT(*) AS cnt FROM $NVER.product_categories" \
+  "3"
+
+test_no_error "Nessie versioned: GROUP BY department" \
+  "SELECT department, COUNT(*) AS cnt FROM $NVER.product_categories GROUP BY department ORDER BY department"
+
+# RESTCATALOG self-join (the previously failing case)
+test_no_error "RESTCATALOG: Iceberg self-join (was ClassCastException)" \
+  "SELECT a.category_name, b.department FROM $ICE.product_categories a, $ICE.product_categories b WHERE a.department = b.department AND a.category_id < b.category_id"
+
+# Cross-source: S3 × PG
+test_correct "S3 reviews × PG products (cross-source)" \
+  "SELECT p.name, r.rating, r.review_text FROM $S3.product_reviews r INNER JOIN $PG.products p ON r.product_id = p.id ORDER BY r.rating DESC LIMIT 3" \
+  "Laptop|desk|display"
+
+# Cross-source: Nessie versioned × Oracle
+test_correct "Nessie versioned categories × Oracle regions (cross-source)" \
+  "SELECT cat.category_name, cat.department FROM $NVER.product_categories cat WHERE cat.department = 'Tech' ORDER BY cat.category_name" \
+  "Accessories|Electronics"
+
+# Cross-source: S3 × Iceberg × PG (triple non-JDBC + JDBC)
+test_no_error "S3 reviews × Iceberg categories × PG products (3-source)" \
+  "SELECT p.name, cat.category_name, r.rating FROM $S3.product_reviews r INNER JOIN $PG.products p ON r.product_id = p.id INNER JOIN $ICE.product_categories cat ON p.category_id = cat.category_id ORDER BY r.rating DESC LIMIT 5"
+
 echo ""
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -221,10 +221,72 @@ PYEOF
 '
 echo -e "${GREEN}Nessie/Iceberg seeded.${NC}"
 
+# ── MinIO S3 Parquet files ──────────────────────────────────────────────
+echo "Seeding MinIO S3 Parquet data (via Docker container)..."
+docker run --rm --network jdbc-connectors_multi-net \
+  python:3.12-slim /bin/sh -c '
+pip install --quiet pyarrow==17.0.0 boto3 2>/dev/null
+python3 << PYEOF
+import pyarrow as pa
+import pyarrow.parquet as pq
+import boto3, io
+
+s3 = boto3.client("s3",
+    endpoint_url="http://minio:9000",
+    aws_access_key_id="minioadmin",
+    aws_secret_access_key="minioadmin",
+    region_name="us-east-1")
+
+# Shipping rates dimension table
+schema = pa.schema([
+    ("region_id", pa.int32()),
+    ("region_name", pa.string()),
+    ("shipping_rate", pa.float64()),
+    ("delivery_days", pa.int32()),
+])
+data = pa.table({
+    "region_id": [1, 2, 3, 4],
+    "region_name": ["West Coast", "East Coast", "Midwest", "Europe"],
+    "shipping_rate": [5.99, 7.99, 6.99, 15.99],
+    "delivery_days": [3, 4, 5, 10],
+}, schema=schema)
+
+buf = io.BytesIO()
+pq.write_table(data, buf)
+buf.seek(0)
+s3.put_object(Bucket="parquet-data", Key="shipping_rates/data.parquet", Body=buf.getvalue())
+print(f"Uploaded shipping_rates: {len(data)} rows")
+
+# Product reviews fact table
+reviews_schema = pa.schema([
+    ("review_id", pa.int32()),
+    ("product_id", pa.int32()),
+    ("rating", pa.int32()),
+    ("review_text", pa.string()),
+])
+reviews = pa.table({
+    "review_id": [1, 2, 3, 4, 5, 6, 7, 8],
+    "product_id": [1, 1, 4, 5, 7, 8, 13, 2],
+    "rating": [5, 4, 5, 3, 4, 5, 4, 5],
+    "review_text": ["Great laptop", "Good value", "Solid desk", "OK chair",
+                    "Love the keys", "Crisp display", "Nice tablet", "Perfect mouse"],
+}, schema=reviews_schema)
+
+buf2 = io.BytesIO()
+pq.write_table(reviews, buf2)
+buf2.seek(0)
+s3.put_object(Bucket="parquet-data", Key="product_reviews/data.parquet", Body=buf2.getvalue())
+print(f"Uploaded product_reviews: {len(reviews)} rows")
+PYEOF
+'
+echo -e "${GREEN}MinIO S3 Parquet seeded.${NC}"
+
 echo ""
 echo -e "${GREEN}All sources seeded successfully.${NC}"
 echo "Sources to create in Dremio:"
-echo "  pg_jdbc     → POSTGRES_DB (hostname=postgres, port=5432, db=testdb)"
-echo "  pg_adbc     → POSTGRES_DB (hostname=postgres, port=5432, db=testdb, protocolMode=AUTO)"
-echo "  oracle_src  → ORACLE_DB (hostname=oracle, port=1521, serviceName=XEPDB1)"
-echo "  nessie_src  → NESSIE (nessieEndpoint=http://nessie:19120/api/v2, nessieAuthType=NONE)"
+echo "  pg_jdbc       → POSTGRES_DB"
+echo "  pg_adbc       → POSTGRES_DB (AUTO mode)"
+echo "  oracle_src    → ORACLE_DB"
+echo "  nessie_rest   → RESTCATALOG (Iceberg REST)"
+echo "  nessie_ver    → NESSIE (versioned catalog)"
+echo "  s3_parquet    → S3 (MinIO raw Parquet)"
