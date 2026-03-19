@@ -1,0 +1,152 @@
+#
+# Multi-source UAT stack: Dremio + PostgreSQL (pgvector) + Oracle + Nessie + MinIO
+#
+# Tests cross-source queries, pushdown correctness, semantic search, and edge cases.
+# No OIDC — Nessie runs without authentication for simplicity.
+#
+# Usage:
+#   docker compose up -d
+#   # Wait for all services healthy (~60s)
+#   ./scripts/seed-all.sh
+#   ./test-multi-source.sh
+#   docker compose down -v
+
+services:
+  # ── S3-compatible object storage (for Iceberg) ─────────────────────────
+  minio:
+    image: quay.io/minio/minio
+    ports:
+      - "9000:9000"
+      - "9090:9090"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ADDRESS: ":9000"
+      MINIO_CONSOLE_ADDRESS: ":9090"
+    command: server /data
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      multi-net:
+        aliases:
+          - minio
+
+  # ── One-shot: create the Iceberg bucket ─────────────────────────────────
+  minio-init:
+    image: quay.io/minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing local/warehouse &&
+        echo '=== warehouse bucket ready ==='
+      "
+    networks:
+      - multi-net
+
+  # ── PostgreSQL with pgvector ────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    command: ["postgres", "-c", "log_statement=all", "-c", "log_destination=stderr"]
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: pguser
+      POSTGRES_PASSWORD: pgpass
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pguser -d testdb"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      multi-net:
+        aliases:
+          - postgres
+
+  # ── Oracle XE ───────────────────────────────────────────────────────────
+  oracle:
+    image: gvenzl/oracle-xe:21-slim
+    environment:
+      ORACLE_PASSWORD: orapass
+      APP_USER: testuser
+      APP_USER_PASSWORD: testpass
+    ports:
+      - "1522:1521"
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks:
+      multi-net:
+        aliases:
+          - oracle
+
+  # ── Nessie: Iceberg REST Catalog (no auth) ──────────────────────────────
+  nessie:
+    image: ghcr.io/projectnessie/nessie:latest
+    ports:
+      - "19120:19120"
+      - "9001:9000"
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      - nessie.version.store.type=IN_MEMORY
+      - nessie.catalog.default-warehouse=warehouse
+      - nessie.catalog.warehouses.warehouse.location=s3://warehouse/
+      - nessie.catalog.service.s3.default-options.endpoint=http://minio:9000/
+      - nessie.catalog.service.s3.default-options.external-endpoint=http://minio:9000/
+      - nessie.catalog.service.s3.default-options.path-style-access=true
+      - nessie.catalog.service.s3.default-options.region=us-east-1
+      - nessie.catalog.service.s3.default-options.access-key=urn:nessie-secret:quarkus:nessie.catalog.secrets.access-key
+      - nessie.catalog.secrets.access-key.name=minioadmin
+      - nessie.catalog.secrets.access-key.secret=minioadmin
+      - nessie.server.authentication.enabled=false
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /q/health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200 OK'"]
+      interval: 5s
+      timeout: 3s
+      start_period: 15s
+      retries: 10
+    networks:
+      multi-net:
+        aliases:
+          - nessie
+
+  # ── Dremio OSS (custom build with JDBC plugin + ADBC) ───────────────────
+  dremio:
+    image: dremio-oss:jdbc-test
+    ports:
+      - "9047:9047"
+      - "31010:31010"
+      - "32010:32010"
+      - "45678:45678"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      oracle:
+        condition: service_healthy
+      nessie:
+        condition: service_healthy
+    networks:
+      multi-net:
+        aliases:
+          - dremio
+
+networks:
+  multi-net:
+    driver: bridge
+
+volumes:
+  minio-data:

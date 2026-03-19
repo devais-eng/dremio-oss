@@ -316,7 +316,17 @@ public final class JdbcPushJoinIntoScan extends RelOptRule {
       return (JdbcScanDrel) node;
     }
     if (node instanceof ScanCrel) {
-      return (ScanCrel) node;
+      ScanCrel scanCrel = (ScanCrel) node;
+      // Only return ScanCrel if its plugin config is a JDBC config.
+      // Without this check, non-JDBC scans (e.g. Iceberg/RestCatalog) would be
+      // incorrectly matched, producing a JdbcJoinScanDrel that fails at execution
+      // time with ClassCastException when JdbcScanCreator casts to JdbcStoragePlugin.
+      com.dremio.exec.catalog.StoragePluginId pluginId = scanCrel.getPluginId();
+      if (pluginId != null
+          && pluginId.getConnectionConf() instanceof com.dremio.plugins.jdbc.conf.BaseJdbcConf) {
+        return scanCrel;
+      }
+      return null;
     }
     // Validate intermediate LogicalProject expressions against the registry whitelist.
     // Simple column refs (RexInputRef) are always allowed.
