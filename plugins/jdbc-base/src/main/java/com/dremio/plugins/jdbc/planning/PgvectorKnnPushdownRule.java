@@ -184,9 +184,9 @@ public final class PgvectorKnnPushdownRule extends RelOptRule {
     // The TopN output is [id, EXPR$1]. The Project above it trims to just [id].
     // So EXPR$1 is only used for sorting, not returned to the user.
     //
-    // Simplest correct approach: produce a scan with the right row type by projecting
-    // the scan's columns to match TopN's output. For the distance column, use a dummy
-    // null since it's only consumed by the trimming Project above (which drops it).
+    // Produce a scan with the right row type by projecting the scan's columns to match
+    // TopN's output. For the distance column, emit the distanceCall RexCall so the
+    // distance value is computed locally from the pushed-down sorted rows.
 
     List<RexNode> wrapperProjects = new ArrayList<>();
     List<String> wrapperNames = new ArrayList<>();
@@ -210,9 +210,11 @@ public final class PgvectorKnnPushdownRule extends RelOptRule {
         // Matched by name — use the scan field's actual type.
         wrapperProjects.add(rexBuilder.makeInputRef(scanFields.get(scanIdx).getType(), scanIdx));
       } else {
-        // No matching scan field (e.g. the distance column EXPR$1) — produce typed null.
-        // Preserve the TopN field's exact nullability so downstream type checks pass.
-        wrapperProjects.add(rexBuilder.makeNullLiteral(topNField.getType()));
+        // No matching scan field — this is the distance column (e.g. EXPR$1).
+        // Emit the actual distance RexCall so the distance value is computed from
+        // the pushed-down sorted rows, rather than returning null.
+        // distanceCall was built in onMatch() referencing the scan's embedding column index.
+        wrapperProjects.add(distanceCall);
       }
       wrapperNames.add(topNField.getName());
     }

@@ -48,6 +48,7 @@ import org.apache.arrow.vector.TimeStampMilliVector;
 import org.apache.arrow.vector.ValueVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
+import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.FloatingPointPrecision;
@@ -316,6 +317,10 @@ public class AdbcRecordReader extends AbstractRecordReader {
     // between next() calls. Without this, a non-null value at index N in batch K would
     // bleed through as a stale non-null in batch K+1 if index N is null in the new batch.
     dst.getValidityBuffer().setZero(0, dst.getValidityBuffer().capacity());
+    if (logger.isTraceEnabled()) {
+      logger.trace("transferVector: src={} dst={} rowCount={}",
+          src.getClass().getSimpleName(), dst.getClass().getSimpleName(), rowCount);
+    }
     // DateDayVector -> DateMilliVector conversion.
     if (src instanceof DateDayVector && dst instanceof DateMilliVector) {
       DateDayVector srcDate = (DateDayVector) src;
@@ -490,6 +495,57 @@ public class AdbcRecordReader extends AbstractRecordReader {
         }
       }
       d.setValueCount(rowCount);
+    } else if (src instanceof ListVector && dst instanceof ListVector) {
+      // pgvector: copy native Arrow ListVector<Float4> from ADBC batch to Dremio output.
+      // The ADBC PG driver materializes vector(N) as ListVector<Float4> from binary wire format.
+      ListVector srcList = (ListVector) src;
+      ListVector dstList = (ListVector) dst;
+      Float4Vector srcChild = (Float4Vector) srcList.getDataVector();
+      Float4Vector dstChild = (Float4Vector) dstList.getDataVector();
+      for (int i = 0; i < rowCount; i++) {
+        if (!srcList.isNull(i)) {
+          int srcStart = srcList.getOffsetBuffer().getInt((long) i * 4);
+          int srcEnd = srcList.getOffsetBuffer().getInt((long) (i + 1) * 4);
+          int dstStart = dstList.getOffsetBuffer().getInt((long) i * 4);
+          int len = srcEnd - srcStart;
+          for (int k = 0; k < len; k++) {
+            if (!srcChild.isNull(srcStart + k)) {
+              dstChild.setSafe(dstStart + k, srcChild.get(srcStart + k));
+            }
+          }
+          dstList.getOffsetBuffer().setInt((long) (i + 1) * 4, dstStart + len);
+          dstList.setNotNull(i);
+        }
+      }
+      dstList.setValueCount(rowCount);
+    } else if (src instanceof VarBinaryVector && dst instanceof ListVector) {
+      // pgvector binary wire format: ADBC PG driver may return vector(N) as raw binary.
+      // Format: 2 bytes dim count (uint16 BE) + 2 bytes unused + N*4 bytes float32 (BE).
+      VarBinaryVector s = (VarBinaryVector) src;
+      ListVector dstList = (ListVector) dst;
+      Float4Vector dstChild = (Float4Vector) dstList.getDataVector();
+      for (int i = 0; i < rowCount; i++) {
+        if (!s.isNull(i)) {
+          byte[] raw = s.get(i);
+          if (raw.length >= 4) {
+            int dim = ((raw[0] & 0xFF) << 8) | (raw[1] & 0xFF);
+            // Skip 2 bytes unused flags (raw[2], raw[3]).
+            int dstStart = dstList.getOffsetBuffer().getInt((long) i * 4);
+            int offset = 4; // start of float data
+            for (int k = 0; k < dim && offset + 4 <= raw.length; k++) {
+              int bits = ((raw[offset] & 0xFF) << 24)
+                  | ((raw[offset + 1] & 0xFF) << 16)
+                  | ((raw[offset + 2] & 0xFF) << 8)
+                  | (raw[offset + 3] & 0xFF);
+              dstChild.setSafe(dstStart + k, Float.intBitsToFloat(bits));
+              offset += 4;
+            }
+            dstList.getOffsetBuffer().setInt((long) (i + 1) * 4, dstStart + dim);
+            dstList.setNotNull(i);
+          }
+        }
+      }
+      dstList.setValueCount(rowCount);
     } else if (dst instanceof DecimalVector) {
       // Generic fallback for any source type -> DecimalVector via getObject().toString().
       DecimalVector d = (DecimalVector) dst;
