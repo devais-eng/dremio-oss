@@ -22,7 +22,9 @@ import com.dremio.exec.expr.fn.FunctionErrorContext;
 import com.dremio.exec.expr.fn.FunctionErrorContextBuilder;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.Float4Vector;
+import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.impl.UnionListReader;
 import org.apache.arrow.vector.holders.NullableFloat8Holder;
@@ -118,6 +120,50 @@ public class TestVectorDistanceFunctions {
   public void testL2Distance_dimensionMismatch() throws Exception {
     assertThrows(RuntimeException.class,
         () -> evalL2(new float[]{1f, 2f}, new float[]{1f, 2f, 3f}));
+  }
+
+  @Test
+  public void testL2Distance_decimalElements() throws Exception {
+    // [0.1, 0.9] vs [0.4, 0.5]: diff1=0.3, diff2=0.4 -> sqrt(0.09+0.16) = sqrt(0.25) = 0.5
+    NullableFloat8Holder out = new NullableFloat8Holder();
+    try (ListVector lv = makeListVectorDecimal(new double[]{0.1, 0.9});
+        ListVector rv = makeListVectorDecimal(new double[]{0.4, 0.5})) {
+      UnionListReader lr = new UnionListReader(lv);
+      lr.setPosition(0);
+      UnionListReader rr = new UnionListReader(rv);
+      rr.setPosition(0);
+      VectorDistanceFunctions.L2Distance fn = new VectorDistanceFunctions.L2Distance();
+      injectField(fn, "left", lr);
+      injectField(fn, "right", rr);
+      injectField(fn, "out", out);
+      injectField(fn, "errCtx", ERR_CTX);
+      fn.setup();
+      fn.eval();
+    }
+    assertEquals(1, out.isSet);
+    assertEquals(0.5, out.value, 1e-4);
+  }
+
+  @Test
+  public void testL2Distance_float8Elements() throws Exception {
+    // [1.0, 2.0] vs [4.0, 6.0]: sqrt(9+16)=5.0
+    NullableFloat8Holder out = new NullableFloat8Holder();
+    try (ListVector lv = makeListVectorFloat8(new double[]{1.0, 2.0});
+        ListVector rv = makeListVectorFloat8(new double[]{4.0, 6.0})) {
+      UnionListReader lr = new UnionListReader(lv);
+      lr.setPosition(0);
+      UnionListReader rr = new UnionListReader(rv);
+      rr.setPosition(0);
+      VectorDistanceFunctions.L2Distance fn = new VectorDistanceFunctions.L2Distance();
+      injectField(fn, "left", lr);
+      injectField(fn, "right", rr);
+      injectField(fn, "out", out);
+      injectField(fn, "errCtx", ERR_CTX);
+      fn.setup();
+      fn.eval();
+    }
+    assertEquals(1, out.isSet);
+    assertEquals(5.0, out.value, 1e-4);
   }
 
   // =========================================================================
@@ -375,6 +421,73 @@ public class TestVectorDistanceFunctions {
     }
     // If floats == null: row 0 remains null (validity bit 0 by default).
 
+    vec.setValueCount(1);
+    return vec;
+  }
+
+  /**
+   * Creates a {@link ListVector} containing a single-row {@code LIST<DECIMAL(10,5)>} list.
+   *
+   * <p>Uses the same low-level buffer layout as {@link #makeListVectorOrNull} but with a
+   * {@link DecimalVector} child so that {@code readAsDouble()} dispatch on DECIMAL is exercised.
+   */
+  private ListVector makeListVectorDecimal(double[] values) {
+    org.apache.arrow.vector.types.pojo.Field decimalField =
+        new org.apache.arrow.vector.types.pojo.Field(
+            "$data$",
+            FieldType.nullable(new ArrowType.Decimal(10, 5, 128)),
+            null);
+    org.apache.arrow.vector.types.pojo.Field listField =
+        new org.apache.arrow.vector.types.pojo.Field(
+            "v",
+            FieldType.nullable(ArrowType.List.INSTANCE),
+            java.util.Collections.singletonList(decimalField));
+    ListVector vec = new ListVector(listField, allocator, null);
+    vec.initializeChildrenFromFields(java.util.Collections.singletonList(decimalField));
+    vec.setInitialCapacity(1);
+    vec.allocateNew();
+    DecimalVector childVec = (DecimalVector) vec.getDataVector();
+    int startOffset = vec.getOffsetBuffer().getInt(0L);
+    for (int i = 0; i < values.length; i++) {
+      childVec.setSafe(
+          startOffset + i,
+          java.math.BigDecimal.valueOf(values[i])
+              .setScale(5, java.math.RoundingMode.HALF_UP));
+    }
+    vec.getOffsetBuffer().setInt(4L, startOffset + values.length);
+    vec.setNotNull(0);
+    vec.setValueCount(1);
+    return vec;
+  }
+
+  /**
+   * Creates a {@link ListVector} containing a single-row {@code LIST<FLOAT8>} list.
+   *
+   * <p>Uses a {@link Float8Vector} child so that {@code readAsDouble()} dispatch on FLOAT8 is
+   * exercised.
+   */
+  private ListVector makeListVectorFloat8(double[] values) {
+    org.apache.arrow.vector.types.pojo.Field float8Field =
+        new org.apache.arrow.vector.types.pojo.Field(
+            "$data$",
+            FieldType.nullable(new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)),
+            null);
+    org.apache.arrow.vector.types.pojo.Field listField =
+        new org.apache.arrow.vector.types.pojo.Field(
+            "v",
+            FieldType.nullable(ArrowType.List.INSTANCE),
+            java.util.Collections.singletonList(float8Field));
+    ListVector vec = new ListVector(listField, allocator, null);
+    vec.initializeChildrenFromFields(java.util.Collections.singletonList(float8Field));
+    vec.setInitialCapacity(1);
+    vec.allocateNew();
+    Float8Vector childVec = (Float8Vector) vec.getDataVector();
+    int startOffset = vec.getOffsetBuffer().getInt(0L);
+    for (int i = 0; i < values.length; i++) {
+      childVec.setSafe(startOffset + i, values[i]);
+    }
+    vec.getOffsetBuffer().setInt(4L, startOffset + values.length);
+    vec.setNotNull(0);
     vec.setValueCount(1);
     return vec;
   }

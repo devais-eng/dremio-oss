@@ -195,14 +195,23 @@ public final class PgvectorKnnPushdownRule extends RelOptRule {
 
     for (int i = 0; i < topNFields.size(); i++) {
       var topNField = topNFields.get(i);
-      if (i < scanFields.size()
-          && scanFields.get(i).getType().getSqlTypeName() == topNField.getType().getSqlTypeName()) {
-        // Types match — map scan column directly
-        wrapperProjects.add(rexBuilder.makeInputRef(scanFields.get(i).getType(), i));
+      // Find scan field with matching name (case-insensitive for robustness).
+      // This avoids silent data corruption when scan column order differs from TopN's
+      // expected output order (e.g., scan=[id, name, category_id, price, embedding]
+      // but TopN expects [id, name, price, category_id, distance]).
+      int scanIdx = -1;
+      for (int j = 0; j < scanFields.size(); j++) {
+        if (scanFields.get(j).getName().equalsIgnoreCase(topNField.getName())) {
+          scanIdx = j;
+          break;
+        }
+      }
+      if (scanIdx >= 0) {
+        // Matched by name — use the scan field's actual type.
+        wrapperProjects.add(rexBuilder.makeInputRef(scanFields.get(scanIdx).getType(), scanIdx));
       } else {
-        // Type mismatch or extra column — produce a typed null.
-        // The distance column (DOUBLE) doesn't exist in the scan output;
-        // it was only needed for sorting, which is now handled by the source.
+        // No matching scan field (e.g. the distance column EXPR$1) — produce typed null.
+        // Preserve the TopN field's exact nullability so downstream type checks pass.
         wrapperProjects.add(rexBuilder.makeNullLiteral(topNField.getType()));
       }
       wrapperNames.add(topNField.getName());
