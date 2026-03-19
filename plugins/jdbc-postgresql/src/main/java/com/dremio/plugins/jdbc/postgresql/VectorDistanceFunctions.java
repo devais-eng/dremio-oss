@@ -32,9 +32,9 @@ import org.apache.arrow.vector.holders.NullableFloat8Holder;
  * {@code sabot-module.conf}):
  *
  * <ul>
- *   <li>{@link L2Distance} — {@code l2_distance(LIST<FLOAT4>, LIST<FLOAT4>)} → DOUBLE
- *   <li>{@link CosineDistance} — {@code cosine_distance(LIST<FLOAT4>, LIST<FLOAT4>)} → DOUBLE
- *   <li>{@link InnerProduct} — {@code inner_product(LIST<FLOAT4>, LIST<FLOAT4>)} → DOUBLE
+ *   <li>{@link L2Distance} — {@code l2_distance(LIST, LIST)} → DOUBLE
+ *   <li>{@link CosineDistance} — {@code cosine_distance(LIST, LIST)} → DOUBLE
+ *   <li>{@link InnerProduct} — {@code inner_product(LIST, LIST)} → DOUBLE
  * </ul>
  *
  * <p>All three functions use {@link FunctionTemplate.NullHandling#INTERNAL}: {@code FieldReader}
@@ -44,33 +44,11 @@ import org.apache.arrow.vector.holders.NullableFloat8Holder;
  * {@link FunctionErrorContext}. A zero-magnitude vector in {@code cosine_distance} returns
  * {@code NULL} rather than {@code NaN} or {@code Infinity}.
  *
- * <p>Element types FLOAT4, FLOAT8, DECIMAL, INT, and BIGINT are all supported via
- * {@link #readAsDouble(FieldReader)}.
+ * <p>Element types FLOAT4, FLOAT8, DECIMAL, INT, and BIGINT are all supported — the type
+ * dispatch is inlined in each eval() method (Dremio's Janino codegen does not support
+ * cross-method calls in FunctionTemplate classes).
  */
 public class VectorDistanceFunctions {
-
-  /**
-   * Reads a numeric value from a list element reader as a {@code double}, dispatching on
-   * {@link org.apache.arrow.vector.types.Types.MinorType} so that FLOAT4, FLOAT8, DECIMAL,
-   * INT, and BIGINT element types all work without throwing.
-   *
-   * <p>Falls back to {@code readFloat()} for any unrecognised type, preserving previous
-   * behavior for legacy/unknown element types.
-   */
-  static double readAsDouble(FieldReader reader) {
-    org.apache.arrow.vector.types.Types.MinorType type = reader.getMinorType();
-    switch (type) {
-      case FLOAT4:  return reader.readFloat();
-      case FLOAT8:  return reader.readDouble();
-      case DECIMAL: {
-        java.math.BigDecimal bd = (java.math.BigDecimal) reader.readObject();
-        return bd != null ? bd.doubleValue() : Double.NaN;
-      }
-      case INT:     return reader.readInteger();
-      case BIGINT:  return reader.readLong();
-      default:      return reader.readFloat(); // fallback for legacy behavior
-    }
-  }
 
   // -------------------------------------------------------------------------
   // l2_distance
@@ -121,7 +99,9 @@ public class VectorDistanceFunctions {
           out.isSet = 0; // null element → undefined distance
           return;
         }
-        double diff = readAsDouble(lReader.reader()) - readAsDouble(rReader.reader());
+        // readObject() returns boxed Number (Float, Double, BigDecimal, Integer, Long)
+        double diff = ((Number) lReader.reader().readObject()).doubleValue()
+            - ((Number) rReader.reader().readObject()).doubleValue();
         sum += diff * diff;
       }
       out.isSet = 1;
@@ -178,8 +158,8 @@ public class VectorDistanceFunctions {
           out.isSet = 0; // null element → undefined distance
           return;
         }
-        double ai = readAsDouble(lReader.reader());
-        double bi = readAsDouble(rReader.reader());
+        double ai = ((Number) lReader.reader().readObject()).doubleValue();
+        double bi = ((Number) rReader.reader().readObject()).doubleValue();
         dot += ai * bi;
         normA += ai * ai;
         normB += bi * bi;
@@ -243,7 +223,8 @@ public class VectorDistanceFunctions {
           out.isSet = 0; // null element → undefined distance
           return;
         }
-        sum += readAsDouble(lReader.reader()) * readAsDouble(rReader.reader());
+        sum += ((Number) lReader.reader().readObject()).doubleValue()
+            * ((Number) rReader.reader().readObject()).doubleValue();
       }
       out.isSet = 1;
       out.value = -sum;
