@@ -387,5 +387,5 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 45-01-PLAN.md — Container infrastructure (MinIO, Nessie), UAT data model seed, Sections 1-4 tests (22 tests)
-- [ ] 45-02-PLAN.md — Sections 5-9 tests (30 tests) + full compilation verification
+- [ ] 45-01-PLAN.md — Container infrastructure (MinIO, Nessie), UAT data model seed, Sections 1-4 tests (25 tests, including 3 Oracle V$SQL pushdown)
+- [ ] 45-02-PLAN.md — Sections 5-9 tests (31 tests, with assertNoPgPushdown for non-JDBC sources) + full compilation verification
