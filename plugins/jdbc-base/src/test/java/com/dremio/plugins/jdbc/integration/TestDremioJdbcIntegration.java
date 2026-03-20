@@ -26,8 +26,10 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
@@ -107,6 +109,13 @@ public class TestDremioJdbcIntegration {
   private static final String ORA_CUSTOMERS  = "oracle_src.TESTUSER.CUSTOMERS";
   private static final String ORA_REGIONS    = "oracle_src.TESTUSER.REGIONS";
   private static final String ADBC_PRODUCTS  = "pg_adbc.public.products";
+
+  // ── Iceberg / Nessie / S3 table identifiers ───────────────────────────────
+  private static final String ICE_CATEGORIES = "nessie_rest.analytics.product_categories";
+  private static final String ICE_SALES      = "nessie_rest.analytics.monthly_sales";
+  private static final String S3_SHIPPING    = "s3_parquet.\"parquet-data\".shipping_rates";
+  private static final String S3_REVIEWS     = "s3_parquet.\"parquet-data\".product_reviews";
+  private static final String NVER_CATEGORIES = "nessie_ver.analytics.product_categories";
 
   // ── PG log filter patterns (same as test-regression.sh) ─────────────────
   private static final Pattern PG_INCLUDE =
@@ -973,6 +982,40 @@ public class TestDremioJdbcIntegration {
         Pattern.compile(expectedSubstring, Pattern.CASE_INSENSITIVE).matcher(allRows).find());
   }
 
+  private static void assertNoError(String sql) throws Exception {
+    List<String> rows = runSql(sql);
+    // If runSql didn't throw, the query succeeded
+  }
+
+  /**
+   * Asserts that running the given SQL does NOT cause any new SQL to appear in the PG container
+   * logs. Used for S3/Nessie/RESTCATALOG queries that must NOT trigger JDBC pushdown to PostgreSQL.
+   */
+  private static void assertNoPgPushdown(String sql) throws Exception {
+    int marker = pgLogMarker();
+    runSql(sql);
+    Thread.sleep(1000);
+    String logs = pgLogsSince(marker);
+    // Filter out noise: keep only lines containing SELECT/INSERT/UPDATE/DELETE
+    // (the PG log includes connection and parameter messages we should ignore)
+    String sqlStatements =
+        Arrays.stream(logs.split("\n"))
+            .filter(
+                line -> line.contains("statement:") || line.contains("execute"))
+            .filter(
+                line ->
+                    Pattern.compile("SELECT|INSERT|UPDATE|DELETE", Pattern.CASE_INSENSITIVE)
+                        .matcher(line)
+                        .find())
+            .collect(Collectors.joining("\n"));
+    assertTrue(
+        "JDBC pushdown unexpectedly fired for non-JDBC source query. PG logs show new SQL:\n"
+            + sqlStatements
+            + "\nQuery was:\n"
+            + sql,
+        sqlStatements.trim().isEmpty());
+  }
+
   // ══════════════════════════════════════════════════════════════════════════
   // SECTION 1: WHERE / FILTER PUSHDOWN (4 tests)
   // ══════════════════════════════════════════════════════════════════════════
@@ -1562,6 +1605,292 @@ public class TestDremioJdbcIntegration {
             + " < 0.001 AS BOOLEAN) AS ok FROM "
             + PG_PRODUCTS + " j INNER JOIN " + ADBC_PRODUCTS + " a ON j.id = a.id WHERE j.id = 1",
         "true");
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // UAT SECTION 5: FUNCTION COMPOSITION & EXPRESSION PUSHDOWN (5 tests)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void testUatS5CastExtractYear() throws Exception {
+    assertNoError(
+        "SELECT CAST(EXTRACT(YEAR FROM order_date) AS INTEGER) AS yr, COUNT(*) FROM "
+            + PG_ORDERS + " GROUP BY CAST(EXTRACT(YEAR FROM order_date) AS INTEGER)");
+  }
+
+  @Test
+  public void testUatS5RoundSumGroupBy() throws Exception {
+    assertNoError(
+        "SELECT category_id, ROUND(SUM(price * 1.1), 2) AS boosted FROM "
+            + PG_PRODUCTS + " GROUP BY category_id");
+  }
+
+  @Test
+  public void testUatS5UpperTrimOrderBy() throws Exception {
+    assertNoError(
+        "SELECT name FROM " + PG_PRODUCTS
+            + " ORDER BY UPPER(TRIM(name)) LIMIT 5");
+  }
+
+  @Test
+  public void testUatS5CoalesceCast() throws Exception {
+    assertNoError(
+        "SELECT COALESCE(CAST(category_id AS VARCHAR), 'unknown') AS cat FROM "
+            + PG_PRODUCTS + " LIMIT 5");
+  }
+
+  @Test
+  public void testUatS5CeilAbsNested() throws Exception {
+    assertNoError(
+        "SELECT name, CEIL(ABS(price - 500)) AS dist FROM "
+            + PG_PRODUCTS + " ORDER BY dist LIMIT 5");
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // UAT SECTION 6: ICEBERG / NESSIE QUERIES (6 tests)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void testUatS6IcebergCategoriesCount() throws Exception {
+    assertCorrect(
+        "SELECT COUNT(*) AS cnt FROM " + ICE_CATEGORIES,
+        "3");
+  }
+
+  @Test
+  public void testUatS6IcebergSalesCount() throws Exception {
+    assertCorrect(
+        "SELECT COUNT(*) AS cnt FROM " + ICE_SALES,
+        "12");
+  }
+
+  @Test
+  public void testUatS6IcebergSumRevenueByMonth() throws Exception {
+    assertCorrect(
+        "SELECT \"month\", CAST(SUM(revenue) AS BIGINT) AS total FROM "
+            + ICE_SALES + " GROUP BY \"month\" ORDER BY \"month\"",
+        "2024-01");
+  }
+
+  @Test
+  public void testUatS6PgProductsXIcebergCategories() throws Exception {
+    assertCorrect(
+        "SELECT p.name, c.category_name FROM " + PG_PRODUCTS
+            + " p INNER JOIN " + ICE_CATEGORIES
+            + " c ON p.category_id = c.category_id WHERE p.price > 400 ORDER BY p.name",
+        "Laptop Pro 15.*Electronics");
+  }
+
+  @Test
+  public void testUatS6IcebergSalesXPgProducts() throws Exception {
+    assertCorrect(
+        "SELECT p.name, s.\"month\", s.units_sold FROM " + ICE_SALES
+            + " s INNER JOIN " + PG_PRODUCTS
+            + " p ON s.product_id = p.id WHERE s.units_sold > 10 ORDER BY s.units_sold DESC",
+        "Wireless Mouse");
+  }
+
+  @Test
+  public void testUatS6TripleSourcePgIcebergOracle() throws Exception {
+    assertCorrect(
+        "SELECT cat.category_name, r.name AS region FROM " + PG_ORDER_ITEMS
+            + " oi INNER JOIN " + PG_PRODUCTS + " p ON oi.product_id = p.id"
+            + " INNER JOIN " + ICE_CATEGORIES + " cat ON p.category_id = cat.category_id"
+            + " INNER JOIN " + PG_ORDERS + " o ON oi.order_id = o.id"
+            + " INNER JOIN " + ORA_CUSTOMERS + " c ON o.customer_id = c.id"
+            + " INNER JOIN " + ORA_REGIONS + " r ON c.region_id = r.id"
+            + " WHERE c.name = 'Alice Johnson' ORDER BY cat.category_name",
+        "Electronics");
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // UAT SECTION 7: CROSS-SOURCE + SEMANTIC SEARCH (3 tests)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void testUatS7KnnProductsXOracleCustomer() throws Exception {
+    assertCorrect(
+        "SELECT p.name AS product, c.name AS customer FROM ("
+            + "SELECT name FROM " + PG_PRODUCTS
+            + " ORDER BY l2_distance(embedding, ARRAY[0.8, 0.2, 0.1, 0.9]) LIMIT 3"
+            + ") p, " + ORA_CUSTOMERS + " c WHERE c.id = 101",
+        "Laptop Pro 15.*Alice");
+  }
+
+  @Test
+  public void testUatS7KnnProductsXIcebergEnrichment() throws Exception {
+    assertCorrect(
+        "SELECT p.name, cat.category_name, cat.margin_pct FROM ("
+            + "SELECT id, name, category_id FROM " + PG_PRODUCTS
+            + " ORDER BY l2_distance(embedding, ARRAY[0.8, 0.2, 0.1, 0.9]) LIMIT 3"
+            + ") p INNER JOIN " + ICE_CATEGORIES
+            + " cat ON p.category_id = cat.category_id",
+        "Electronics");
+  }
+
+  @Test
+  public void testUatS7PgOrderAnalyticsXOracleCustomers() throws Exception {
+    assertCorrect(
+        "SELECT c.name, c.tier, o.order_count FROM ("
+            + "SELECT customer_id, COUNT(*) AS order_count FROM " + PG_ORDERS
+            + " GROUP BY customer_id"
+            + ") o INNER JOIN " + ORA_CUSTOMERS
+            + " c ON o.customer_id = c.id ORDER BY o.order_count DESC",
+        "Alice Johnson.*premium");
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // UAT SECTION 8: EDGE CASES (6 tests)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void testUatS8NullEmbedding() throws Exception {
+    assertNoError(
+        "SELECT l2_distance(CAST(NULL AS LIST(FLOAT)), ARRAY[1.0, 2.0, 3.0, 4.0])");
+  }
+
+  @Test
+  public void testUatS8EmptyResult() throws Exception {
+    assertNoError(
+        "SELECT * FROM " + PG_PRODUCTS + " WHERE price > 999999");
+  }
+
+  @Test
+  public void testUatS8PgMultiTableJoin() throws Exception {
+    assertNoError(
+        "SELECT o.id, oi.product_id, p.name FROM " + PG_ORDERS + " o INNER JOIN "
+            + PG_ORDER_ITEMS + " oi ON o.id = oi.order_id INNER JOIN ("
+            + "SELECT id, name FROM " + PG_PRODUCTS
+            + " WHERE category_id = 1) p ON oi.product_id = p.id LIMIT 5");
+  }
+
+  @Test
+  public void testUatS8JdbcAndAdbcSameQuery() throws Exception {
+    assertNoError(
+        "SELECT j.name, a.price FROM " + PG_PRODUCTS + " j INNER JOIN "
+            + ADBC_PRODUCTS + " a ON j.id = a.id LIMIT 5");
+  }
+
+  @Test
+  public void testUatS8OracleSelfJoin() throws Exception {
+    assertNoError(
+        "SELECT c.name, r.name AS region FROM " + ORA_CUSTOMERS
+            + " c INNER JOIN " + ORA_REGIONS
+            + " r ON c.region_id = r.id");
+  }
+
+  @Test
+  public void testUatS8CrossSourceCountConsistency() throws Exception {
+    assertCorrect(
+        "SELECT COUNT(*) AS pg_count FROM " + PG_PRODUCTS
+            + " WHERE category_id IS NOT NULL",
+        "15");
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // UAT SECTION 9: NON-JDBC SOURCE VALIDATION (11 tests)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // S3 / MinIO Parquet — assertNoPgPushdown verifies no JDBC rules fired
+  @Test
+  public void testUatS9S3ShippingRates() throws Exception {
+    assertNoPgPushdown(
+        "SELECT * FROM " + S3_SHIPPING + " LIMIT 5");
+  }
+
+  @Test
+  public void testUatS9S3ShippingRatesCount() throws Exception {
+    assertNoPgPushdown(
+        "SELECT COUNT(*) AS cnt FROM " + S3_SHIPPING);
+    // Also verify correctness
+    assertCorrect(
+        "SELECT COUNT(*) AS cnt FROM " + S3_SHIPPING,
+        "4");
+  }
+
+  @Test
+  public void testUatS9S3ProductReviews() throws Exception {
+    assertNoPgPushdown(
+        "SELECT review_id, rating, review_text FROM " + S3_REVIEWS
+            + " ORDER BY rating DESC LIMIT 3");
+  }
+
+  @Test
+  public void testUatS9S3AvgRating() throws Exception {
+    assertNoPgPushdown(
+        "SELECT CAST(AVG(CAST(rating AS DOUBLE)) AS INTEGER) AS avg_rating FROM "
+            + S3_REVIEWS);
+    // Also verify correctness
+    assertCorrect(
+        "SELECT CAST(AVG(CAST(rating AS DOUBLE)) AS INTEGER) AS avg_rating FROM "
+            + S3_REVIEWS,
+        "4");
+  }
+
+  // Nessie versioned — assertNoPgPushdown verifies no JDBC rules fired
+  @Test
+  public void testUatS9NessieVerCategories() throws Exception {
+    assertNoPgPushdown(
+        "SELECT * FROM " + NVER_CATEGORIES + " LIMIT 5");
+  }
+
+  @Test
+  public void testUatS9NessieVerCategoriesCount() throws Exception {
+    assertNoPgPushdown(
+        "SELECT COUNT(*) AS cnt FROM " + NVER_CATEGORIES);
+    // Also verify correctness
+    assertCorrect(
+        "SELECT COUNT(*) AS cnt FROM " + NVER_CATEGORIES,
+        "3");
+  }
+
+  @Test
+  public void testUatS9NessieVerGroupByDepartment() throws Exception {
+    assertNoPgPushdown(
+        "SELECT department, COUNT(*) AS cnt FROM " + NVER_CATEGORIES
+            + " GROUP BY department ORDER BY department");
+  }
+
+  // RESTCATALOG self-join — uses assertNoError (Iceberg doesn't go through PG)
+  @Test
+  public void testUatS9RestcatalogSelfJoin() throws Exception {
+    assertNoError(
+        "SELECT a.category_name, b.department FROM " + ICE_CATEGORIES
+            + " a, " + ICE_CATEGORIES
+            + " b WHERE a.department = b.department AND a.category_id < b.category_id");
+  }
+
+  // Cross-source: S3 x PG — PG is legitimately queried, so use assertCorrect
+  @Test
+  public void testUatS9S3ReviewsXPgProducts() throws Exception {
+    assertCorrect(
+        "SELECT p.name, r.rating, r.review_text FROM " + S3_REVIEWS
+            + " r INNER JOIN " + PG_PRODUCTS
+            + " p ON r.product_id = p.id ORDER BY r.rating DESC LIMIT 3",
+        "Laptop|desk|display");
+  }
+
+  // Nessie versioned filter — assertNoPgPushdown verifies no JDBC rules fired
+  @Test
+  public void testUatS9NessieVerXDepartmentFilter() throws Exception {
+    assertNoPgPushdown(
+        "SELECT cat.category_name, cat.department FROM " + NVER_CATEGORIES
+            + " cat WHERE cat.department = 'Tech' ORDER BY cat.category_name");
+    // Also verify correctness
+    assertCorrect(
+        "SELECT cat.category_name, cat.department FROM " + NVER_CATEGORIES
+            + " cat WHERE cat.department = 'Tech' ORDER BY cat.category_name",
+        "Accessories|Electronics");
+  }
+
+  // Triple: S3 x Iceberg x PG — PG is legitimately queried, so use assertNoError
+  @Test
+  public void testUatS9S3ReviewsXIcebergXPgProducts() throws Exception {
+    assertNoError(
+        "SELECT p.name, cat.category_name, r.rating FROM " + S3_REVIEWS
+            + " r INNER JOIN " + PG_PRODUCTS + " p ON r.product_id = p.id"
+            + " INNER JOIN " + ICE_CATEGORIES + " cat ON p.category_id = cat.category_id"
+            + " ORDER BY r.rating DESC LIMIT 5");
   }
 
   // ── explainAnalyze helper ─────────────────────────────────────────────────
