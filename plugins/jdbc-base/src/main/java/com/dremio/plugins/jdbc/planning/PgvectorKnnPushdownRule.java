@@ -185,8 +185,8 @@ public final class PgvectorKnnPushdownRule extends RelOptRule {
     // So EXPR$1 is only used for sorting, not returned to the user.
     //
     // Produce a scan with the right row type by projecting the scan's columns to match
-    // TopN's output. For the distance column, emit the distanceCall RexCall so the
-    // distance value is computed locally from the pushed-down sorted rows.
+    // TopN's output. For the distance column, emit a typed null — the distance cannot be
+    // recomputed locally (ARRAY literals decompose into NLJ subqueries in Dremio's planner).
 
     List<RexNode> wrapperProjects = new ArrayList<>();
     List<String> wrapperNames = new ArrayList<>();
@@ -210,11 +210,14 @@ public final class PgvectorKnnPushdownRule extends RelOptRule {
         // Matched by name — use the scan field's actual type.
         wrapperProjects.add(rexBuilder.makeInputRef(scanFields.get(scanIdx).getType(), scanIdx));
       } else {
-        // No matching scan field — this is the distance column (e.g. EXPR$1).
-        // Emit the actual distance RexCall so the distance value is computed from
-        // the pushed-down sorted rows, rather than returning null.
-        // distanceCall was built in onMatch() referencing the scan's embedding column index.
-        wrapperProjects.add(distanceCall);
+        // No matching scan field (e.g. the distance column EXPR$1) — produce typed null.
+        // The distance value cannot be computed locally because Dremio's execution engine
+        // decomposes ARRAY literals into Values+HashAgg+NLJ subqueries, which cannot be
+        // embedded in a ProjectPrel. The ORDER BY + LIMIT is pushed to PG (using HNSW index)
+        // so rows arrive in the correct distance order — only the distance value is null.
+        // Users who need the distance can wrap: SELECT *, cosine_distance(...) AS dist
+        // FROM (SELECT ... ORDER BY cosine_distance(...) LIMIT K) sub
+        wrapperProjects.add(rexBuilder.makeNullLiteral(topNField.getType()));
       }
       wrapperNames.add(topNField.getName());
     }
