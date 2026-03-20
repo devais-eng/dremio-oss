@@ -27,6 +27,7 @@ import java.sql.DriverManager;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.time.Duration;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -92,7 +93,6 @@ public class TestDremioJdbcIntegration {
 
   private static String TOKEN;
   private static String DREMIO_URL;
-
   // ── Source table identifiers ─────────────────────────────────────────────
   private static final String PG_EMP    = "pg_test.public.employees";
   private static final String PG_DEPT   = "pg_test.public.departments";
@@ -173,10 +173,12 @@ public class TestDremioJdbcIntegration {
     // Wait for metadata refresh
     Thread.sleep(15_000);
 
-    // Seed Iceberg tables via Dremio SQL CTAS (requires nessie_rest source to be available)
+    // Seed Iceberg tables via pyiceberg in a Python container on the same Docker network.
+    // This matches the UAT approach (samples/jdbc-connectors/scripts/seed-all.sh) and avoids
+    // Dremio CTAS compatibility issues with the Nessie REST catalog.
     seedIceberg();
 
-    // Upload Parquet files to MinIO and promote them in Dremio
+    // Upload CSV files to MinIO and promote them in Dremio
     seedMinioParquet();
 
     // Wait for metadata refresh after Iceberg + S3 seeding
@@ -440,25 +442,66 @@ public class TestDremioJdbcIntegration {
    * source to already be created and metadata to be refreshed.
    */
   private static void seedIceberg() throws Exception {
-    // Create namespace via Nessie REST catalog (Dremio needs the namespace to exist)
-    // Use CTAS to create tables
-    runSql(
-        "CREATE TABLE nessie_rest.analytics.product_categories AS "
-            + "SELECT * FROM (VALUES "
-            + "(1, 'Electronics', 'Tech', 0.15), "
-            + "(2, 'Furniture', 'Home', 0.25), "
-            + "(3, 'Accessories', 'Tech', 0.30)"
-            + ") AS t(category_id, category_name, department, margin_pct)");
-    runSql(
-        "CREATE TABLE nessie_rest.analytics.monthly_sales AS "
-            + "SELECT * FROM (VALUES "
-            + "('2024-01', 1, 5, 6499.95), ('2024-01', 4, 3, 1799.97), "
-            + "('2024-02', 1, 8, 10399.92), ('2024-02', 13, 2, 999.98), "
-            + "('2024-03', 5, 4, 1799.96), ('2024-03', 7, 6, 899.94), "
-            + "('2024-01', 2, 15, 449.85), ('2024-02', 6, 7, 559.93), "
-            + "('2024-03', 15, 3, 899.97), ('2024-01', 8, 4, 1599.96), "
-            + "('2024-02', 3, 10, 499.90), ('2024-03', 14, 5, 449.95)"
-            + ") AS t(\"month\", product_id, units_sold, revenue)");
+    // Seed Iceberg tables via pyiceberg in a Python container on the same Docker network.
+    // This matches the UAT approach (samples/jdbc-connectors/scripts/seed-all.sh) exactly,
+    // avoiding Dremio CTAS compatibility issues with the Nessie REST catalog.
+    String script =
+        "pip install --quiet pyiceberg[s3fs]==0.7.1 pyarrow==17.0.0 2>/dev/null && python3 -c '"
+            + "import pyarrow as pa\n"
+            + "from pyiceberg.catalog import load_catalog\n"
+            + "catalog = load_catalog(\"nessie\", **{\n"
+            + "    \"uri\": \"http://nessie:19120/iceberg/\",\n"
+            + "    \"s3.endpoint\": \"http://minio:9000\",\n"
+            + "    \"s3.access-key-id\": \"minioadmin\",\n"
+            + "    \"s3.secret-access-key\": \"minioadmin\",\n"
+            + "    \"s3.region\": \"us-east-1\",\n"
+            + "    \"s3.path-style-access\": \"true\",\n"
+            + "})\n"
+            + "try:\n"
+            + "    catalog.create_namespace(\"analytics\")\n"
+            + "except Exception:\n"
+            + "    pass\n"
+            + "schema = pa.schema([(\"category_id\", pa.int32()), (\"category_name\", pa.string()),"
+            + " (\"department\", pa.string()), (\"margin_pct\", pa.float64())])\n"
+            + "data = pa.table({\"category_id\": [1, 2, 3],"
+            + " \"category_name\": [\"Electronics\", \"Furniture\", \"Accessories\"],"
+            + " \"department\": [\"Tech\", \"Home\", \"Tech\"],"
+            + " \"margin_pct\": [0.15, 0.25, 0.30]}, schema=schema)\n"
+            + "try:\n"
+            + "    catalog.drop_table(\"analytics.product_categories\")\n"
+            + "except Exception:\n"
+            + "    pass\n"
+            + "tbl = catalog.create_table(\"analytics.product_categories\", schema=schema)\n"
+            + "tbl.append(data)\n"
+            + "print(f\"Created analytics.product_categories: {len(data)} rows\")\n"
+            + "ss = pa.schema([(\"month\", pa.string()), (\"product_id\", pa.int32()),"
+            + " (\"units_sold\", pa.int32()), (\"revenue\", pa.float64())])\n"
+            + "sd = pa.table({\"month\": [\"2024-01\",\"2024-01\",\"2024-02\",\"2024-02\","
+            + "\"2024-03\",\"2024-03\",\"2024-01\",\"2024-02\",\"2024-03\",\"2024-01\","
+            + "\"2024-02\",\"2024-03\"],"
+            + " \"product_id\": [1,4,1,13,5,7,2,6,15,8,3,14],"
+            + " \"units_sold\": [5,3,8,2,4,6,15,7,3,4,10,5],"
+            + " \"revenue\": [6499.95,1799.97,10399.92,999.98,1799.96,899.94,"
+            + "449.85,559.93,899.97,1599.96,499.90,449.95]}, schema=ss)\n"
+            + "try:\n"
+            + "    catalog.drop_table(\"analytics.monthly_sales\")\n"
+            + "except Exception:\n"
+            + "    pass\n"
+            + "tbl2 = catalog.create_table(\"analytics.monthly_sales\", schema=ss)\n"
+            + "tbl2.append(sd)\n"
+            + "print(f\"Created analytics.monthly_sales: {len(sd)} rows\")\n"
+            + "'";
+    DremioJdbcPythonSeedContainer pyContainer =
+        new DremioJdbcPythonSeedContainer(script);
+    pyContainer.withNetwork(NETWORK);
+    pyContainer.start();
+    // Wait for both tables to be created
+    org.testcontainers.containers.wait.strategy.Wait.forLogMessage(".*Created analytics.*", 2)
+        .withStartupTimeout(Duration.ofMinutes(3))
+        .waitUntilReady(pyContainer);
+    String logs = pyContainer.getLogs();
+    System.out.println("[Iceberg seed] " + logs);
+    pyContainer.stop();
   }
 
   /**

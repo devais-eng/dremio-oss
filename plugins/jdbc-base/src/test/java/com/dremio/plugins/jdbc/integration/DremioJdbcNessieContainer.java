@@ -51,9 +51,9 @@ public final class DremioJdbcNessieContainer extends GenericContainer<DremioJdbc
     withEnv("nessie.catalog.secrets.access-key.secret", "minioadmin");
     withEnv("nessie.server.authentication.enabled", "false");
     waitingFor(
-        Wait.forHttp("/q/health/ready")
-            .forPort(9000)
+        Wait.forHttp("/api/v2/config")
+            .forPort(19120)
             .forStatusCode(200)
-            .withStartupTimeout(Duration.ofSeconds(90)));
+            .withStartupTimeout(Duration.ofSeconds(120)));
   }
 }
