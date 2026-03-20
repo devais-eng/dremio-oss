@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
 status: in_progress
-stopped_at: Completed 44-01-PLAN.md — pgvector gap closure (KNN distance projection + ADBC vector transfer)
-last_updated: "2026-03-19T22:25:09Z"
-last_activity: 2026-03-19 — Completed 44-01 (PgvectorKnnPushdownRule distanceCall emission, AdbcRecordReader ListVector+VarBinary transfer, 204 unit tests + Docker UAT 30/30 PG+ADBC)
+stopped_at: Completed 45-01-PLAN.md — multi-source container infrastructure + 25 UAT S1-S4 test methods
+last_updated: "2026-03-20T09:20:39Z"
+last_activity: 2026-03-20 — Completed 45-01 (MinIO+Nessie containers, 6 source configs, 25 multi-source UAT tests for PG/Oracle pushdown + ADBC + pgvector)
 progress:
-  total_phases: 11
+  total_phases: 12
   completed_phases: 10
-  total_plans: 26
-  completed_plans: 26
-  percent: 100
+  total_plans: 28
+  completed_plans: 27
+  percent: 96
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** Phase 44 — pgvector gap closure — KNN distance projection pushdown + ADBC vector binary format parsing (COMPLETE)
+**Current focus:** Phase 45 — Promote UAT to Tier 2 integration tests — battle-tested regression firewall for CE coexistence
 
 ## Current Position
 
-Phase: 44 of 44 (pgvector gap closure — KNN distance projection pushdown + ADBC vector binary format parsing)
-Plan: 1 of 1 complete — PHASE COMPLETE
-Status: COMPLETE
-Last activity: 2026-03-19 — Completed 44-01 (PgvectorKnnPushdownRule distanceCall emission, AdbcRecordReader ListVector+VarBinary transfer, 204 unit tests + Docker UAT 30/30)
+Phase: 45 of 45 (Promote UAT to Tier 2 integration tests)
+Plan: 1 of 2 complete
+Status: IN PROGRESS
+Last activity: 2026-03-20 — Completed 45-01 (MinIO+Nessie containers, 6 source configs, 25 multi-source UAT tests)
 
-Progress: [██████████] 100% (26 of 26 plans complete)
+Progress: [█████████░] 96% (27 of 28 plans complete)
 
 ## Performance Metrics
 
@@ -79,6 +79,7 @@ Progress: [██████████] 100% (26 of 26 plans complete)
 | Phase 42-pgvector-operator-pushdown P01 | 35 | 2 tasks | 5 files |
 | Phase 43-pgvector-uat-integration-tests P01 | 15 | 2 tasks | 4 files |
 | Phase 44-pgvector-gap-closure P01 | 19 | 2 tasks | 2 files |
+| Phase 45-promote-uat P01 | 7 | 2 tasks | 4 files |
 
 ## Shipped Milestones
 
@@ -186,6 +187,11 @@ Progress: [██████████] 100% (26 of 26 plans complete)
 - [Phase 44-01]: ListVector element-level Float4Vector copy (not zero-copy) consistent with AdbcRecordReader's allocator separation design
 - [Phase 44-01]: VarBinaryVector->ListVector fallback added defensively — current ADBC PG driver (0.22.0) materializes vector(N) as native Arrow ListVector, but future versions could return raw binary
 
+- [Phase 45-01]: io.minio:minio:8.5.7 chosen for MinIO bucket creation and file upload — lightweight, purpose-built for S3-compatible APIs
+- [Phase 45-01]: CSV upload to MinIO with Dremio promote API (Text format) instead of Parquet — avoids heavyweight Hadoop/Parquet writer dependencies in test classpath
+- [Phase 45-01]: Iceberg tables seeded via Dremio SQL CTAS into nessie_rest source — most reliable approach using Dremio's own catalog integration
+- [Phase 45-01]: testUatS{section} naming convention distinguishes 25 new UAT tests from 41 existing regression tests
+
 ### Pending Todos
 
 None.
@@ -204,6 +210,7 @@ None.
 - Phase 42 added: pgvector operator pushdown — Volcano planner translates to <-> <#> <=> operators
 - Phase 43 added: pgvector UAT and integration tests — semantic search pushdown with index usage
 - Phase 44 added: pgvector gap closure — KNN distance projection pushdown + ADBC vector binary format parsing
+- Phase 45 added: Promote UAT to Tier 2 integration tests — battle-tested regression firewall for CE coexistence
 
 ### Blockers/Concerns
 
@@ -211,6 +218,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-19T22:25:09Z
-Stopped at: Completed 44-01-PLAN.md — pgvector gap closure (KNN distance projection + ADBC vector transfer); Phase 44 complete
+Last session: 2026-03-20T09:20:39Z
+Stopped at: Completed 45-01-PLAN.md — multi-source container infrastructure + 25 UAT S1-S4 test methods
 Resume file: None
