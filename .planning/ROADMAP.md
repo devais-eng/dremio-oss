@@ -355,3 +355,37 @@ Plans:
 
 Plans:
 - [ ] 43-01-PLAN.md — upgrade postgres to pgvector image, add pgvector UAT section (test-regression.sh) and Tier 2 @Test methods (TestDremioJdbcIntegration.java)
+
+### Phase 44: pgvector gap closure — KNN distance projection pushdown + ADBC vector binary format parsing
+
+**Goal:** Close two remaining pgvector gaps: (A) KNN pushdown currently does not return distance values in the SELECT projection — the wrapper project in PgvectorKnnPushdownRule must either pass the embedding column through or push the distance as a computed column in the PG SELECT; (B) ADBC protocol returns NULL for pgvector vector(N) columns — inspect the ADBC binary wire format to understand how pgvector sends vector data and implement parsing in AdbcRecordReader so embedding columns work with protocolMode=AUTO/ADBC.
+**Depends on:** Phase 43
+**Requirements:** PGVEC-GAP-01, PGVEC-GAP-02
+**Success Criteria** (what must be TRUE):
+  1. `SELECT id, cosine_distance(embedding, ARRAY[...]) AS dist FROM t ORDER BY dist LIMIT K` returns non-null distance values when KNN pushdown fires
+  2. pgvector vector(N) columns return actual float arrays (not NULL) when queried via ADBC protocol (protocolMode=AUTO or ADBC)
+  3. All existing pgvector tests (UAT + integration) continue to pass
+  4. Multi-source UAT 46/46 pass
+**Plans:** 1 plan
+
+Plans:
+- [ ] 44-01-PLAN.md — KNN distance projection fix (distanceCall instead of null literal) + ADBC ListVector transfer branch for pgvector vector columns
+
+### Phase 45: Promote UAT to Tier 2 integration tests — battle-tested regression firewall for CE coexistence
+
+**Goal:** Promote all 52 multi-source UAT patterns into permanent Tier 2 Testcontainers integration tests (TestDremioJdbcIntegration). Each test runs through Dremio's full planner pipeline with PG log verification and Oracle V$SQL checks to confirm pushdown. Covers all 9 UAT sections: same-source pushdown, ADBC vs JDBC protocol, cross-source JOINs (PG x Oracle), pgvector semantic search + distance correctness, function composition, Iceberg/Nessie queries, cross-source + semantic search, edge cases, and non-JDBC source validation (S3, Nessie versioned, RESTCATALOG). This is the permanent regression firewall ensuring no silent regressions when the plugin is later extracted as a standalone jdbc-oss module for CE coexistence.
+**Depends on:** Phase 44
+**Requirements:** TEST-02
+**Success Criteria** (what must be TRUE):
+  1. All 52 UAT patterns have corresponding @Test methods in TestDremioJdbcIntegration
+  2. Pushdown tests verify via PG container logs AND Oracle V$SQL that expected SQL operators (<->, <=>, <#>, GROUP BY, ORDER BY, JOIN, FETCH FIRST) appear in pushed queries — both databases verified
+  3. Cross-source tests (PG x Oracle, PG x Iceberg, 3-source joins) verify correct results through Dremio's planner
+  4. pgvector distance correctness tests verify Dremio's local computation matches pgvector's results within floating-point tolerance
+  5. ADBC protocol tests verify embedding columns return non-null float arrays and distance values match JDBC
+  6. Non-JDBC source tests verify JDBC pushdown rules do NOT fire for S3, Nessie versioned, or RESTCATALOG sources
+  7. `mvn test -pl plugins/jdbc-base` passes with all new tests (zero failures)
+**Plans:** 2 plans
+
+Plans:
+- [ ] 45-01-PLAN.md — Container infrastructure (MinIO, Nessie), UAT data model seed, Sections 1-4 tests (22 tests)
+- [ ] 45-02-PLAN.md — Sections 5-9 tests (30 tests) + full compilation verification
