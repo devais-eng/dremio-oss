@@ -366,6 +366,34 @@ test_correct "KNN: nearest to electronics cluster [0.8,0.2,0.1,0.9]" \
 test_correct "KNN: nearest to furniture cluster [0.1,0.9,0.8,0.2]" \
   "SELECT name FROM $PG.products ORDER BY l2_distance(embedding, ARRAY[0.1, 0.9, 0.8, 0.2]) LIMIT 1" \
   "Standing Desk"
+
+# Distance correctness: verify Dremio's local computation matches pgvector's algebraic results.
+# Product id=1 embedding=[0.8,0.2,0.1,0.9], id=4 embedding=[0.1,0.9,0.8,0.2].
+# PG reference: l2(id=1, [0.8,0.2,0.1,0.9])=0, cosine(id=4, [0.1,0.9,0.8,0.2])=0,
+#   cosine(id=1, [0.1,0.9,0.8,0.2])≈0.6533, l2(id=4, [0.8,0.2,0.1,0.9])≈1.4
+test_correct "Distance correctness: l2 self-match = 0" \
+  "SELECT CAST(l2_distance(embedding, CAST(ARRAY[0.8, 0.2, 0.1, 0.9] AS LIST(FLOAT))) < 0.001 AS BOOLEAN) AS ok FROM $PG.products WHERE id = 1" \
+  "true"
+
+test_correct "Distance correctness: cosine self-match = 0" \
+  "SELECT CAST(cosine_distance(embedding, CAST(ARRAY[0.1, 0.9, 0.8, 0.2] AS LIST(FLOAT))) < 0.001 AS BOOLEAN) AS ok FROM $PG.products WHERE id = 4" \
+  "true"
+
+test_correct "Distance correctness: cosine(id=1, furniture) ≈ 0.653" \
+  "SELECT CAST(ABS(cosine_distance(embedding, CAST(ARRAY[0.1, 0.9, 0.8, 0.2] AS LIST(FLOAT))) - 0.6533) < 0.001 AS BOOLEAN) AS ok FROM $PG.products WHERE id = 1" \
+  "true"
+
+test_correct "Distance correctness: l2(id=4, electronics) ≈ 1.4" \
+  "SELECT CAST(ABS(l2_distance(embedding, CAST(ARRAY[0.8, 0.2, 0.1, 0.9] AS LIST(FLOAT))) - 1.4) < 0.01 AS BOOLEAN) AS ok FROM $PG.products WHERE id = 4" \
+  "true"
+
+test_correct "Distance correctness: inner_product negated dot ≈ -1.0" \
+  "SELECT CAST(ABS(inner_product(embedding, CAST(ARRAY[0.5, 0.5, 0.5, 0.5] AS LIST(FLOAT))) + 1.0) < 0.001 AS BOOLEAN) AS ok FROM $PG.products WHERE id = 1" \
+  "true"
+
+test_correct "ADBC distance matches JDBC" \
+  "SELECT CAST(ABS(cosine_distance(j.embedding, CAST(ARRAY[0.1, 0.9, 0.8, 0.2] AS LIST(FLOAT))) - cosine_distance(a.embedding, CAST(ARRAY[0.1, 0.9, 0.8, 0.2] AS LIST(FLOAT)))) < 0.001 AS BOOLEAN) AS ok FROM $PG.products j INNER JOIN $ADBC.products a ON j.id = a.id WHERE j.id = 1" \
+  "true"
 echo ""
 
 # ═══════════════════════════════════════════════════════════════════════
