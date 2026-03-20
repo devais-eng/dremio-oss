@@ -76,6 +76,18 @@ public class TestDremioJdbcIntegration {
           .withNetwork(NETWORK)
           .withNetworkAliases("dremio");
 
+  @ClassRule(order = 4)
+  public static final DremioJdbcMinioContainer MINIO =
+      new DremioJdbcMinioContainer()
+          .withNetwork(NETWORK)
+          .withNetworkAliases("minio");
+
+  @ClassRule(order = 5)
+  public static final DremioJdbcNessieContainer NESSIE =
+      new DremioJdbcNessieContainer()
+          .withNetwork(NETWORK)
+          .withNetworkAliases("nessie");
+
   private static String TOKEN;
   private static String DREMIO_URL;
 
@@ -87,6 +99,14 @@ public class TestDremioJdbcIntegration {
   private static final String ADBC_EMP  = "pg_adbc_test.public.employees";
   private static final String PG_VEC    = "pg_test.public.embeddings";
   private static final String ADBC_VEC  = "pg_adbc_test.public.embeddings";
+
+  // ── UAT multi-source table identifiers ──────────────────────────────────
+  private static final String PG_PRODUCTS    = "pg_jdbc.public.products";
+  private static final String PG_ORDERS      = "pg_jdbc.public.orders";
+  private static final String PG_ORDER_ITEMS = "pg_jdbc.public.order_items";
+  private static final String ORA_CUSTOMERS  = "oracle_src.TESTUSER.CUSTOMERS";
+  private static final String ORA_REGIONS    = "oracle_src.TESTUSER.REGIONS";
+  private static final String ADBC_PRODUCTS  = "pg_adbc.public.products";
 
   // ── PG log filter patterns (same as test-regression.sh) ─────────────────
   private static final Pattern PG_INCLUDE =
@@ -111,11 +131,16 @@ public class TestDremioJdbcIntegration {
 
     DREMIO_URL = DREMIO.getDremioUrl();
 
-    // Seed PostgreSQL
+    // Seed PostgreSQL (existing test data + UAT multi-source data)
     seedPostgres();
+    seedPostgresUat();
 
-    // Seed Oracle
+    // Seed Oracle (existing test data + UAT multi-source data)
     seedOracle();
+    seedOracleUat();
+
+    // Create MinIO bucket for Nessie/Iceberg warehouse
+    createMinioBuckets();
 
     // Bootstrap Dremio admin user
     bootstrapAdmin(DREMIO_URL);
@@ -123,13 +148,30 @@ public class TestDremioJdbcIntegration {
     // Get auth token
     TOKEN = getToken(DREMIO_URL);
 
-    // Create sources
+    // Create existing test sources
     createSource(DREMIO_URL, TOKEN, pgSourceJson("postgres", 5432));
     createSource(DREMIO_URL, TOKEN, oracleSourceJson("oracle", 1521));
     createSource(DREMIO_URL, TOKEN, adbcSourceJson("postgres", 5432));
 
+    // Create UAT multi-source sources
+    createSource(DREMIO_URL, TOKEN, pgJdbcSourceJson("postgres", 5432));
+    createSource(DREMIO_URL, TOKEN, pgAdbcSourceJson("postgres", 5432));
+    createSource(DREMIO_URL, TOKEN, oracleUatSourceJson("oracle", 1521));
+    createSource(DREMIO_URL, TOKEN, nessieRestSourceJson("nessie", 19120));
+    createSource(DREMIO_URL, TOKEN, nessieVerSourceJson("nessie", 19120));
+    createSource(DREMIO_URL, TOKEN, s3ParquetSourceJson("minio", 9000));
+
     // Wait for metadata refresh
     Thread.sleep(15_000);
+
+    // Seed Iceberg tables via Dremio SQL CTAS (requires nessie_rest source to be available)
+    seedIceberg();
+
+    // Upload Parquet files to MinIO and promote them in Dremio
+    seedMinioParquet();
+
+    // Wait for metadata refresh after Iceberg + S3 seeding
+    Thread.sleep(10_000);
   }
 
   // ── Seed helpers ─────────────────────────────────────────────────────────
@@ -236,6 +278,372 @@ public class TestDremioJdbcIntegration {
                     + "SELECT 1 FROM DUAL;\n"
                     + "COMMIT;\n"
                     + "EOSQL");
+  }
+
+  // ── UAT seed helpers ───────────────────────────────────────────────────────
+
+  /** Seeds UAT multi-source products/orders/order_items tables in PostgreSQL. */
+  private static void seedPostgresUat() throws Exception {
+    String jdbcUrl = PG.getJdbcUrl();
+    try (Connection conn = DriverManager.getConnection(jdbcUrl, PG.getUsername(), PG.getPassword());
+        Statement stmt = conn.createStatement()) {
+      // Products with 4-dim pgvector embeddings (matching seed-all.sh exactly)
+      stmt.execute("DROP TABLE IF EXISTS order_items CASCADE");
+      stmt.execute("DROP TABLE IF EXISTS orders CASCADE");
+      stmt.execute("DROP TABLE IF EXISTS products CASCADE");
+      stmt.execute(
+          "CREATE TABLE products ("
+              + "id INTEGER PRIMARY KEY, name VARCHAR(200) NOT NULL, "
+              + "category_id INTEGER NOT NULL, price NUMERIC(10,2) NOT NULL, "
+              + "description TEXT, embedding vector(4))");
+      stmt.execute(
+          "INSERT INTO products VALUES "
+              + "(1, 'Laptop Pro 15', 1, 1299.99, 'High-performance laptop', '[0.8, 0.2, 0.1, 0.9]'),"
+              + "(2, 'Wireless Mouse', 1, 29.99, 'Ergonomic wireless mouse', '[0.7, 0.3, 0.2, 0.8]'),"
+              + "(3, 'USB-C Hub', 1, 49.99, 'Multi-port USB-C hub', '[0.75, 0.25, 0.15, 0.85]'),"
+              + "(4, 'Standing Desk', 2, 599.99, 'Adjustable standing desk', '[0.1, 0.9, 0.8, 0.2]'),"
+              + "(5, 'Office Chair', 2, 449.99, 'Ergonomic office chair', '[0.15, 0.85, 0.75, 0.25]'),"
+              + "(6, 'Desk Lamp', 2, 79.99, 'LED desk lamp', '[0.2, 0.8, 0.7, 0.3]'),"
+              + "(7, 'Mechanical Keyboard', 1, 149.99, 'Cherry MX switches', '[0.72, 0.28, 0.18, 0.82]'),"
+              + "(8, 'Monitor 27\"', 1, 399.99, '4K IPS display', '[0.78, 0.22, 0.12, 0.88]'),"
+              + "(9, 'Webcam HD', 1, 89.99, '1080p webcam', '[0.65, 0.35, 0.25, 0.75]'),"
+              + "(10, 'Bookshelf', 2, 199.99, 'Wooden bookshelf', '[0.12, 0.88, 0.78, 0.22]'),"
+              + "(11, 'Headphones', 1, 249.99, 'Noise-cancelling', '[0.68, 0.32, 0.22, 0.78]'),"
+              + "(12, 'Filing Cabinet', 2, 159.99, 'Metal filing cabinet', '[0.18, 0.82, 0.72, 0.28]'),"
+              + "(13, 'Tablet 10\"', 1, 499.99, 'Android tablet', '[0.76, 0.24, 0.14, 0.86]'),"
+              + "(14, 'Whiteboard', 2, 89.99, 'Magnetic whiteboard', '[0.22, 0.78, 0.68, 0.32]'),"
+              + "(15, 'Printer', 1, 299.99, 'Color laser printer', '[0.62, 0.38, 0.28, 0.72]')");
+      stmt.execute(
+          "CREATE INDEX IF NOT EXISTS products_embedding_l2_idx "
+              + "ON products USING hnsw (embedding vector_l2_ops)");
+
+      // Orders (10 rows)
+      stmt.execute(
+          "CREATE TABLE orders ("
+              + "id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL, "
+              + "order_date DATE NOT NULL, total NUMERIC(12,2) NOT NULL, "
+              + "status VARCHAR(20) NOT NULL)");
+      stmt.execute(
+          "INSERT INTO orders VALUES "
+              + "(1, 101, '2024-01-15', 1329.98, 'shipped'),"
+              + "(2, 102, '2024-01-20', 649.98, 'delivered'),"
+              + "(3, 103, '2024-02-01', 499.99, 'shipped'),"
+              + "(4, 101, '2024-02-10', 79.99, 'delivered'),"
+              + "(5, 104, '2024-02-15', 1749.98, 'processing'),"
+              + "(6, 105, '2024-03-01', 449.99, 'delivered'),"
+              + "(7, 102, '2024-03-05', 299.99, 'shipped'),"
+              + "(8, 103, '2024-03-10', 149.99, 'delivered'),"
+              + "(9, 106, '2024-03-15', 89.99, 'shipped'),"
+              + "(10, 104, '2024-03-20', 599.99, 'delivered')");
+
+      // Order items (13 rows, linking orders to products)
+      stmt.execute(
+          "CREATE TABLE order_items ("
+              + "id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id), "
+              + "product_id INTEGER NOT NULL REFERENCES products(id), "
+              + "quantity INTEGER NOT NULL, unit_price NUMERIC(10,2) NOT NULL)");
+      stmt.execute(
+          "INSERT INTO order_items VALUES "
+              + "(1, 1, 1, 1, 1299.99),"
+              + "(2, 1, 2, 1, 29.99),"
+              + "(3, 2, 4, 1, 599.99),"
+              + "(4, 2, 3, 1, 49.99),"
+              + "(5, 3, 13, 1, 499.99),"
+              + "(6, 4, 6, 1, 79.99),"
+              + "(7, 5, 1, 1, 1299.99),"
+              + "(8, 5, 5, 1, 449.99),"
+              + "(9, 6, 5, 1, 449.99),"
+              + "(10, 7, 15, 1, 299.99),"
+              + "(11, 8, 7, 1, 149.99),"
+              + "(12, 9, 14, 1, 89.99),"
+              + "(13, 10, 4, 1, 599.99)");
+    }
+  }
+
+  /** Seeds UAT Oracle REGIONS and CUSTOMERS tables. */
+  private static void seedOracleUat() throws Exception {
+    ORACLE.execInContainer(
+        "sh",
+        "-c",
+        "sqlplus -s TESTUSER/testpass@//localhost:1521/XEPDB1 <<'EOSQL'\n"
+            + "BEGIN EXECUTE IMMEDIATE 'DROP TABLE CUSTOMERS'; EXCEPTION WHEN OTHERS THEN NULL; END;\n"
+            + "/\n"
+            + "BEGIN EXECUTE IMMEDIATE 'DROP TABLE REGIONS'; EXCEPTION WHEN OTHERS THEN NULL; END;\n"
+            + "/\n"
+            + "CREATE TABLE REGIONS (\n"
+            + "  ID NUMBER(10) PRIMARY KEY,\n"
+            + "  NAME VARCHAR2(100) NOT NULL,\n"
+            + "  COUNTRY VARCHAR2(50) NOT NULL\n"
+            + ")\n"
+            + "/\n"
+            + "INSERT ALL\n"
+            + "  INTO REGIONS VALUES (1, 'West Coast', 'US')\n"
+            + "  INTO REGIONS VALUES (2, 'East Coast', 'US')\n"
+            + "  INTO REGIONS VALUES (3, 'Midwest', 'US')\n"
+            + "  INTO REGIONS VALUES (4, 'Europe', 'EU')\n"
+            + "SELECT 1 FROM DUAL\n"
+            + "/\n"
+            + "CREATE TABLE CUSTOMERS (\n"
+            + "  ID NUMBER(10) PRIMARY KEY,\n"
+            + "  NAME VARCHAR2(100) NOT NULL,\n"
+            + "  EMAIL VARCHAR2(200) NOT NULL,\n"
+            + "  REGION_ID NUMBER(10) NOT NULL,\n"
+            + "  TIER VARCHAR2(20) NOT NULL,\n"
+            + "  SIGNUP_DATE DATE NOT NULL\n"
+            + ")\n"
+            + "/\n"
+            + "INSERT ALL\n"
+            + "  INTO CUSTOMERS VALUES (101, 'Alice Johnson', 'alice@example.com', 1, 'premium', DATE '2023-01-15')\n"
+            + "  INTO CUSTOMERS VALUES (102, 'Bob Smith', 'bob@example.com', 2, 'standard', DATE '2023-03-20')\n"
+            + "  INTO CUSTOMERS VALUES (103, 'Carol Chen', 'carol@example.com', 1, 'premium', DATE '2023-05-10')\n"
+            + "  INTO CUSTOMERS VALUES (104, 'Dave Wilson', 'dave@example.com', 3, 'premium', DATE '2023-07-01')\n"
+            + "  INTO CUSTOMERS VALUES (105, 'Eve Brown', 'eve@example.com', 4, 'standard', DATE '2023-09-15')\n"
+            + "  INTO CUSTOMERS VALUES (106, 'Frank Lee', 'frank@example.com', 2, 'standard', DATE '2023-11-20')\n"
+            + "SELECT 1 FROM DUAL\n"
+            + "/\n"
+            + "COMMIT\n"
+            + "/\n"
+            + "EOSQL");
+  }
+
+  /** Creates MinIO buckets required by Nessie/Iceberg and S3 Parquet sources. */
+  private static void createMinioBuckets() throws Exception {
+    io.minio.MinioClient minioClient =
+        io.minio.MinioClient.builder()
+            .endpoint(MINIO.getS3Endpoint())
+            .credentials("minioadmin", "minioadmin")
+            .build();
+    // Warehouse bucket for Nessie/Iceberg
+    if (!minioClient.bucketExists(
+        io.minio.BucketExistsArgs.builder().bucket("warehouse").build())) {
+      minioClient.makeBucket(io.minio.MakeBucketArgs.builder().bucket("warehouse").build());
+    }
+    // Parquet data bucket for S3 source
+    if (!minioClient.bucketExists(
+        io.minio.BucketExistsArgs.builder().bucket("parquet-data").build())) {
+      minioClient.makeBucket(
+          io.minio.MakeBucketArgs.builder().bucket("parquet-data").build());
+    }
+  }
+
+  /**
+   * Seeds Iceberg tables via Dremio SQL CTAS into the nessie_rest source. Requires the nessie_rest
+   * source to already be created and metadata to be refreshed.
+   */
+  private static void seedIceberg() throws Exception {
+    // Create namespace via Nessie REST catalog (Dremio needs the namespace to exist)
+    // Use CTAS to create tables
+    runSql(
+        "CREATE TABLE nessie_rest.analytics.product_categories AS "
+            + "SELECT * FROM (VALUES "
+            + "(1, 'Electronics', 'Tech', 0.15), "
+            + "(2, 'Furniture', 'Home', 0.25), "
+            + "(3, 'Accessories', 'Tech', 0.30)"
+            + ") AS t(category_id, category_name, department, margin_pct)");
+    runSql(
+        "CREATE TABLE nessie_rest.analytics.monthly_sales AS "
+            + "SELECT * FROM (VALUES "
+            + "('2024-01', 1, 5, 6499.95), ('2024-01', 4, 3, 1799.97), "
+            + "('2024-02', 1, 8, 10399.92), ('2024-02', 13, 2, 999.98), "
+            + "('2024-03', 5, 4, 1799.96), ('2024-03', 7, 6, 899.94), "
+            + "('2024-01', 2, 15, 449.85), ('2024-02', 6, 7, 559.93), "
+            + "('2024-03', 15, 3, 899.97), ('2024-01', 8, 4, 1599.96), "
+            + "('2024-02', 3, 10, 499.90), ('2024-03', 14, 5, 449.95)"
+            + ") AS t(\"month\", product_id, units_sold, revenue)");
+  }
+
+  /**
+   * Uploads Parquet files to MinIO for the S3 source. Uses MinIO Java client to create CSV data
+   * files and the Dremio promote API to register them as datasets.
+   *
+   * <p>Since writing actual Parquet files in Java requires heavyweight Hadoop dependencies, we
+   * upload CSV files and promote them as CSV format in Dremio. This is simpler and Dremio supports
+   * CSV auto-detection for S3 sources.
+   */
+  private static void seedMinioParquet() throws Exception {
+    io.minio.MinioClient minioClient =
+        io.minio.MinioClient.builder()
+            .endpoint(MINIO.getS3Endpoint())
+            .credentials("minioadmin", "minioadmin")
+            .build();
+
+    // Shipping rates CSV
+    String shippingCsv =
+        "region_id,region_name,shipping_rate,delivery_days\n"
+            + "1,West Coast,5.99,3\n"
+            + "2,East Coast,7.99,4\n"
+            + "3,Midwest,6.99,5\n"
+            + "4,Europe,15.99,10\n";
+    byte[] shippingBytes = shippingCsv.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    minioClient.putObject(
+        io.minio.PutObjectArgs.builder()
+            .bucket("parquet-data")
+            .object("shipping_rates/data.csv")
+            .stream(new java.io.ByteArrayInputStream(shippingBytes), shippingBytes.length, -1)
+            .contentType("text/csv")
+            .build());
+
+    // Product reviews CSV
+    String reviewsCsv =
+        "review_id,product_id,rating,review_text\n"
+            + "1,1,5,Great laptop\n"
+            + "2,1,4,Good value\n"
+            + "3,4,5,Solid desk\n"
+            + "4,5,3,OK chair\n"
+            + "5,7,4,Love the keys\n"
+            + "6,8,5,Crisp display\n"
+            + "7,13,4,Nice tablet\n"
+            + "8,2,5,Perfect mouse\n";
+    byte[] reviewsBytes = reviewsCsv.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    minioClient.putObject(
+        io.minio.PutObjectArgs.builder()
+            .bucket("parquet-data")
+            .object("product_reviews/data.csv")
+            .stream(new java.io.ByteArrayInputStream(reviewsBytes), reviewsBytes.length, -1)
+            .contentType("text/csv")
+            .build());
+
+    // Promote folders in Dremio
+    Thread.sleep(5_000);
+    HttpClient client = HttpClient.newHttpClient();
+    for (String folder : new String[] {"shipping_rates", "product_reviews"}) {
+      HttpRequest req =
+          HttpRequest.newBuilder()
+              .uri(
+                  URI.create(
+                      DREMIO_URL
+                          + "/apiv2/source/s3_parquet/file_format/parquet-data/"
+                          + folder))
+              .PUT(HttpRequest.BodyPublishers.ofString("{\"type\":\"Text\",\"fieldDelimiter\":\",\",\"lineDelimiter\":\"\\n\",\"extractHeader\":true}"))
+              .header("Content-Type", "application/json")
+              .header("Authorization", TOKEN)
+              .build();
+      client.send(req, HttpResponse.BodyHandlers.ofString());
+    }
+  }
+
+  // ── UAT source JSON builders ──────────────────────────────────────────────
+
+  private static String pgJdbcSourceJson(String hostname, int port) {
+    return "{"
+        + "\"name\":\"pg_jdbc\","
+        + "\"config\":{"
+        + "\"hostname\":\"" + hostname + "\","
+        + "\"port\":" + port + ","
+        + "\"databaseName\":\"testdb\","
+        + "\"username\":\"pguser\","
+        + "\"password\":\"pgpass\","
+        + "\"useSsl\":false,"
+        + "\"encryptionValidationMode\":\"NO_VALIDATION\","
+        + "\"fetchSize\":4096,"
+        + "\"queryTimeoutSec\":0,"
+        + "\"protocolMode\":\"JDBC\""
+        + "},"
+        + "\"type\":\"POSTGRES_DB\""
+        + "}";
+  }
+
+  private static String pgAdbcSourceJson(String hostname, int port) {
+    return "{"
+        + "\"name\":\"pg_adbc\","
+        + "\"config\":{"
+        + "\"hostname\":\"" + hostname + "\","
+        + "\"port\":" + port + ","
+        + "\"databaseName\":\"testdb\","
+        + "\"username\":\"pguser\","
+        + "\"password\":\"pgpass\","
+        + "\"useSsl\":false,"
+        + "\"encryptionValidationMode\":\"NO_VALIDATION\","
+        + "\"fetchSize\":4096,"
+        + "\"queryTimeoutSec\":0,"
+        + "\"protocolMode\":\"AUTO\""
+        + "},"
+        + "\"type\":\"POSTGRES_DB\""
+        + "}";
+  }
+
+  private static String oracleUatSourceJson(String hostname, int port) {
+    return "{"
+        + "\"name\":\"oracle_src\","
+        + "\"config\":{"
+        + "\"hostname\":\"" + hostname + "\","
+        + "\"port\":" + port + ","
+        + "\"serviceName\":\"XEPDB1\","
+        + "\"username\":\"testuser\","
+        + "\"password\":\"testpass\","
+        + "\"useSsl\":false,"
+        + "\"encryptionValidationMode\":\"NO_VALIDATION\","
+        + "\"fetchSize\":4096,"
+        + "\"queryTimeoutSec\":0"
+        + "},"
+        + "\"type\":\"ORACLE_DB\""
+        + "}";
+  }
+
+  private static String nessieRestSourceJson(String hostname, int port) {
+    return "{"
+        + "\"name\":\"nessie_rest\","
+        + "\"config\":{"
+        + "\"restEndpointUri\":\"http://" + hostname + ":" + port + "/iceberg/\","
+        + "\"propertyList\":["
+        + "{\"name\":\"warehouse\",\"value\":\"warehouse\"},"
+        + "{\"name\":\"fs.s3a.endpoint\",\"value\":\"minio:9000\"},"
+        + "{\"name\":\"fs.s3a.access.key\",\"value\":\"minioadmin\"},"
+        + "{\"name\":\"fs.s3a.secret.key\",\"value\":\"minioadmin\"},"
+        + "{\"name\":\"fs.s3a.path.style.access\",\"value\":\"true\"},"
+        + "{\"name\":\"fs.s3a.connection.ssl.enabled\",\"value\":\"false\"},"
+        + "{\"name\":\"dremio.s3.compat\",\"value\":\"true\"},"
+        + "{\"name\":\"fs.s3a.aws.credentials.provider\",\"value\":\"org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider\"}"
+        + "],"
+        + "\"secretPropertyList\":[]"
+        + "},"
+        + "\"type\":\"RESTCATALOG\""
+        + "}";
+  }
+
+  private static String nessieVerSourceJson(String hostname, int port) {
+    return "{"
+        + "\"name\":\"nessie_ver\","
+        + "\"config\":{"
+        + "\"nessieEndpoint\":\"http://" + hostname + ":" + port + "/api/v2\","
+        + "\"nessieAuthType\":\"NONE\","
+        + "\"awsAccessKey\":\"minioadmin\","
+        + "\"awsAccessSecret\":\"minioadmin\","
+        + "\"awsRootPath\":\"/warehouse\","
+        + "\"secure\":false,"
+        + "\"propertyList\":["
+        + "{\"name\":\"fs.s3a.endpoint\",\"value\":\"minio:9000\"},"
+        + "{\"name\":\"fs.s3a.path.style.access\",\"value\":\"true\"},"
+        + "{\"name\":\"fs.s3a.connection.ssl.enabled\",\"value\":\"false\"},"
+        + "{\"name\":\"dremio.s3.compat\",\"value\":\"true\"},"
+        + "{\"name\":\"fs.s3a.aws.credentials.provider\",\"value\":\"org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider\"}"
+        + "],"
+        + "\"credentialType\":\"ACCESS_KEY\""
+        + "},"
+        + "\"type\":\"NESSIE\""
+        + "}";
+  }
+
+  private static String s3ParquetSourceJson(String hostname, int port) {
+    return "{"
+        + "\"name\":\"s3_parquet\","
+        + "\"config\":{"
+        + "\"accessKey\":\"minioadmin\","
+        + "\"accessSecret\":\"minioadmin\","
+        + "\"secure\":false,"
+        + "\"externalBucketList\":[\"parquet-data\"],"
+        + "\"rootPath\":\"/\","
+        + "\"compatibilityMode\":true,"
+        + "\"enableAsync\":true,"
+        + "\"propertyList\":["
+        + "{\"name\":\"fs.s3a.endpoint\",\"value\":\"" + hostname + ":" + port + "\"},"
+        + "{\"name\":\"fs.s3a.path.style.access\",\"value\":\"true\"},"
+        + "{\"name\":\"fs.s3a.connection.ssl.enabled\",\"value\":\"false\"}"
+        + "],"
+        + "\"credentialType\":\"ACCESS_KEY\""
+        + "},"
+        + "\"type\":\"S3\""
+        + "}";
   }
 
   // ── Dremio REST API helpers ───────────────────────────────────────────────
@@ -925,6 +1333,235 @@ public class TestDremioJdbcIntegration {
     assertTrue(
         "Expected 'item_' in ADBC results, got: " + rows,
         rows.stream().anyMatch(r -> r.contains("item_")));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // UAT SECTION 1: SAME-SOURCE PUSHDOWN — PG + Oracle (6 tests)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void testUatS1PgWhereOrderByLimit() throws Exception {
+    assertPgPushdown(
+        "SELECT name, price FROM " + PG_PRODUCTS
+            + " WHERE price > 100 ORDER BY price DESC LIMIT 5",
+        "ORDER BY");
+  }
+
+  @Test
+  public void testUatS1PgGroupByHaving() throws Exception {
+    assertPgPushdown(
+        "SELECT category_id, COUNT(*) AS cnt FROM " + PG_PRODUCTS
+            + " GROUP BY category_id HAVING COUNT(*) > 3",
+        "GROUP BY");
+  }
+
+  @Test
+  public void testUatS1PgInnerJoinSameSource() throws Exception {
+    assertPgPushdown(
+        "SELECT o.id, oi.product_id FROM " + PG_ORDERS + " o INNER JOIN "
+            + PG_ORDER_ITEMS + " oi ON o.id = oi.order_id",
+        "JOIN|INNER");
+  }
+
+  @Test
+  public void testUatS1OraWhereCustomerTier() throws Exception {
+    assertOraPushdown(
+        "SELECT NAME, TIER FROM " + ORA_CUSTOMERS
+            + " WHERE TIER = 'premium'",
+        "WHERE");
+  }
+
+  @Test
+  public void testUatS1OraOrderByFetchFirst() throws Exception {
+    assertOraPushdown(
+        "SELECT NAME FROM " + ORA_CUSTOMERS
+            + " ORDER BY NAME FETCH FIRST 3 ROWS ONLY",
+        "ORDER BY.*FETCH|FETCH FIRST");
+  }
+
+  @Test
+  public void testUatS1OraGroupByRegion() throws Exception {
+    assertOraPushdown(
+        "SELECT REGION_ID, COUNT(*) AS cnt FROM " + ORA_CUSTOMERS
+            + " GROUP BY REGION_ID",
+        "GROUP BY");
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // UAT SECTION 2: ADBC vs JDBC PROTOCOL (4 tests)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void testUatS2JdbcProductCount() throws Exception {
+    assertCorrect(
+        "SELECT COUNT(*) AS cnt FROM " + PG_PRODUCTS
+            + " WHERE category_id IS NOT NULL",
+        "15");
+  }
+
+  @Test
+  public void testUatS2AdbcProductCount() throws Exception {
+    assertCorrect(
+        "SELECT COUNT(*) AS cnt FROM " + ADBC_PRODUCTS
+            + " WHERE category_id IS NOT NULL",
+        "15");
+  }
+
+  @Test
+  public void testUatS2JdbcSumPrice() throws Exception {
+    assertCorrect(
+        "SELECT CAST(SUM(price) AS BIGINT) FROM " + PG_PRODUCTS
+            + " WHERE category_id = 1",
+        "3070");
+  }
+
+  @Test
+  public void testUatS2AdbcSumPrice() throws Exception {
+    assertCorrect(
+        "SELECT CAST(SUM(price) AS BIGINT) FROM " + ADBC_PRODUCTS
+            + " WHERE category_id = 1",
+        "3070");
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // UAT SECTION 3: CROSS-SOURCE JOINS PG x Oracle (3 tests)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void testUatS3PgOrdersXOracleCustomers() throws Exception {
+    assertCorrect(
+        "SELECT o.id AS order_id, c.name AS customer_name FROM " + PG_ORDERS
+            + " o INNER JOIN " + ORA_CUSTOMERS
+            + " c ON o.customer_id = c.id ORDER BY o.id",
+        "Alice Johnson");
+  }
+
+  @Test
+  public void testUatS3OracleCustomersWithRegion() throws Exception {
+    assertCorrect(
+        "SELECT c.NAME, c.TIER, r.COUNTRY FROM " + ORA_CUSTOMERS
+            + " c INNER JOIN " + ORA_REGIONS
+            + " r ON c.REGION_ID = r.ID WHERE c.TIER = 'premium' ORDER BY c.NAME",
+        "Alice Johnson.*premium.*US");
+  }
+
+  @Test
+  public void testUatS3CrossSourceOrderTotals() throws Exception {
+    assertCorrect(
+        "SELECT c.name, SUM(o.total) AS total_spent FROM " + PG_ORDERS
+            + " o INNER JOIN " + ORA_CUSTOMERS
+            + " c ON o.customer_id = c.id GROUP BY c.name ORDER BY total_spent DESC",
+        "Dave Wilson");
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // UAT SECTION 4: PGVECTOR SEMANTIC SEARCH (12 tests)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // 4a: KNN pushdown (3 operator tests)
+
+  @Test
+  public void testUatS4KnnL2Pushdown() throws Exception {
+    assertPgPushdown(
+        "SELECT id, name FROM " + PG_PRODUCTS
+            + " ORDER BY l2_distance(embedding, ARRAY[0.8, 0.2, 0.1, 0.9]) LIMIT 3",
+        "<->");
+  }
+
+  @Test
+  public void testUatS4KnnCosinePushdown() throws Exception {
+    assertPgPushdown(
+        "SELECT id, name FROM " + PG_PRODUCTS
+            + " ORDER BY cosine_distance(embedding, ARRAY[0.1, 0.9, 0.8, 0.2]) LIMIT 3",
+        "<=>");
+  }
+
+  @Test
+  public void testUatS4KnnInnerProductPushdown() throws Exception {
+    assertPgPushdown(
+        "SELECT id, name FROM " + PG_PRODUCTS
+            + " ORDER BY inner_product(embedding, ARRAY[0.5, 0.5, 0.5, 0.5]) LIMIT 3",
+        "<#>");
+  }
+
+  // 4b: KNN nearest-neighbor correctness (2 tests)
+
+  @Test
+  public void testUatS4KnnNearestElectronics() throws Exception {
+    assertCorrect(
+        "SELECT name FROM " + PG_PRODUCTS
+            + " ORDER BY l2_distance(embedding, ARRAY[0.8, 0.2, 0.1, 0.9]) LIMIT 1",
+        "Laptop Pro 15");
+  }
+
+  @Test
+  public void testUatS4KnnNearestFurniture() throws Exception {
+    assertCorrect(
+        "SELECT name FROM " + PG_PRODUCTS
+            + " ORDER BY l2_distance(embedding, ARRAY[0.1, 0.9, 0.8, 0.2]) LIMIT 1",
+        "Standing Desk");
+  }
+
+  // 4c: Distance correctness (5 tests)
+
+  @Test
+  public void testUatS4DistanceL2SelfMatch() throws Exception {
+    assertCorrect(
+        "SELECT CAST(l2_distance(embedding, CAST(ARRAY[0.8, 0.2, 0.1, 0.9] AS LIST(FLOAT)))"
+            + " < 0.001 AS BOOLEAN) AS ok FROM " + PG_PRODUCTS + " WHERE id = 1",
+        "true");
+  }
+
+  @Test
+  public void testUatS4DistanceCosineSelfMatch() throws Exception {
+    assertCorrect(
+        "SELECT CAST(cosine_distance(embedding, CAST(ARRAY[0.1, 0.9, 0.8, 0.2] AS LIST(FLOAT)))"
+            + " < 0.001 AS BOOLEAN) AS ok FROM " + PG_PRODUCTS + " WHERE id = 4",
+        "true");
+  }
+
+  @Test
+  public void testUatS4DistanceCosineApprox() throws Exception {
+    assertCorrect(
+        "SELECT CAST(ABS(cosine_distance(embedding, CAST(ARRAY[0.1, 0.9, 0.8, 0.2] AS LIST(FLOAT)))"
+            + " - 0.6533) < 0.001 AS BOOLEAN) AS ok FROM " + PG_PRODUCTS + " WHERE id = 1",
+        "true");
+  }
+
+  @Test
+  public void testUatS4DistanceL2Approx() throws Exception {
+    assertCorrect(
+        "SELECT CAST(ABS(l2_distance(embedding, CAST(ARRAY[0.8, 0.2, 0.1, 0.9] AS LIST(FLOAT)))"
+            + " - 1.4) < 0.01 AS BOOLEAN) AS ok FROM " + PG_PRODUCTS + " WHERE id = 4",
+        "true");
+  }
+
+  @Test
+  public void testUatS4DistanceInnerProductApprox() throws Exception {
+    assertCorrect(
+        "SELECT CAST(ABS(inner_product(embedding, CAST(ARRAY[0.5, 0.5, 0.5, 0.5] AS LIST(FLOAT)))"
+            + " + 1.0) < 0.001 AS BOOLEAN) AS ok FROM " + PG_PRODUCTS + " WHERE id = 1",
+        "true");
+  }
+
+  // 4d: ADBC distance matches JDBC (2 tests)
+
+  @Test
+  public void testUatS4AdbcKnnNearestElectronics() throws Exception {
+    assertCorrect(
+        "SELECT name FROM " + ADBC_PRODUCTS
+            + " ORDER BY l2_distance(embedding, ARRAY[0.8, 0.2, 0.1, 0.9]) LIMIT 1",
+        "Laptop Pro 15");
+  }
+
+  @Test
+  public void testUatS4AdbcDistanceMatchesJdbc() throws Exception {
+    assertCorrect(
+        "SELECT CAST(ABS(cosine_distance(j.embedding, CAST(ARRAY[0.1, 0.9, 0.8, 0.2] AS LIST(FLOAT)))"
+            + " - cosine_distance(a.embedding, CAST(ARRAY[0.1, 0.9, 0.8, 0.2] AS LIST(FLOAT))))"
+            + " < 0.001 AS BOOLEAN) AS ok FROM "
+            + PG_PRODUCTS + " j INNER JOIN " + ADBC_PRODUCTS + " a ON j.id = a.id WHERE j.id = 1",
+        "true");
   }
 
   // ── explainAnalyze helper ─────────────────────────────────────────────────
