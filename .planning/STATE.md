@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Open-Source RDBMS JDBC Plugin
-status: in_progress
-stopped_at: Completed 45-01-PLAN.md — multi-source container infrastructure + 25 UAT S1-S4 test methods
-last_updated: "2026-03-20T09:20:39Z"
-last_activity: 2026-03-20 — Completed 45-01 (MinIO+Nessie containers, 6 source configs, 25 multi-source UAT tests for PG/Oracle pushdown + ADBC + pgvector)
+status: complete
+stopped_at: Completed 45-02-PLAN.md — 31 UAT S5-S9 test methods, 97-test Tier 2 regression firewall complete
+last_updated: "2026-03-20T09:27:29Z"
+last_activity: 2026-03-20 — Completed 45-02 (31 S5-S9 tests, assertNoPgPushdown, 97-test regression firewall)
 progress:
   total_phases: 12
-  completed_phases: 10
+  completed_phases: 12
   total_plans: 28
-  completed_plans: 27
-  percent: 96
+  completed_plans: 28
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Make Dremio OSS a production-capable data lakehouse query engine by closing critical gaps in access control, catalog connectivity, and deployment automation.
-**Current focus:** Phase 45 — Promote UAT to Tier 2 integration tests — battle-tested regression firewall for CE coexistence
+**Current focus:** v1.5 COMPLETE — All phases delivered
 
 ## Current Position
 
 Phase: 45 of 45 (Promote UAT to Tier 2 integration tests)
-Plan: 1 of 2 complete
-Status: IN PROGRESS
-Last activity: 2026-03-20 — Completed 45-01 (MinIO+Nessie containers, 6 source configs, 25 multi-source UAT tests)
+Plan: 2 of 2 complete
+Status: COMPLETE
+Last activity: 2026-03-20 — Completed 45-02 (31 S5-S9 tests, assertNoPgPushdown, 97-test regression firewall)
 
-Progress: [█████████░] 96% (27 of 28 plans complete)
+Progress: [██████████] 100% (28 of 28 plans complete)
 
 ## Performance Metrics
 
@@ -80,6 +80,7 @@ Progress: [█████████░] 96% (27 of 28 plans complete)
 | Phase 43-pgvector-uat-integration-tests P01 | 15 | 2 tasks | 4 files |
 | Phase 44-pgvector-gap-closure P01 | 19 | 2 tasks | 2 files |
 | Phase 45-promote-uat P01 | 7 | 2 tasks | 4 files |
+| Phase 45-promote-uat P02 | 3 | 2 tasks | 1 files |
 
 ## Shipped Milestones
 
@@ -192,6 +193,11 @@ Progress: [█████████░] 96% (27 of 28 plans complete)
 - [Phase 45-01]: Iceberg tables seeded via Dremio SQL CTAS into nessie_rest source — most reliable approach using Dremio's own catalog integration
 - [Phase 45-01]: testUatS{section} naming convention distinguishes 25 new UAT tests from 41 existing regression tests
 
+- [Phase 45-02]: assertNoPgPushdown uses PG container log marker + filtered SQL statement check to verify JDBC pushdown rules did NOT fire for S3/Nessie queries
+- [Phase 45-02]: RESTCATALOG self-join uses assertNoError (not assertNoPgPushdown) because Iceberg queries never go through PG
+- [Phase 45-02]: Cross-source tests involving PG use assertCorrect/assertNoError since PG is legitimately queried
+- [Phase 45-02]: ICE_CATEGORIES, ICE_SALES, S3_SHIPPING, S3_REVIEWS, NVER_CATEGORIES constants match UAT script paths exactly
+
 ### Pending Todos
 
 None.
@@ -218,6 +224,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-20T09:20:39Z
-Stopped at: Completed 45-01-PLAN.md — multi-source container infrastructure + 25 UAT S1-S4 test methods
+Last session: 2026-03-20T09:27:29Z
+Stopped at: Completed 45-02-PLAN.md — 31 UAT S5-S9 test methods, 97-test Tier 2 regression firewall complete. v1.5 milestone COMPLETE.
 Resume file: None
