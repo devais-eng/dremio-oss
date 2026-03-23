@@ -31,7 +31,9 @@ services:
       /bin/sh -c "
         mc alias set local http://minio:9000 minioadmin minioadmin &&
         mc mb --ignore-existing local/demobucket &&
-        echo '=== demobucket ready ==='
+        mc mb --ignore-existing local/lakebucket &&
+        mc mb --ignore-existing local/polarisbucket &&
+        echo '=== demobucket + lakebucket + polarisbucket ready ==='
       "
 
   # ── Nessie: Iceberg REST Catalog ─────────────────────────────────────
@@ -62,6 +64,11 @@ services:
       - nessie.catalog.secrets.access-key.name=minioadmin
       - nessie.catalog.secrets.access-key.secret=minioadmin
 
+      # Client-side credential vending via STS
+      - nessie.catalog.service.s3.default-options.client-iam.enabled=true
+      - nessie.catalog.service.s3.default-options.client-iam.assume-role=arn:aws:iam::000000000000:role/nessie
+      - nessie.catalog.service.s3.default-options.sts-endpoint=http://minio:9000
+
       # Authentication disabled in base mode (no Keycloak)
       - nessie.server.authentication.enabled=false
     healthcheck:
@@ -71,9 +78,105 @@ services:
       start_period: 15s
       retries: 10
 
+  # ── Lakekeeper: PostgreSQL backend ───────────────────────────────────
+  lakekeeper-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: lakekeeper
+    volumes:
+      - lakekeeper-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  # ── Lakekeeper: database migration ─────────────────────────────────
+  lakekeeper-migrate:
+    image: quay.io/lakekeeper/catalog:latest-main
+    depends_on:
+      lakekeeper-db:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      LAKEKEEPER__PG_ENCRYPTION_KEY: "demo-encryption-key-not-for-prod"
+      LAKEKEEPER__PG_DATABASE_URL_READ: "postgresql://postgres:postgres@lakekeeper-db:5432/lakekeeper"
+      LAKEKEEPER__PG_DATABASE_URL_WRITE: "postgresql://postgres:postgres@lakekeeper-db:5432/lakekeeper"
+    command: ["migrate"]
+
+  # ── Lakekeeper: Iceberg REST Catalog ─────────────────────────────────
+  lakekeeper:
+    image: quay.io/lakekeeper/catalog:latest-main
+    ports:
+      - "8282:8181"    # REST API
+    depends_on:
+      lakekeeper-migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      LAKEKEEPER__PG_ENCRYPTION_KEY: "demo-encryption-key-not-for-prod"
+      LAKEKEEPER__PG_DATABASE_URL_READ: "postgresql://postgres:postgres@lakekeeper-db:5432/lakekeeper"
+      LAKEKEEPER__PG_DATABASE_URL_WRITE: "postgresql://postgres:postgres@lakekeeper-db:5432/lakekeeper"
+      LAKEKEEPER__BASE_URI: "http://lakekeeper:8181"
+      LAKEKEEPER__LISTEN_PORT: "8181"
+    command: ["serve"]
+    healthcheck:
+      test: ["CMD", "/home/nonroot/lakekeeper", "healthcheck"]
+      interval: 5s
+      timeout: 3s
+      start_period: 15s
+      retries: 10
+
+  # ── Lakekeeper warehouse bootstrap ─────────────────────────────────
+  lakekeeper-init:
+    image: alpine/curl:latest
+    depends_on:
+      lakekeeper:
+        condition: service_healthy
+    restart: "no"
+    volumes:
+      - ./scripts/lakekeeper-init.sh:/lakekeeper-init.sh:ro
+    entrypoint: ["/bin/sh", "/lakekeeper-init.sh"]
+
+  # ── Polaris: Iceberg REST Catalog ────────────────────────────────────
+  polaris:
+    image: apache/polaris:latest
+    ports:
+      - "8383:8181"    # REST API
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      AWS_REGION: "us-east-1"
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin"
+      POLARIS_BOOTSTRAP_CREDENTIALS: "POLARIS,root,s3cr3t"
+      polaris.realm-context.realms: "POLARIS"
+      quarkus.otel.sdk.disabled: "true"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8182/q/health"]
+      interval: 5s
+      timeout: 5s
+      start_period: 15s
+      retries: 10
+
+  # ── Polaris catalog bootstrap ──────────────────────────────────────
+  polaris-init:
+    image: alpine/curl:latest
+    depends_on:
+      polaris:
+        condition: service_healthy
+    restart: "no"
+    volumes:
+      - ./scripts/polaris-init.sh:/polaris-init.sh:ro
+    entrypoint: ["/bin/sh", "/polaris-init.sh"]
+
   # ── Dremio OSS ───────────────────────────────────────────────────────
   dremio:
-    image: dremio-oss:local
+    image: ghcr.io/devais-eng/dremio-oss:latest
     build:
       context: ../../distribution/docker
       args:
@@ -85,6 +188,10 @@ services:
     depends_on:
       nessie:
         condition: service_healthy
+      lakekeeper-init:
+        condition: service_completed_successfully
+      polaris-init:
+        condition: service_completed_successfully
     volumes:
       - dremio-data:/opt/dremio/data
     healthcheck:
@@ -116,6 +223,53 @@ services:
     profiles:
       - seed
 
+  # ── Data seeder for Lakekeeper (on-demand: docker compose run seed-lakekeeper)
+  seed-lakekeeper:
+    image: python:3.12-slim
+    depends_on:
+      lakekeeper:
+        condition: service_healthy
+    volumes:
+      - ./scripts/seed-data-lakekeeper.py:/seed-data.py:ro
+    environment:
+      CATALOG_URI: "http://lakekeeper:8181/catalog"
+      WAREHOUSE: "lakehouse"
+      S3_ENDPOINT: "http://minio:9000"
+      S3_ACCESS_KEY: "minioadmin"
+      S3_SECRET_KEY: "minioadmin"
+    entrypoint: >
+      /bin/sh -c "
+        pip install --quiet pyiceberg[s3fs] pyarrow &&
+        python /seed-data.py
+      "
+    profiles:
+      - seed
+
+  # ── Data seeder for Polaris (on-demand: docker compose run seed-polaris)
+  seed-polaris:
+    image: python:3.12-slim
+    depends_on:
+      polaris:
+        condition: service_healthy
+    volumes:
+      - ./scripts/seed-data-polaris.py:/seed-data.py:ro
+    environment:
+      CATALOG_URI: "http://polaris:8181/api/catalog"
+      POLARIS_CLIENT_ID: "root"
+      POLARIS_CLIENT_SECRET: "s3cr3t"
+      POLARIS_REALM: "POLARIS"
+      POLARIS_CATALOG: "polaris_catalog"
+      S3_ENDPOINT: "http://minio:9000"
+      S3_ACCESS_KEY: "minioadmin"
+      S3_SECRET_KEY: "minioadmin"
+    entrypoint: >
+      /bin/sh -c "
+        pip install --quiet pyiceberg[s3fs] pyarrow &&
+        python /seed-data.py
+      "
+    profiles:
+      - seed
+
   # ── Dremio initializer (SSO profile only) ────────────────────────────
   dremio-init:
     image: python:3.12-slim
@@ -125,6 +279,8 @@ services:
     volumes:
       - ./scripts/dremio-init.sh:/dremio-init.sh:ro
       - ./scripts/seed-data.py:/scripts/seed-data.py:ro
+      - ./scripts/seed-data-lakekeeper.py:/scripts/seed-data-lakekeeper.py:ro
+      - ./scripts/seed-data-polaris.py:/scripts/seed-data-polaris.py:ro
     entrypoint: >
       /bin/sh -c "
         apt-get update -qq && apt-get install -y -qq curl jq >/dev/null 2>&1 &&
@@ -206,3 +362,4 @@ services:
 volumes:
   minio-data:
   dremio-data:
+  lakekeeper-db-data:
