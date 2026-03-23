@@ -94,9 +94,10 @@ Progress: [██████████] 100%
 | 7 | Apply all actionable Copilot review items (O(1) roleIds, precomputed-path overload, semicolon injection block). | 2026-03-02 | 246251057 | [7-apply-all-actionable-copilot-review-item](./quick/7-apply-all-actionable-copilot-review-item/) |
 | 8 | Enable RBAC and PDS SELECT enforcement by default (dremio-reference.conf). | 2026-03-02 | afb403227 | [8-enable-rbac-by-default](./quick/8-enable-rbac-by-default/) |
 | 9 | Extend samples/iceberg-rest-catalog with LDAP overlay (OpenLDAP + Keycloak federation). | 2026-03-16 | b12cb458e | [9-extend-samples-environment-with-ldap-pro](./quick/9-extend-samples-environment-with-ldap-pro/) |
+| 260323-dkv | Enable credential vending for Nessie catalog (STS env vars + remove static S3 keys from Dremio source). | 2026-03-23 | 413e2f799 | [260323-dkv-enable-credential-vending-for-nessie-cat](./quick/260323-dkv-enable-credential-vending-for-nessie-cat/) |
 
 ## Session Continuity
 
-Last session: 2026-03-16T16:18:50Z
-Stopped at: Completed quick-9 (LDAP overlay for iceberg-rest-catalog)
+Last session: 2026-03-23T08:48:32Z
+Stopped at: Completed quick-260323-dkv (Nessie credential vending for iceberg-rest-catalog)
 Resume file: None
