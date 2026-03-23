@@ -1,13 +1,16 @@
 #!/bin/sh
 set -e
 
-echo "Creating Lakekeeper warehouse..."
+echo "Bootstrapping Lakekeeper..."
+curl -sf -X POST http://lakekeeper:8181/management/v1/bootstrap \
+  -H "Content-Type: application/json" \
+  -d '{"accept-terms-of-use": true}' || echo "  Already bootstrapped."
 
+echo "Creating Lakekeeper warehouse..."
 curl -sf -X POST http://lakekeeper:8181/management/v1/warehouse \
   -H "Content-Type: application/json" \
   -d '{
     "warehouse-name": "lakehouse",
-    "project-id": "00000000-0000-0000-0000-000000000000",
     "storage-profile": {
       "type": "s3",
       "bucket": "lakebucket",
@@ -15,7 +18,8 @@ curl -sf -X POST http://lakekeeper:8181/management/v1/warehouse \
       "endpoint": "http://minio:9000",
       "path-style-access": true,
       "flavor": "minio",
-      "sts-enabled": false
+      "sts-enabled": true,
+      "remote-signing-enabled": true
     },
     "storage-credential": {
       "type": "s3",

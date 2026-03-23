@@ -26,7 +26,9 @@ import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public interface SupportsFsCreation {
 
@@ -49,6 +51,7 @@ public interface SupportsFsCreation {
     private String userId;
     private OperatorContext operatorContext;
     private List<String> dataset;
+    private Map<String, String> extraFsProperties;
 
     private Builder() {}
 
@@ -167,6 +170,15 @@ public interface SupportsFsCreation {
 
     public List<String> dataset() {
       return this.dataset;
+    }
+
+    public Builder extraFsProperties(Map<String, String> extraFsProperties) {
+      this.extraFsProperties = extraFsProperties;
+      return this;
+    }
+
+    public Map<String, String> extraFsProperties() {
+      return this.extraFsProperties != null ? this.extraFsProperties : Collections.emptyMap();
     }
 
     private void ensureNotAsyncAndNoHdfsCache() {

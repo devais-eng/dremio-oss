@@ -80,7 +80,9 @@ import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -119,6 +121,8 @@ public abstract class IcebergCatalogPlugin
   private final FileSystemWrapper fileSystemWrapper;
   private final boolean isExecutor;
   private final PluginSabotContext pluginSabotContext;
+  private final ConcurrentHashMap<String, Map<String, String>> vendedCredentialsMap =
+      new ConcurrentHashMap<>();
 
   public IcebergCatalogPlugin(
       IcebergCatalogPluginConfig config, PluginSabotContext pluginSabotContext, String name) {
@@ -153,7 +157,34 @@ public abstract class IcebergCatalogPlugin
   }
 
   protected DatasetFileSystemCache createFSCache() {
-    return new DatasetFileSystemCache((noop) -> getFsConfCopy(), optionManager);
+    return new DatasetFileSystemCache(
+        (dataset) -> {
+          Configuration conf = getFsConfCopy();
+          if (dataset != null) {
+            Map<String, String> extra = vendedCredentialsMap.get(datasetKey(dataset));
+            if (extra != null) {
+              logger.debug(
+                  "Applying vended credentials for dataset {} ({} properties)",
+                  dataset,
+                  extra.size());
+              extra.forEach(conf::set);
+            }
+          }
+          return conf;
+        },
+        optionManager) {
+      @Override
+      protected boolean isCachingPerDataset() {
+        // Always cache per-dataset so that vended credentials are scoped correctly.
+        // Without this, early FS entries (created before credentials are stored)
+        // use a null-dataset cache key and lack vended credentials.
+        return true;
+      }
+    };
+  }
+
+  private static String datasetKey(List<String> dataset) {
+    return dataset != null ? String.join("\0", dataset) : "";
   }
 
   public String getName() {
@@ -340,6 +371,17 @@ public abstract class IcebergCatalogPlugin
 
   @Override
   public FileSystem createFS(Builder b) throws IOException {
+    Map<String, String> extraProps = b.extraFsProperties();
+    if (extraProps != null && !extraProps.isEmpty() && b.dataset() != null) {
+      logger.debug(
+          "Storing vended credentials for dataset {} ({} properties)",
+          b.dataset(),
+          extraProps.size());
+      vendedCredentialsMap.put(datasetKey(b.dataset()), extraProps);
+    } else if (b.dataset() != null && vendedCredentialsMap.containsKey(datasetKey(b.dataset()))) {
+      logger.debug(
+          "Reusing stored vended credentials for dataset {}", b.dataset());
+    }
     return fileSystemWrapper.wrap(
         newFileSystem(b.filePath(), b.userName(), b.userId(), b.operatorContext(), b.dataset()),
         getName(),

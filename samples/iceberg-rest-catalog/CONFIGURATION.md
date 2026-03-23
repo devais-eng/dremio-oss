@@ -1,6 +1,6 @@
 # Configuration Reference
 
-All settings for the Dremio + Nessie + Lakekeeper + MinIO stack.
+All settings for the Dremio + Nessie + Lakekeeper + Polaris + MinIO stack.
 
 ## Services Overview
 
@@ -10,6 +10,7 @@ All settings for the Dremio + Nessie + Lakekeeper + MinIO stack.
 | nessie | ghcr.io/projectnessie/nessie:latest | 19120, 9000 | 19120, 9001 | Iceberg REST Catalog (versioned) |
 | lakekeeper-db | postgres:16-alpine | 5432 | (none) | Lakekeeper metadata store |
 | lakekeeper | quay.io/lakekeeper/catalog:latest-main | 8181 | 8282 | Iceberg REST Catalog |
+| polaris | apache/polaris:latest | 8181, 8182 | 8383 | Iceberg REST Catalog (with built-in RBAC) |
 | dremio | ghcr.io/devais-eng/dremio-oss:latest | 9047, 31010, 32010 | 9047, 31010, 32010 | SQL query engine |
 | keycloak | quay.io/keycloak/keycloak:26.2 | 8080 | 8080 | OIDC provider (SSO only) |
 
@@ -17,8 +18,10 @@ All settings for the Dremio + Nessie + Lakekeeper + MinIO stack.
 
 ```
 minio
-  └─► minio-init (create buckets)
+  └─► minio-init (create buckets: demobucket, lakebucket, polarisbucket)
         ├─► nessie
+        ├─► polaris
+        │     └─► polaris-init (get token, create catalog, grant permissions)
         └─► lakekeeper-db
               └─► lakekeeper-migrate (DB schema)
                     └─► lakekeeper
@@ -47,6 +50,7 @@ Created by `minio-init`:
 |---|---|---|
 | `demobucket` | Nessie | Iceberg table data (metadata + parquet files) |
 | `lakebucket` | Lakekeeper | Iceberg table data (metadata + parquet files) |
+| `polarisbucket` | Polaris | Iceberg table data (metadata + parquet files) |
 
 ---
 
@@ -188,9 +192,98 @@ POST /management/v1/warehouse
 
 ---
 
+## Polaris
+
+Iceberg REST Catalog with built-in RBAC (principals, roles, grants). Written in Java (Quarkus). Uses in-memory storage by default (no database required for dev).
+
+### Server Configuration
+
+| Setting | Value | Description |
+|---|---|---|
+| `AWS_REGION` | `us-east-1` | AWS region (required by S3 SDK) |
+| `AWS_ACCESS_KEY_ID` | `minioadmin` | S3 credentials for Polaris server to access MinIO |
+| `AWS_SECRET_ACCESS_KEY` | `minioadmin` | S3 secret key |
+| `POLARIS_BOOTSTRAP_CREDENTIALS` | `POLARIS,root,s3cr3t` | `REALM,client_id,client_secret` — creates root principal on first boot |
+| `polaris.realm-context.realms` | `POLARIS` | Comma-separated realm names |
+| `quarkus.otel.sdk.disabled` | `true` | Disable OpenTelemetry (optional, reduces noise) |
+
+### Authentication
+
+Polaris always requires OAuth2 — there is no "no-auth" mode. For development, the `POLARIS_BOOTSTRAP_CREDENTIALS` env var creates a known root credential.
+
+**Obtaining a token:**
+
+```bash
+TOKEN=$(curl -s http://polaris:8181/api/catalog/v1/oauth/tokens \
+  --user root:s3cr3t \
+  -H "Polaris-Realm: POLARIS" \
+  -d "grant_type=client_credentials" \
+  -d "scope=PRINCIPAL_ROLE:ALL" | jq -r .access_token)
+```
+
+All Management API calls require `Authorization: Bearer $TOKEN` and `Polaris-Realm: POLARIS` headers.
+
+### Catalog Configuration (polaris-init)
+
+**Step 1 — Create catalog:**
+
+```
+POST /api/management/v1/catalogs
+```
+
+| Field | Value | Description |
+|---|---|---|
+| `catalog.name` | `polaris_catalog` | Catalog identifier (used as `warehouse` in Dremio config) |
+| `catalog.type` | `INTERNAL` | Polaris-managed catalog |
+| `catalog.readOnly` | `false` | Allow write operations |
+| `catalog.properties.default-base-location` | `s3://polarisbucket` | S3 root for table data |
+| `catalog.storageConfigInfo.storageType` | `S3` | Storage type |
+| `catalog.storageConfigInfo.endpoint` | `http://minio:9000` | S3 endpoint for external clients |
+| `catalog.storageConfigInfo.endpointInternal` | `http://minio:9000` | S3 endpoint for Polaris itself (Docker network) |
+| `catalog.storageConfigInfo.pathStyleAccess` | `true` | Required for MinIO |
+
+> **Note:** Polaris has two endpoint fields: `endpoint` (what clients see) and `endpointInternal`
+> (what Polaris uses internally). In Docker they're the same. In production with a public S3
+> endpoint, they would differ.
+
+**Step 2 — Grant permissions:**
+
+```
+PUT /api/management/v1/catalogs/polaris_catalog/catalog-roles/catalog_admin/grants
+{"type": "catalog", "privilege": "CATALOG_MANAGE_CONTENT"}
+```
+
+Without this grant, table creation will fail with a permission error.
+
+### API Endpoints
+
+| Path | Description |
+|---|---|
+| `http://polaris:8181/api/catalog` | Iceberg REST Catalog API (used by Dremio) |
+| `http://polaris:8181/api/catalog/v1/oauth/tokens` | OAuth2 token endpoint |
+| `http://polaris:8181/api/management/v1/catalogs` | Catalog management API |
+| `http://polaris:8181/api/management/v1/principals` | Principal management API |
+| `http://polaris:8181/api/management/v1/principal-roles` | Role management API |
+| `http://polaris:8182/q/health` | Health check (Quarkus management port) |
+
+### Polaris Built-in RBAC
+
+Polaris has its own access control system independent of Dremio:
+
+```
+Principals (service accounts)
+  └─► Principal Roles (groups)
+        └─► Catalog Roles (scoped permissions)
+              └─► Grants (TABLE_READ, TABLE_WRITE, NAMESPACE_CREATE, etc.)
+```
+
+This is useful when multiple query engines (Dremio, Spark, Trino) access the same catalog — Polaris enforces permissions at the catalog level regardless of which engine connects.
+
+---
+
 ## Dremio RESTCATALOG Source Configuration
 
-Both Nessie and Lakekeeper use the same Dremio source type: **REST Catalog** (`RESTCATALOG`).
+All three catalogs use the same Dremio source type: **REST Catalog** (`RESTCATALOG`).
 
 ### Nessie Source (`nessie_catalog`)
 
@@ -214,6 +307,8 @@ Both Nessie and Lakekeeper use the same Dremio source type: **REST Catalog** (`R
 | `fs.s3a.connection.ssl.enabled` | `false` | MinIO uses plain HTTP |
 | `dremio.s3.compat` | `true` | S3-compatible mode |
 | `fs.s3a.aws.credentials.provider` | `org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider` | Use static credentials |
+
+**Secret Credentials:** (none in base mode)
 
 **Secret Credentials (SSO mode only):**
 
@@ -246,25 +341,60 @@ Both Nessie and Lakekeeper use the same Dremio source type: **REST Catalog** (`R
 | `dremio.s3.compat` | `true` | S3-compatible mode |
 | `fs.s3a.aws.credentials.provider` | `org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider` | Use static credentials |
 
+**Secret Credentials:** (none)
+
+### Polaris Source (`polaris_catalog`)
+
+**General:**
+
+| Setting | Value |
+|---|---|
+| Source Type | REST Catalog |
+| Name | `polaris_catalog` |
+| Endpoint URI | `http://polaris:8181/api/catalog` |
+
+**Catalog Properties:**
+
+| Property | Value | Description |
+|---|---|---|
+| `warehouse` | `polaris_catalog` | Polaris catalog name (acts as warehouse) |
+| `header.Polaris-Realm` | `POLARIS` | Custom HTTP header sent with every request |
+| `fs.s3a.endpoint` | `minio:9000` | MinIO endpoint (**no** `http://` prefix) |
+| `fs.s3a.access.key` | `minioadmin` | S3 access key |
+| `fs.s3a.secret.key` | `minioadmin` | S3 secret key |
+| `fs.s3a.path.style.access` | `true` | Required for MinIO |
+| `fs.s3a.connection.ssl.enabled` | `false` | MinIO uses plain HTTP |
+| `dremio.s3.compat` | `true` | S3-compatible mode |
+| `fs.s3a.aws.credentials.provider` | `org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider` | Use static credentials |
+
+**Secret Credentials:**
+
+| Property | Value | Description |
+|---|---|---|
+| `credential` | `root:s3cr3t` | OAuth2 client_id:client_secret (required, Polaris always needs auth) |
+| `scope` | `PRINCIPAL_ROLE:ALL` | OAuth2 scope |
+
 ### Property Notes
 
 The catalog properties serve **two purposes**:
 
-1. **Iceberg REST client** properties (`warehouse`, `oauth2-server-uri`, `credential`, `scope`) — sent to the catalog server's HTTP API
+1. **Iceberg REST client** properties (`warehouse`, `credential`, `scope`, `header.*`) — sent to the catalog server's HTTP API
 2. **Dremio S3 filesystem** properties (`fs.s3a.*`, `dremio.s3.compat`) — used by Dremio to read Parquet files from MinIO
 
 > **Critical:** The `fs.s3a.endpoint` value must be `minio:9000` without a protocol prefix.
 > Dremio's S3 client adds the scheme based on `fs.s3a.connection.ssl.enabled`.
 > Using `http://minio:9000` causes credential verification failures.
 
-### Differences Between the Two Sources
+### Differences Between the Three Sources
 
-| | Nessie | Lakekeeper |
-|---|---|---|
-| Endpoint URI | `http://nessie:19120/iceberg/` | `http://lakekeeper:8181/catalog` |
-| Warehouse | `warehouse` | `lakehouse` |
-| Data bucket | `s3://demobucket/` | `s3://lakebucket/` |
-| S3 properties | Identical | Identical |
+| | Nessie | Lakekeeper | Polaris |
+|---|---|---|---|
+| Endpoint URI | `http://nessie:19120/iceberg/` | `http://lakekeeper:8181/catalog` | `http://polaris:8181/api/catalog` |
+| Warehouse | `warehouse` | `lakehouse` | `polaris_catalog` |
+| Data bucket | `s3://demobucket/` | `s3://lakebucket/` | `s3://polarisbucket/` |
+| Auth required | No (base mode) | No | Yes (OAuth2 via `credential` + `scope`) |
+| Custom headers | None | None | `header.Polaris-Realm: POLARIS` |
+| S3 properties | Identical | Identical | Identical |
 
 ---
 
@@ -306,6 +436,26 @@ Uses PyIceberg to create tables via the Iceberg REST API.
 | `inventory.products` | product_id, name, category, price, stock | 6 |
 | `inventory.warehouses` | warehouse_id, location, capacity | 3 |
 
+### Polaris (`docker compose run --rm seed-polaris`)
+
+| Env Variable | Value | Description |
+|---|---|---|
+| `CATALOG_URI` | `http://polaris:8181/api/catalog` | Catalog endpoint |
+| `POLARIS_CLIENT_ID` | `root` | OAuth2 client ID |
+| `POLARIS_CLIENT_SECRET` | `s3cr3t` | OAuth2 client secret |
+| `POLARIS_REALM` | `POLARIS` | Polaris realm (sent as HTTP header) |
+| `POLARIS_CATALOG` | `polaris_catalog` | Catalog name (used as warehouse) |
+| `S3_ENDPOINT` | `http://minio:9000` | MinIO endpoint (PyIceberg needs `http://`) |
+| `S3_ACCESS_KEY` | `minioadmin` | S3 access key |
+| `S3_SECRET_KEY` | `minioadmin` | S3 secret key |
+
+**Tables created:**
+
+| Table | Columns | Rows |
+|---|---|---|
+| `logistics.shipments` | shipment_id, origin, destination, weight_kg, status | 5 |
+| `logistics.carriers` | carrier_id, name, mode, rate_per_kg | 4 |
+
 > **Note:** PyIceberg's s3fs client requires `http://` in the S3 endpoint, unlike
 > Dremio's `fs.s3a.endpoint` which expects bare `minio:9000`.
 
@@ -320,6 +470,8 @@ Different clients expect different endpoint formats for the same MinIO instance:
 | Dremio (`fs.s3a.endpoint`) | Catalog property | `minio:9000` | Dremio adds scheme from `ssl.enabled` |
 | Nessie (server) | Docker env | `http://minio:9000/` | Nessie expects full URL with trailing `/` |
 | Lakekeeper (warehouse) | Management API | `http://minio:9000` | Lakekeeper expects full URL |
+| Polaris (server) | Docker env `AWS_*` | N/A (uses SDK defaults) | Polaris reads `AWS_*` env vars; endpoint set in catalog `storageConfigInfo` |
+| Polaris (catalog config) | Management API | `http://minio:9000` | Full URL in `endpoint` and `endpointInternal` |
 | PyIceberg (seed scripts) | Python env | `http://minio:9000` | s3fs/boto3 expects full URL |
 
 ---
@@ -371,7 +523,7 @@ Required because Keycloak JWTs use `keycloak:8080` as the issuer, and the browse
 
 | Volume | Service | Contents |
 |---|---|---|
-| `minio-data` | minio | S3 bucket data (demobucket + lakebucket) |
+| `minio-data` | minio | S3 bucket data (demobucket + lakebucket + polarisbucket) |
 | `dremio-data` | dremio | Dremio metadata, KV store, job history |
 | `lakekeeper-db-data` | lakekeeper-db | PostgreSQL data (Lakekeeper catalog metadata) |
 

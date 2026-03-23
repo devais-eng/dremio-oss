@@ -13,7 +13,8 @@ def wait_for_lakekeeper(max_retries: int = 30):
     import urllib.request
 
     catalog_uri = os.environ.get("CATALOG_URI", "http://lakekeeper:8181/catalog")
-    health_url = f"{catalog_uri}/v1/config"
+    warehouse = os.environ.get("WAREHOUSE", "lakehouse")
+    health_url = f"{catalog_uri}/v1/config?warehouse={warehouse}"
     for i in range(max_retries):
         try:
             urllib.request.urlopen(health_url, timeout=3)
@@ -43,6 +44,8 @@ def main():
         "s3.secret-access-key": s3_secret_key,
         "s3.path-style-access": "true",
         "s3.region": "us-east-1",
+        # Disable credential vending — use static S3 creds for file I/O
+        "s3.remote-signing-enabled": "false",
     }
 
     catalog = RestCatalog("lakekeeper", **catalog_props)

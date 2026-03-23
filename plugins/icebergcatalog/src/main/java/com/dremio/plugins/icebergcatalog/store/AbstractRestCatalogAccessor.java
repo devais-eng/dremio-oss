@@ -53,6 +53,7 @@ import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -381,19 +382,24 @@ public abstract class AbstractRestCatalogAccessor implements CatalogAccessor {
           // org.apache.iceberg.io.ResolvingFileIO as IO. We replace this with DremioFileIO
           // in order to provide our own FS constructs.
           try {
+            // Extract vended credentials from the catalog's FileIO before replacing it.
+            // When a REST catalog supports credential vending, the loadTable response
+            // includes temporary S3 credentials that must be propagated to Dremio's
+            // S3FileSystem via fs.s3a.* Hadoop configuration properties.
+            Map<String, String> vendedCredentials = extractVendedS3Credentials(baseTable);
+            SupportsFsCreation.Builder fsBuilder =
+                SupportsFsCreation.builder()
+                    .filePath(baseTable.location())
+                    .withSystemUserName()
+                    .withSystemUserId()
+                    .dataset(dataset);
+            if (!vendedCredentials.isEmpty()) {
+              fsBuilder.extraFsProperties(vendedCredentials);
+            }
             DremioFileIO fileIO =
                 (DremioFileIO)
                     plugin.createIcebergFileIO(
-                        plugin.createFS(
-                            SupportsFsCreation.builder()
-                                .filePath(baseTable.location())
-                                .withSystemUserName()
-                                .withSystemUserId()
-                                .dataset(dataset)),
-                        null,
-                        dataset,
-                        null,
-                        null);
+                        plugin.createFS(fsBuilder), null, dataset, null, null);
             return new DremioBaseTable(
                 new DremioRESTTableOperations(
                     fileIO, ((HasTableOperations) baseTable).operations()),
@@ -409,6 +415,54 @@ public abstract class AbstractRestCatalogAccessor implements CatalogAccessor {
         TimeTravelProcessors.getTableSnapshotProvider(dataset, timeTravelRequest),
         TimeTravelProcessors.getTableSchemaProvider(timeTravelRequest),
         optionsManager);
+  }
+
+  /**
+   * Extracts vended S3 credentials from the table's FileIO properties and maps them to Hadoop
+   * fs.s3a.* configuration keys. Returns an empty map if no vended credentials are present.
+   */
+  private static Map<String, String> extractVendedS3Credentials(Table table) {
+    Map<String, String> ioProperties;
+    try {
+      ioProperties = table.io().properties();
+    } catch (Exception e) {
+      logger.debug("Could not read FileIO properties for credential vending", e);
+      return Collections.emptyMap();
+    }
+    if (ioProperties == null || ioProperties.isEmpty()) {
+      return Collections.emptyMap();
+    }
+
+    String accessKey = ioProperties.get("s3.access-key-id");
+    String secretKey = ioProperties.get("s3.secret-access-key");
+    if (accessKey == null || secretKey == null) {
+      return Collections.emptyMap();
+    }
+
+    Map<String, String> fsProperties = new HashMap<>();
+    fsProperties.put("fs.s3a.access.key", accessKey);
+    fsProperties.put("fs.s3a.secret.key", secretKey);
+
+    String sessionToken = ioProperties.get("s3.session-token");
+    if (sessionToken != null) {
+      fsProperties.put("fs.s3a.session.token", sessionToken);
+      fsProperties.put(
+          "fs.s3a.aws.credentials.provider",
+          "org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider");
+    } else {
+      fsProperties.put(
+          "fs.s3a.aws.credentials.provider",
+          "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider");
+    }
+
+    if (logger.isDebugEnabled()) {
+      logger.debug(
+          "Extracted vended S3 credentials: accessKey={}..., hasSessionToken={}",
+          accessKey.substring(0, Math.min(4, accessKey.length())),
+          sessionToken != null);
+    }
+
+    return fsProperties;
   }
 
   private static Namespace namespaceFromDataset(List<String> dataset) {
