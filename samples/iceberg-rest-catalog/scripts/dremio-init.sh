@@ -201,12 +201,10 @@ SOURCE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
       \"propertyList\": [
         { \"name\": \"warehouse\",                       \"value\": \"warehouse\" },
         { \"name\": \"fs.s3a.endpoint\",                  \"value\": \"minio:9000\" },
-        { \"name\": \"fs.s3a.access.key\",                \"value\": \"minioadmin\" },
-        { \"name\": \"fs.s3a.secret.key\",                \"value\": \"minioadmin\" },
         { \"name\": \"fs.s3a.path.style.access\",         \"value\": \"true\" },
         { \"name\": \"fs.s3a.connection.ssl.enabled\",     \"value\": \"false\" },
         { \"name\": \"dremio.s3.compat\",                 \"value\": \"true\" },
-        { \"name\": \"fs.s3a.aws.credentials.provider\",   \"value\": \"org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider\" }
+        { \"name\": \"dremio.bucket.discovery.enabled\",   \"value\": \"false\" }
       ],
       \"secretPropertyList\": ${SECRET_PROPS},
       \"enableAsync\": true,
@@ -221,13 +219,110 @@ case "$SOURCE_CODE" in
   *)   echo "  WARNING: HTTP $SOURCE_CODE" ;;
 esac
 
+# ── 3b. Create RESTCATALOG source for Lakekeeper ─────────────────────────────
+
+echo "Creating RESTCATALOG source 'lakekeeper_catalog'..."
+
+LAKE_SOURCE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+  -X POST "${DREMIO_URL}/api/v3/catalog" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: ${AUTH_HEADER}" \
+  -d "{
+    \"entityType\": \"source\",
+    \"name\": \"lakekeeper_catalog\",
+    \"type\": \"RESTCATALOG\",
+    \"config\": {
+      \"restEndpointUri\": \"http://lakekeeper:8181/catalog\",
+      \"propertyList\": [
+        { \"name\": \"warehouse\",                       \"value\": \"lakehouse\" },
+        { \"name\": \"fs.s3a.endpoint\",                  \"value\": \"minio:9000\" },
+        { \"name\": \"fs.s3a.path.style.access\",         \"value\": \"true\" },
+        { \"name\": \"fs.s3a.connection.ssl.enabled\",     \"value\": \"false\" },
+        { \"name\": \"dremio.s3.compat\",                 \"value\": \"true\" },
+        { \"name\": \"dremio.bucket.discovery.enabled\",   \"value\": \"false\" }
+      ],
+      \"secretPropertyList\": [],
+      \"enableAsync\": true,
+      \"isCachingEnabled\": true,
+      \"maxCacheSpacePct\": 100
+    }
+  }")
+
+case "$LAKE_SOURCE_CODE" in
+  200) echo "  Source created." ;;
+  409) echo "  Source already exists." ;;
+  *)   echo "  WARNING: HTTP $LAKE_SOURCE_CODE" ;;
+esac
+
 # ── 4. Seed Iceberg data via PyIceberg ──────────────────────────────────────
 
 echo ""
-echo "Seeding Iceberg data..."
+echo "Seeding Iceberg data (Nessie)..."
 pip install --quiet pyiceberg[s3fs] pyarrow 2>/dev/null
 
 python3 /scripts/seed-data.py
+
+# ── 3c. Create RESTCATALOG source for Polaris ────────────────────────────────
+
+echo "Creating RESTCATALOG source 'polaris_catalog'..."
+
+POLARIS_SOURCE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+  -X POST "${DREMIO_URL}/api/v3/catalog" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: ${AUTH_HEADER}" \
+  -d "{
+    \"entityType\": \"source\",
+    \"name\": \"polaris_catalog\",
+    \"type\": \"RESTCATALOG\",
+    \"config\": {
+      \"restEndpointUri\": \"http://polaris:8181/api/catalog\",
+      \"propertyList\": [
+        { \"name\": \"warehouse\",                       \"value\": \"polaris_catalog\" },
+        { \"name\": \"header.Polaris-Realm\",             \"value\": \"POLARIS\" },
+        { \"name\": \"fs.s3a.endpoint\",                  \"value\": \"minio:9000\" },
+        { \"name\": \"fs.s3a.access.key\",                \"value\": \"minioadmin\" },
+        { \"name\": \"fs.s3a.secret.key\",                \"value\": \"minioadmin\" },
+        { \"name\": \"fs.s3a.path.style.access\",         \"value\": \"true\" },
+        { \"name\": \"fs.s3a.connection.ssl.enabled\",     \"value\": \"false\" },
+        { \"name\": \"dremio.s3.compat\",                 \"value\": \"true\" },
+        { \"name\": \"fs.s3a.aws.credentials.provider\",   \"value\": \"org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider\" }
+      ],
+      \"secretPropertyList\": [
+        { \"name\": \"credential\", \"value\": \"root:s3cr3t\" },
+        { \"name\": \"scope\",      \"value\": \"PRINCIPAL_ROLE:ALL\" }
+      ],
+      \"enableAsync\": true,
+      \"isCachingEnabled\": true,
+      \"maxCacheSpacePct\": 100
+    }
+  }")
+
+case "$POLARIS_SOURCE_CODE" in
+  200) echo "  Source created." ;;
+  409) echo "  Source already exists." ;;
+  *)   echo "  WARNING: HTTP $POLARIS_SOURCE_CODE" ;;
+esac
+
+echo ""
+echo "Seeding Iceberg data (Lakekeeper)..."
+CATALOG_URI="http://lakekeeper:8181/catalog" \
+  WAREHOUSE="lakehouse" \
+  S3_ENDPOINT="http://minio:9000" \
+  S3_ACCESS_KEY="minioadmin" \
+  S3_SECRET_KEY="minioadmin" \
+  python3 /scripts/seed-data-lakekeeper.py
+
+echo ""
+echo "Seeding Iceberg data (Polaris)..."
+CATALOG_URI="http://polaris:8181/api/catalog" \
+  POLARIS_CLIENT_ID="root" \
+  POLARIS_CLIENT_SECRET="s3cr3t" \
+  POLARIS_REALM="POLARIS" \
+  POLARIS_CATALOG="polaris_catalog" \
+  S3_ENDPOINT="http://minio:9000" \
+  S3_ACCESS_KEY="minioadmin" \
+  S3_SECRET_KEY="minioadmin" \
+  python3 /scripts/seed-data-polaris.py
 
 # ── 5. Create spaces ────────────────────────────────────────────────────────
 
@@ -265,6 +360,18 @@ run_sql "CREATE OR REPLACE VIEW engineering.raw_customers AS SELECT * FROM nessi
   && echo "  Created: engineering.raw_customers" || true
 run_sql "CREATE OR REPLACE VIEW engineering.raw_orders AS SELECT * FROM nessie_catalog.demo.orders" "$TOKEN" \
   && echo "  Created: engineering.raw_orders" || true
+run_sql "CREATE OR REPLACE VIEW engineering.raw_products AS SELECT * FROM lakekeeper_catalog.inventory.products" "$TOKEN" \
+  && echo "  Created: engineering.raw_products" || true
+run_sql "CREATE OR REPLACE VIEW engineering.raw_warehouses AS SELECT * FROM lakekeeper_catalog.inventory.warehouses" "$TOKEN" \
+  && echo "  Created: engineering.raw_warehouses" || true
+run_sql "CREATE OR REPLACE VIEW analytics.product_catalog AS SELECT product_id, name, category, price FROM lakekeeper_catalog.inventory.products" "$TOKEN" \
+  && echo "  Created: analytics.product_catalog" || true
+run_sql "CREATE OR REPLACE VIEW analytics.shipment_overview AS SELECT shipment_id, origin, destination, status FROM polaris_catalog.logistics.shipments" "$TOKEN" \
+  && echo "  Created: analytics.shipment_overview" || true
+run_sql "CREATE OR REPLACE VIEW engineering.raw_shipments AS SELECT * FROM polaris_catalog.logistics.shipments" "$TOKEN" \
+  && echo "  Created: engineering.raw_shipments" || true
+run_sql "CREATE OR REPLACE VIEW engineering.raw_carriers AS SELECT * FROM polaris_catalog.logistics.carriers" "$TOKEN" \
+  && echo "  Created: engineering.raw_carriers" || true
 
 # ── 7. Create roles ─────────────────────────────────────────────────────────
 
@@ -305,6 +412,22 @@ run_sql "GRANT SELECT ON VDS analytics.order_summary TO ROLE engineers" "$TOKEN"
   && echo "  GRANT SELECT analytics.order_summary -> engineers" || true
 run_sql "GRANT SELECT ON VDS analytics.revenue_by_city TO ROLE engineers" "$TOKEN" \
   && echo "  GRANT SELECT analytics.revenue_by_city -> engineers" || true
+run_sql "GRANT SELECT ON VDS analytics.product_catalog TO ROLE analysts" "$TOKEN" \
+  && echo "  GRANT SELECT analytics.product_catalog -> analysts" || true
+run_sql "GRANT SELECT ON VDS analytics.product_catalog TO ROLE engineers" "$TOKEN" \
+  && echo "  GRANT SELECT analytics.product_catalog -> engineers" || true
+run_sql "GRANT SELECT ON VDS engineering.raw_products TO ROLE engineers" "$TOKEN" \
+  && echo "  GRANT SELECT engineering.raw_products -> engineers" || true
+run_sql "GRANT SELECT ON VDS engineering.raw_warehouses TO ROLE engineers" "$TOKEN" \
+  && echo "  GRANT SELECT engineering.raw_warehouses -> engineers" || true
+run_sql "GRANT SELECT ON VDS analytics.shipment_overview TO ROLE analysts" "$TOKEN" \
+  && echo "  GRANT SELECT analytics.shipment_overview -> analysts" || true
+run_sql "GRANT SELECT ON VDS analytics.shipment_overview TO ROLE engineers" "$TOKEN" \
+  && echo "  GRANT SELECT analytics.shipment_overview -> engineers" || true
+run_sql "GRANT SELECT ON VDS engineering.raw_shipments TO ROLE engineers" "$TOKEN" \
+  && echo "  GRANT SELECT engineering.raw_shipments -> engineers" || true
+run_sql "GRANT SELECT ON VDS engineering.raw_carriers TO ROLE engineers" "$TOKEN" \
+  && echo "  GRANT SELECT engineering.raw_carriers -> engineers" || true
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 
@@ -313,20 +436,42 @@ cat <<'EOF'
 ============================================================
   Dremio initialization complete!
 
-  Source:  nessie_catalog (RESTCATALOG -> Nessie)
-  Tables:  demo.customers (5 rows), demo.orders (6 rows)
+  Sources:
+    nessie_catalog     (RESTCATALOG -> Nessie)
+    lakekeeper_catalog (RESTCATALOG -> Lakekeeper)
+    polaris_catalog    (RESTCATALOG -> Apache Polaris)
+
+  Tables:
+    nessie_catalog.demo.customers            (5 rows)
+    nessie_catalog.demo.orders               (6 rows)
+    lakekeeper_catalog.inventory.products    (6 rows)
+    lakekeeper_catalog.inventory.warehouses  (3 rows)
+    polaris_catalog.logistics.shipments      (5 rows)
+    polaris_catalog.logistics.carriers       (4 rows)
 
   Spaces & Views:
     analytics/
-      ├── customer_overview
-      ├── order_summary
-      └── revenue_by_city
+      ├── customer_overview   (nessie)
+      ├── order_summary       (nessie)
+      ├── revenue_by_city     (nessie)
+      ├── product_catalog     (lakekeeper)
+      └── shipment_overview   (polaris)
     engineering/
-      ├── raw_customers
-      └── raw_orders
+      ├── raw_customers       (nessie)
+      ├── raw_orders          (nessie)
+      ├── raw_products        (lakekeeper)
+      ├── raw_warehouses      (lakekeeper)
+      ├── raw_shipments       (polaris)
+      └── raw_carriers        (polaris)
 
   Roles & RBAC:
     analysts  -> SELECT on analytics.* views
     engineers -> SELECT on all views
+
+  Cross-catalog join example:
+    SELECT c.name, s.destination, s.status
+    FROM nessie_catalog.demo.customers c,
+         polaris_catalog.logistics.shipments s
+    WHERE c.city = s.origin
 ============================================================
 EOF
