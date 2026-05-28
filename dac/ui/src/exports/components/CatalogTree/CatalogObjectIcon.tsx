@@ -37,7 +37,9 @@ const getIconForSource = (source: SourceCatalogObject) => {
     case "NESSIE":
       return <dremio-icon name="entities/nessie-source" class="h-3 w-3" />;
     default:
-      return <dremio-icon name="entities/datalake-source" class="h-3 w-3" />;
+      return (
+        <dremio-icon name={`sources/${source.type}`} class="h-3 w-3" />
+      );
   }
 };
 
